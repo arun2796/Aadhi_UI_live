@@ -29,10 +29,14 @@ import { useToast } from '../../context/ToastContext';
 
 interface ErpCatalogModuleProps {
   initialSubTab?: 'products' | 'categories' | 'combos' | 'reviews' | 'banners';
+  initialSelectedProductId?: string;
+  initialSelectedCategoryId?: string;
 }
 
 export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
-  initialSubTab = 'products'
+  initialSubTab = 'products',
+  initialSelectedProductId,
+  initialSelectedCategoryId
 }) => {
   const { showToast } = useToast();
   const [subTab, setSubTab] = useState<'products' | 'categories' | 'combos' | 'reviews' | 'banners'>(initialSubTab);

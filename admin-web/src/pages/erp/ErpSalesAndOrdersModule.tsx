@@ -32,10 +32,12 @@ import { useToast } from '../../context/ToastContext';
 
 interface ErpSalesAndOrdersModuleProps {
   initialSubTab?: 'orders' | 'customers' | 'quotes' | 'invoices' | 'payments' | 'returns';
+  initialSelectedOrderId?: string;
 }
 
 export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = ({
-  initialSubTab = 'orders'
+  initialSubTab = 'orders',
+  initialSelectedOrderId
 }) => {
   const { showToast } = useToast();
   const [subTab, setSubTab] = useState<'orders' | 'customers' | 'quotes' | 'invoices' | 'payments' | 'returns'>(initialSubTab);

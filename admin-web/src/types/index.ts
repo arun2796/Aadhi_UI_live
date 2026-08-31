@@ -773,3 +773,54 @@ export interface StoreSettings {
   allowUpiPayments: boolean;
   lowStockThresholdDefault: number;
 }
+
+export interface PagedResult<T> {
+  items: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+}
+
+export type LoginHistory = LoginHistoryItem;
+export type RateLimitLog = RateLimitLogItem;
+export type AuditLogDetail = AuditLog;
+export type LowStockAlert = StockItem;
+export type GoodsReceipt = GoodsReceivedNote;
+export type ReturnOrder = ReturnRequest;
+
+export interface SalesReport {
+  period: string;
+  totalRevenue: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  grossProfit: number;
+  salesByDate: Array<{ date: string; revenue: number; orders: number }>;
+}
+
+export interface ProfitLoss {
+  fromDate?: string;
+  toDate?: string;
+  grossSales: number;
+  discounts: number;
+  netRevenue: number;
+  cogs: number;
+  grossProfit: number;
+  grossMarginPercentage: number;
+  operatingExpenses: number;
+  netProfit: number;
+  netMarginPercentage: number;
+  expensesByCategory: Array<{ category: string; amount: number }>;
+}
+
+export interface SystemSetting {
+  id: string;
+  key: string;
+  value: string;
+  group: string;
+  description?: string;
+  isPublic: boolean;
+  updatedAtUtc?: string;
+}
