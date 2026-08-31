@@ -1,0 +1,13 @@
+{
+  "name": "aadhi-ui-live",
+  "version": "1.0.0",
+  "description": "Aadhi Crackers Live UI - Customer Storefront & Admin ERP",
+  "private": true,
+  "scripts": {
+    "dev:customer": "npm --prefix customer-web run dev",
+    "dev:admin": "npm --prefix admin-web run dev",
+    "build:customer": "npm --prefix customer-web run build",
+    "build:admin": "npm --prefix admin-web run build",
+    "build:all": "npm run build:customer && npm run build:admin"
+  }
+}

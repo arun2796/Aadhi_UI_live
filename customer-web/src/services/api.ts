@@ -1,0 +1,263 @@
+import axios from 'axios';
+import {
+  Product,
+  Category,
+  Brand,
+  Order,
+  Address,
+  CartItem
+} from '../types';
+
+const API_BASE_URL = 'http://localhost:5050/api/v1';
+
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  withCredentials: true,
+  timeout: 8000,
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Correlation-ID': 'cust-' + Math.random().toString(36).substring(2, 9)
+  }
+});
+
+export const api = {
+  // PRODUCTS
+  async getProducts(params?: {
+    category?: string;
+    brand?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inStockOnly?: boolean;
+    search?: string;
+    sortBy?: string;
+  }): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products', { params });
+      if (res.data?.data?.items) {
+        return res.data.data.items.map((p: any) => ({
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          slug: p.slug,
+          description: p.description,
+          shortDescription: p.shortDescription,
+          categoryId: p.categoryId,
+          categoryName: p.categoryName || 'Crackers',
+          brandId: p.brandId,
+          brandName: p.brandName,
+          price: p.price,
+          compareAtPrice: p.compareAtPrice,
+          costPrice: p.costPrice,
+          taxRate: p.taxRate,
+          discountType: p.discountType || 'None',
+          discountValue: p.discountValue || 0,
+          discountPercentage: p.discountPercentage,
+          stockQuantity: p.stockQuantity,
+          availableQuantity: p.availableQuantity,
+          reorderLevel: p.reorderLevel,
+          unit: p.unit || 'Box',
+          weightKg: p.weightKg || 0.5,
+          isActive: p.isActive,
+          isFeatured: p.isFeatured,
+          isBestSeller: p.isBestSeller,
+          isNewArrival: p.isNewArrival,
+          primaryImageUrl: p.primaryImageUrl || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
+          images: p.images || []
+        }));
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to fetch live products from API:', error);
+      return [];
+    }
+  },
+
+  async getProductBySlug(slug: string): Promise<Product | null> {
+    try {
+      const res = await apiClient.get(`/products/${slug}`);
+      if (res.data?.data) {
+        const p = res.data.data;
+        return {
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          slug: p.slug,
+          description: p.description,
+          shortDescription: p.shortDescription,
+          categoryId: p.categoryId,
+          categoryName: p.categoryName,
+          brandId: p.brandId,
+          brandName: p.brandName,
+          price: p.price,
+          compareAtPrice: p.compareAtPrice,
+          costPrice: p.costPrice,
+          taxRate: p.taxRate,
+          discountType: p.discountType,
+          discountValue: p.discountValue,
+          discountPercentage: p.discountPercentage,
+          stockQuantity: p.stockQuantity,
+          availableQuantity: p.availableQuantity,
+          reorderLevel: p.reorderLevel,
+          unit: p.unit,
+          weightKg: p.weightKg,
+          isActive: p.isActive,
+          isFeatured: p.isFeatured,
+          isBestSeller: p.isBestSeller,
+          isNewArrival: p.isNewArrival,
+          primaryImageUrl: p.primaryImageUrl,
+          images: p.images || []
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to fetch live product slug '${slug}':`, error);
+      return null;
+    }
+  },
+
+  async getFeaturedProducts(): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products/featured');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getBestSellers(): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products/best-sellers');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getNewArrivals(): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products/new-arrivals');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getGiftBoxes(): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products/gift-boxes');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getComboOffers(): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products/combo-offers');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  // CATEGORIES & BRANDS
+  async getCategories(): Promise<Category[]> {
+    try {
+      const res = await apiClient.get('/categories');
+      if (res.data?.data) {
+        return res.data.data.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          description: c.description,
+          imageUrl: c.imageUrl,
+          displayOrder: c.displayOrder || 1,
+          isActive: c.isActive ?? true,
+          productCount: c.productCount || 0
+        }));
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to fetch live categories:', error);
+      return [];
+    }
+  },
+
+  async getBrands(): Promise<Brand[]> {
+    try {
+      const res = await apiClient.get('/brands');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  // LIVE ORDER CREATION & TRACKING
+  async createOrder(payload: {
+    shippingAddress: Address;
+    items: Array<{ product: Product; quantity: number }>;
+    paymentMethod: string;
+    couponCode?: string;
+    notes?: string;
+    utrNumber?: string;
+    paymentScreenshotUrl?: string;
+    paymentScreenshotBase64?: string;
+  }): Promise<Order> {
+    const res = await apiClient.post('/orders', {
+      shippingAddress: {
+        fullName: payload.shippingAddress.fullName,
+        phone: payload.shippingAddress.phone,
+        addressLine1: payload.shippingAddress.addressLine1,
+        addressLine2: payload.shippingAddress.addressLine2,
+        city: payload.shippingAddress.city,
+        state: payload.shippingAddress.state,
+        postalCode: payload.shippingAddress.postalCode,
+        country: payload.shippingAddress.country || 'India'
+      },
+      paymentMethod: 2, // UPI
+      couponCode: payload.couponCode,
+      notes: payload.notes,
+      utrNumber: payload.utrNumber,
+      paymentScreenshotUrl: payload.paymentScreenshotUrl,
+      paymentScreenshotBase64: payload.paymentScreenshotBase64,
+      items: payload.items.map(i => ({
+        productId: i.product.id,
+        quantity: i.quantity
+      }))
+    });
+
+    if (res.data?.data) {
+      return res.data.data;
+    }
+    throw new Error(res.data?.message || 'Failed to place live order on server');
+  },
+
+  async trackOrder(orderNumber: string): Promise<any> {
+    try {
+      const res = await apiClient.get(`/orders/track/${orderNumber}`);
+      return res.data?.data || null;
+    } catch (error) {
+      console.error(`Failed to track order ${orderNumber}:`, error);
+      return null;
+    }
+  },
+
+  async getOrders(params?: { status?: string; search?: string }): Promise<Order[]> {
+    try {
+      const res = await apiClient.get('/orders', { params });
+      return res.data?.data?.items || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getCustomerOrders(customerId?: string): Promise<Order[]> {
+    try {
+      if (!customerId) return [];
+      const res = await apiClient.get(`/orders/customer/${customerId}`);
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  }
+};
