@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Layers,
-  Warehouse,
-  ArrowLeftRight,
+  Warehouse as WarehouseIcon,
   SlidersHorizontal,
   History,
   AlertTriangle,
-  CheckCircle2,
-  Plus
+  CheckCircle2
 } from 'lucide-react';
-import { Product, StockMovement } from '../../types';
+import { Product, Warehouse } from '../../types';
 import { api } from '../../services/api';
 import { Modal } from '../../components/common/CommonComponents';
 import { useToast } from '../../context/ToastContext';
@@ -17,6 +14,8 @@ import { useToast } from '../../context/ToastContext';
 export const ErpInventoryPage: React.FC = () => {
   const { showToast } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [movements, setMovements] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'stock' | 'movements' | 'warehouses'>('stock');
 
   // Adjust stock modal
@@ -28,87 +27,69 @@ export const ErpInventoryPage: React.FC = () => {
   // Transfer stock modal
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferQty, setTransferQty] = useState<number>(10);
+  const [sourceWarehouseId, setSourceWarehouseId] = useState<string>('');
+  const [targetWarehouseId, setTargetWarehouseId] = useState<string>('');
 
-  // Mock stock movements ledger
-  const [movements, setMovements] = useState<any[]>([
-    {
-      id: 'sm-1',
-      date: '31 May 2024, 11:30 AM',
-      sku: 'GB-DLX-001',
-      product: 'Aadhi Deluxe Gift Box',
-      type: 'Sale',
-      warehouse: 'Coimbatore Hub',
-      change: -1,
-      before: 141,
-      after: 140,
-      ref: 'ORD#1248'
-    },
-    {
-      id: 'sm-2',
-      date: '31 May 2024, 09:15 AM',
-      sku: 'AER-30S-001',
-      product: 'Aerial Shot - 30 Shots',
-      type: 'Adjustment',
-      warehouse: 'Sivakasi Main Plant',
-      change: +20,
-      before: 25,
-      after: 45,
-      ref: 'Stock transferred from Sivakasi factory'
-    },
-    {
-      id: 'sm-3',
-      date: '30 May 2024, 04:00 PM',
-      sku: 'GB-MGA-002',
-      product: 'Mega Celebration Box',
-      type: 'TransferIn',
-      warehouse: 'Coimbatore Hub',
-      change: +30,
-      before: 50,
-      after: 80,
-      ref: 'TRF-SIV-CBE-001'
+  const loadData = async () => {
+    try {
+      const [prods, whs, movs] = await Promise.all([
+        api.getProducts(),
+        api.getWarehouses(),
+        api.getStockMovements()
+      ]);
+      setProducts(prods);
+      setWarehouses(whs);
+      setMovements(movs);
+      if (whs.length >= 2) {
+        setSourceWarehouseId(whs[0].id);
+        setTargetWarehouseId(whs[1].id);
+      }
+    } catch (err) {
+      console.error('Failed to load inventory data:', err);
     }
-  ]);
+  };
 
   useEffect(() => {
-    api.getProducts().then(setProducts);
+    loadData();
   }, []);
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct || !adjustReason.trim()) return;
 
+    const delta = newQuantity - (selectedProduct.stockQuantity || selectedProduct.availableQuantity);
     try {
-      const updated = await api.adjustStock(selectedProduct.id, newQuantity, adjustReason);
-      if (updated) {
-        setProducts(prev => prev.map(p => p.id === updated.id ? updated : p));
-        setMovements([
-          {
-            id: 'sm-' + Date.now(),
-            date: 'Just now',
-            sku: updated.sku,
-            product: updated.name,
-            type: 'Adjustment',
-            warehouse: 'Sivakasi Main Plant',
-            change: newQuantity - selectedProduct.availableQuantity,
-            before: selectedProduct.availableQuantity,
-            after: newQuantity,
-            ref: adjustReason
-          },
-          ...movements
-        ]);
-        setIsAdjustModalOpen(false);
-        showToast(`Stock updated for ${updated.name} to ${newQuantity}!`, 'success');
-      }
+      await api.adjustStock(selectedProduct.id, delta, adjustReason, warehouses[0]?.id);
+      await loadData();
+      setIsAdjustModalOpen(false);
+      showToast(`Stock updated for ${selectedProduct.name} to ${newQuantity}!`, 'success');
     } catch {
       showToast('Adjustment failed', 'error');
     }
   };
 
-  const handleTransferSubmit = (e: React.FormEvent) => {
+  const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
-    showToast(`Transferred ${transferQty} units of ${selectedProduct.name} to Coimbatore Hub!`, 'success');
-    setIsTransferModalOpen(false);
+    if (!sourceWarehouseId || !targetWarehouseId || sourceWarehouseId === targetWarehouseId) {
+      showToast('Please select distinct source and target warehouses', 'error');
+      return;
+    }
+
+    try {
+      await api.transferStock({
+        productId: selectedProduct.id,
+        sourceWarehouseId,
+        targetWarehouseId,
+        quantity: transferQty,
+        reason: `Transfer requested from ERP portal`
+      });
+      await loadData();
+      showToast(`Transferred ${transferQty} units of ${selectedProduct.name}!`, 'success');
+      setIsTransferModalOpen(false);
+    } catch {
+      showToast('Stock transfer failed', 'error');
+    }
   };
 
   return (
@@ -125,31 +106,37 @@ export const ErpInventoryPage: React.FC = () => {
 
       {/* Warehouses Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center space-x-4">
-          <div className="w-12 h-12 rounded-xl bg-orange/10 text-orange flex items-center justify-center flex-shrink-0">
-            <Warehouse className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="font-bold text-navy text-sm">Sivakasi Main Factory & Godown</span>
-              <span className="px-2 py-0.5 rounded bg-orange text-white text-[9px] font-bold">Primary</span>
+        {warehouses.length > 0 ? (
+          warehouses.slice(0, 2).map((wh, idx) => (
+            <div key={wh.id} className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center space-x-4">
+              <div className={`w-12 h-12 rounded-xl ${idx === 0 ? 'bg-orange/10 text-orange' : 'bg-purple/10 text-purple'} flex items-center justify-center flex-shrink-0`}>
+                <WarehouseIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-navy text-sm">{wh.name}</span>
+                  {wh.isPrimary && <span className="px-2 py-0.5 rounded bg-orange text-white text-[9px] font-bold">Primary</span>}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">{wh.address || 'Sivakasi, TN'} • Total Stock: <strong>{(wh.totalStock || 50000).toLocaleString()} units</strong></div>
+              </div>
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Thiruthangal, Sivakasi • Total Stock: <strong>12,450 units</strong></div>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center space-x-4">
-          <div className="w-12 h-12 rounded-xl bg-purple/10 text-purple flex items-center justify-center flex-shrink-0">
-            <Warehouse className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="font-bold text-navy text-sm">Coimbatore Express Distribution Hub</span>
-              <span className="px-2 py-0.5 rounded bg-purple text-white text-[9px] font-bold">Hub</span>
+          ))
+        ) : (
+          <>
+            <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center space-x-4">
+              <div className="w-12 h-12 rounded-xl bg-orange/10 text-orange flex items-center justify-center flex-shrink-0">
+                <WarehouseIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-navy text-sm">Sivakasi Main Godown</span>
+                  <span className="px-2 py-0.5 rounded bg-orange text-white text-[9px] font-bold">Primary</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">Thiruthangal, Sivakasi</div>
+              </div>
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">Saravanampatti, Coimbatore • Total Stock: <strong>4,820 units</strong></div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Navigation Tabs */}
@@ -182,7 +169,7 @@ export const ErpInventoryPage: React.FC = () => {
                 <tr>
                   <th className="py-3 px-4">Product Info</th>
                   <th className="py-3 px-4">SKU</th>
-                  <th className="py-3 px-4">Warehouse</th>
+                  <th className="py-3 px-4">Total Stock</th>
                   <th className="py-3 px-4">Available Qty</th>
                   <th className="py-3 px-4">Reorder Level</th>
                   <th className="py-3 px-4">Status</th>
@@ -196,7 +183,7 @@ export const ErpInventoryPage: React.FC = () => {
                     <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3.5 px-4 font-bold text-navy">{p.name}</td>
                       <td className="py-3.5 px-4 font-mono text-slate-500">{p.sku}</td>
-                      <td className="py-3.5 px-4 text-slate-600">Sivakasi Plant / Coimbatore</td>
+                      <td className="py-3.5 px-4 text-slate-600 font-semibold">{p.stockQuantity}</td>
                       <td className="py-3.5 px-4 font-black text-sm text-navy">{p.availableQuantity}</td>
                       <td className="py-3.5 px-4 text-slate-500">{p.reorderLevel}</td>
                       <td className="py-3.5 px-4">
@@ -248,35 +235,43 @@ export const ErpInventoryPage: React.FC = () => {
               <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-100">
                 <tr>
                   <th className="py-3 px-4">Timestamp</th>
-                  <th className="py-3 px-4">SKU & Product</th>
+                  <th className="py-3 px-4">Product</th>
                   <th className="py-3 px-4">Movement Type</th>
-                  <th className="py-3 px-4">Warehouse</th>
                   <th className="py-3 px-4">Qty Delta</th>
                   <th className="py-3 px-4">Before → After</th>
                   <th className="py-3 px-4">Reference / Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {movements.map((m) => (
-                  <tr key={m.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-sans text-slate-500 text-[11px]">{m.date}</td>
-                    <td className="py-3 px-4 font-sans">
-                      <strong className="text-navy block">{m.product}</strong>
-                      <span className="text-[10px] text-slate-400 font-mono">{m.sku}</span>
+                {movements.length > 0 ? (
+                  movements.map((m) => (
+                    <tr key={m.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-sans text-slate-500 text-[11px]">
+                        {m.timestampUtc ? new Date(m.timestampUtc).toLocaleString('en-IN') : (m.date || 'Recently')}
+                      </td>
+                      <td className="py-3 px-4 font-sans">
+                        <strong className="text-navy block">{m.productName || m.product}</strong>
+                        <span className="text-[10px] text-slate-400 font-mono">{m.sku || ''}</span>
+                      </td>
+                      <td className="py-3 px-4 font-sans">
+                        <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-slate-100 text-slate-700">
+                          {m.movementType || m.type}
+                        </span>
+                      </td>
+                      <td className={`py-3 px-4 font-bold ${(m.quantityChange ?? m.change) > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {(m.quantityChange ?? m.change) > 0 ? `+${m.quantityChange ?? m.change}` : (m.quantityChange ?? m.change)}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600">{m.quantityBefore ?? m.before} → {m.quantityAfter ?? m.after}</td>
+                      <td className="py-3 px-4 font-sans text-slate-600 text-[11px]">{m.reason || m.ref || m.referenceId}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans">
+                      No stock movements recorded yet. Movements appear on order fulfillment and adjustments.
                     </td>
-                    <td className="py-3 px-4 font-sans">
-                      <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-slate-100 text-slate-700">
-                        {m.type}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 font-sans text-slate-600">{m.warehouse}</td>
-                    <td className={`py-3 px-4 font-bold ${m.change > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {m.change > 0 ? `+${m.change}` : m.change}
-                    </td>
-                    <td className="py-3 px-4 text-slate-600">{m.before} → {m.after}</td>
-                    <td className="py-3 px-4 font-sans text-slate-600 text-[11px]">{m.ref}</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -348,12 +343,28 @@ export const ErpInventoryPage: React.FC = () => {
           <form onSubmit={handleTransferSubmit} className="space-y-4 text-xs">
             <div>
               <label className="font-bold text-slate-700 block mb-1">Source Warehouse</label>
-              <input disabled value="Sivakasi Main Factory & Godown" className="w-full px-3 py-2 rounded-xl border bg-slate-100 text-slate-600" />
+              <select
+                value={sourceWarehouseId}
+                onChange={(e) => setSourceWarehouseId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border focus:ring-1 focus:ring-orange"
+              >
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
             </div>
 
             <div>
               <label className="font-bold text-slate-700 block mb-1">Destination Warehouse</label>
-              <input disabled value="Coimbatore Express Distribution Hub" className="w-full px-3 py-2 rounded-xl border bg-slate-100 text-slate-600" />
+              <select
+                value={targetWarehouseId}
+                onChange={(e) => setTargetWarehouseId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border focus:ring-1 focus:ring-orange"
+              >
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
             </div>
 
             <div>

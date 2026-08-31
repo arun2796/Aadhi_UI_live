@@ -22,6 +22,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
+import { api } from '../../services/api';
 
 interface Screen8AccountProps {
   onNavigate: (page: string, params?: any) => void;
@@ -281,35 +282,36 @@ export const Screen13Wishlist: React.FC<{
 export const Screen14CategoryMenu: React.FC<{
   onNavigate: (page: string, params?: any) => void;
 }> = ({ onNavigate }) => {
-  const categoriesList = [
-    { name: 'Sparklers', slug: 'sparklers', icon: '✨' },
-    { name: 'Ground Chakkar', slug: 'ground-chakkar', icon: '🌀' },
-    { name: 'Aerial Shots', slug: 'aerial-shots', icon: '🎆' },
-    { name: 'Rockets', slug: 'rockets', icon: '🚀' },
-    { name: 'Flower Pots', slug: 'flower-pots', icon: '🏺' },
-    { name: 'Gift Boxes', slug: 'gift-boxes', icon: '🎁' },
-    { name: 'Combo Offers', slug: 'combo-offers', icon: '📦' },
-    { name: 'Fancy Items', slug: 'fancy-items', icon: '🦚' },
-    { name: 'New Arrivals', slug: 'new-arrivals', icon: '🆕' }
-  ];
+  const [categories, setCategories] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    api.getCategories().then(setCategories);
+  }, []);
 
   return (
     <div className="space-y-3 p-4 pb-8 font-sans bg-[#fbfbfb]">
-      <h2 className="text-base font-black text-navy">Categories</h2>
+      <h2 className="text-base font-black text-navy">All Categories ({categories.length})</h2>
 
-      {/* 9 Category Items matching Screen 14 */}
       <div className="rounded-2xl bg-white border border-slate-100 shadow-xs divide-y divide-slate-100 overflow-hidden">
-        {categoriesList.map((c, i) => (
+        {categories.map((c) => (
           <button
-            key={i}
+            key={c.id || c.slug}
             onClick={() => onNavigate('category', { category: c.slug })}
             className="w-full p-3.5 flex items-center justify-between text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors text-left"
           >
             <div className="flex items-center space-x-3">
-              <span className="text-base">{c.icon}</span>
-              <span>{c.name}</span>
+              <span className="text-base">🎆</span>
+              <div>
+                <span className="font-bold text-navy">{c.name}</span>
+                {c.description && <p className="text-[10px] text-slate-400 font-normal">{c.description}</p>}
+              </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-slate-300" />
+            <div className="flex items-center space-x-1">
+              <span className="text-[10px] font-bold text-purple bg-purple/10 px-2 py-0.5 rounded-full">
+                {c.productCount || 0} Items
+              </span>
+              <ChevronRight className="w-4 h-4 text-slate-300" />
+            </div>
           </button>
         ))}
       </div>

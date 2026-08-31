@@ -27,45 +27,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (saved) {
       try { return JSON.parse(saved); } catch { return []; }
     }
-    // Default initial cart items matching screenshots
-    return [
-      {
-        productId: 'prod-2',
-        sku: 'GB-MGA-002',
-        name: 'Mega Celebration Box',
-        imageUrl: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=600&auto=format&fit=crop&q=80',
-        unitPrice: 4499,
-        compareAtPrice: 5999,
-        quantity: 1,
-        maxStock: 80,
-        lineTotal: 4499
-      },
-      {
-        productId: 'prod-10',
-        sku: 'POT-BIG-001',
-        name: 'Flower Pots (Big)',
-        imageUrl: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
-        unitPrice: 120,
-        compareAtPrice: 150,
-        quantity: 2,
-        maxStock: 120,
-        lineTotal: 240
-      },
-      {
-        productId: 'prod-9',
-        sku: 'SPK-10P-001',
-        name: 'Sparklers (10 Pcs)',
-        imageUrl: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=600&auto=format&fit=crop&q=80',
-        unitPrice: 45,
-        compareAtPrice: 60,
-        quantity: 1,
-        maxStock: 320,
-        lineTotal: 45
-      }
-    ];
+    return [];
   });
 
-  const [couponCode, setCouponCode] = useState<string>('DIWALI2026');
+  const [couponCode, setCouponCode] = useState<string>('');
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState<boolean>(false);
 
   useEffect(() => {
@@ -73,12 +38,19 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [items]);
 
   const addToCart = (product: Product, quantity: number = 1) => {
+    const maxStock = typeof product.availableQuantity === 'number' ? product.availableQuantity : 99;
+    if (maxStock <= 0) {
+      alert('This product is currently out of stock.');
+      return;
+    }
+
     setItems(prev => {
       const existing = prev.find(i => i.productId === product.id);
       if (existing) {
-        const newQty = Math.min(existing.quantity + quantity, product.availableQuantity || 99);
+        const newQty = Math.min(existing.quantity + quantity, maxStock);
         return prev.map(i => i.productId === product.id ? { ...i, quantity: newQty, lineTotal: newQty * i.unitPrice } : i);
       }
+      const clampedQty = Math.max(1, Math.min(quantity, maxStock));
       const newItem: CartItem = {
         productId: product.id,
         sku: product.sku,
@@ -86,9 +58,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         imageUrl: product.primaryImageUrl,
         unitPrice: product.price,
         compareAtPrice: product.compareAtPrice,
-        quantity: Math.min(quantity, product.availableQuantity || 99),
-        maxStock: product.availableQuantity || 99,
-        lineTotal: product.price * quantity
+        quantity: clampedQty,
+        maxStock: maxStock,
+        lineTotal: product.price * clampedQty
       };
       return [...prev, newItem];
     });
@@ -132,11 +104,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const totalItems = items.reduce((acc, i) => acc + i.quantity, 0);
-  const subtotal = items.reduce((acc, i) => acc + i.lineTotal, 0);
+  const subtotal = items.reduce((acc, i) => acc + (i.lineTotal || (i.unitPrice * i.quantity)), 0);
 
   let discount = 0;
   if (couponCode === 'DIWALI2026') {
-    discount = Math.round(subtotal * 0.05); // e.g. ₹240 for ₹4,784 subtotal
+    discount = Math.round(subtotal * 0.05);
   } else if (couponCode === 'WELCOME10') {
     discount = Math.round(subtotal * 0.10);
   } else if (couponCode === 'AADHI20') {

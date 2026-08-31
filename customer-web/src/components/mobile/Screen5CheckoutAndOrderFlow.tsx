@@ -169,21 +169,64 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
         <div className="space-y-4">
           <div className="px-4 space-y-2">
             <h3 className="font-bold text-xs text-navy uppercase tracking-wider">
-              Delivery Address
+              Delivery Address & Contact
             </h3>
 
-            <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-navy text-sm">{shippingAddress.fullName}</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">
-                  Primary
-                </span>
+            <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={shippingAddress.fullName}
+                  onChange={(e) => setShippingAddress({ ...shippingAddress, fullName: e.target.value })}
+                  placeholder="e.g. Arun Kumar"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-orange"
+                />
               </div>
 
-              <div className="text-slate-600 leading-relaxed">
-                {shippingAddress.addressLine1} <br />
-                {shippingAddress.city} - {shippingAddress.postalCode} <br />
-                <span className="text-slate-800 font-semibold">{shippingAddress.phone}</span>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Mobile Number (10 Digits) *</label>
+                <input
+                  type="tel"
+                  value={shippingAddress.phone}
+                  onChange={(e) => setShippingAddress({ ...shippingAddress, phone: e.target.value })}
+                  placeholder="9876543210"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-orange"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Street Address / House No. *</label>
+                <textarea
+                  rows={2}
+                  value={shippingAddress.addressLine1}
+                  onChange={(e) => setShippingAddress({ ...shippingAddress, addressLine1: e.target.value })}
+                  placeholder="123, West Car Street, Gandhi Nagar"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-orange"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">City / Town *</label>
+                  <input
+                    type="text"
+                    value={shippingAddress.city}
+                    onChange={(e) => setShippingAddress({ ...shippingAddress, city: e.target.value })}
+                    placeholder="Sivakasi / Coimbatore"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-orange"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Postal Code *</label>
+                  <input
+                    type="text"
+                    value={shippingAddress.postalCode}
+                    onChange={(e) => setShippingAddress({ ...shippingAddress, postalCode: e.target.value })}
+                    placeholder="626123"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-orange"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -220,7 +263,14 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
 
           <div className="px-4 pt-2">
             <button
-              onClick={() => setStep(2)}
+              onClick={() => {
+                if (!shippingAddress.fullName || !shippingAddress.phone || !shippingAddress.addressLine1) {
+                  setErrorMessage('Please fill out your delivery address and mobile number.');
+                  return;
+                }
+                setErrorMessage(null);
+                setStep(2);
+              }}
               className="w-full py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider shadow-glow active:scale-98 transition-all flex items-center justify-center space-x-1"
             >
               <span>Proceed to UPI Payment</span>

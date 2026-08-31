@@ -8,15 +8,10 @@ import {
   Clock,
   Plus,
   ArrowUpRight,
-  ArrowDownRight,
   Sparkles,
-  Layers,
   Truck,
-  Receipt,
-  FileSpreadsheet,
   ChevronRight,
-  Eye,
-  CheckCircle2
+  Eye
 } from 'lucide-react';
 import {
   AreaChart,
@@ -28,8 +23,7 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
-  Cell,
-  Legend
+  Cell
 } from 'recharts';
 import { DashboardKpis, Order, Product } from '../../types';
 import { api } from '../../services/api';
@@ -40,27 +34,34 @@ interface ErpDashboardPageProps {
 }
 
 export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTab }) => {
-  const [kpis, setKpis] = useState<DashboardKpis | null>(null);
+  const [kpis, setKpis] = useState<any | null>(null);
   const [salesTrend, setSalesTrend] = useState<any[]>([]);
   const [categorySales, setCategorySales] = useState<any[]>([]);
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
   const [trendPeriod, setTrendPeriod] = useState<string>('month');
 
   useEffect(() => {
     api.getDashboardKpis().then(setKpis);
-    api.getSalesTrend().then(setSalesTrend);
-    api.getCategorySales().then(setCategorySales);
-    api.getPaymentMethodReports().then(setPaymentMethods);
+    api.getSalesTrend(trendPeriod).then(res => {
+      if (res?.dataPoints) {
+        setSalesTrend(res.dataPoints.map((d: any) => ({
+          date: d.label || d.date,
+          sales: d.revenue || d.amount || 0,
+          orders: d.orderCount || d.orders || 0
+        })));
+      } else if (Array.isArray(res)) {
+        setSalesTrend(res);
+      }
+    });
+    api.getCategoryBreakdown().then(setCategorySales);
     api.getOrders().then(orders => setRecentOrders(orders.slice(0, 5)));
     api.getProducts().then(prods => {
       setLowStockProducts(prods.filter(p => p.availableQuantity <= p.reorderLevel).slice(0, 5));
     });
-  }, []);
+  }, [trendPeriod]);
 
   const CATEGORY_COLORS = ['#FF7A00', '#4F2ACB', '#3B82F6', '#10B981', '#64748B'];
-  const PAYMENT_COLORS = ['#4F2ACB', '#3B82F6', '#FF7A00', '#10B981'];
 
   const topProducts = [
     { name: 'Aadhi Deluxe Gift Box', units: 324, revenue: 971676, img: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80' },
@@ -68,14 +69,6 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
     { name: 'Sparklers (10 Pcs)', units: 560, revenue: 280000, img: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=600&auto=format&fit=crop&q=80' },
     { name: 'Flower Pots (Big)', units: 430, revenue: 258000, img: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80' },
     { name: 'Ground Chakkar Deluxe', units: 410, revenue: 246000, img: 'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80' }
-  ];
-
-  const recentActivities = [
-    { title: 'New Order Received', desc: 'Order ORD#1248 placed by Ramesh Kumar (₹2,499)', time: '10 mins ago', type: 'order' },
-    { title: 'Payment Confirmed', desc: 'Payment received for ORD#1247 via Credit Card', time: '45 mins ago', type: 'payment' },
-    { title: 'Stock Adjusted', desc: 'Added 20 units to Aerial Shot - 30 Shots from Sivakasi Plant', time: '2 hours ago', type: 'stock' },
-    { title: 'New Customer Registered', desc: 'Suresh Babu created an account', time: '3 hours ago', type: 'customer' },
-    { title: 'Invoice Generated', desc: 'Invoice INV#1087 generated for ORD#1244', time: '5 hours ago', type: 'invoice' }
   ];
 
   return (
@@ -127,11 +120,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              ₹{kpis ? kpis.totalSales.toLocaleString('en-IN') : '24,85,650'}
+              ₹{(kpis?.totalSales || kpis?.monthlyRevenue || 2485650).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
-              <span>+18.5% from last month</span>
+              <span>Today: ₹{(kpis?.todaySales || 0).toLocaleString('en-IN')}</span>
             </div>
           </div>
         </div>
@@ -146,11 +139,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              {kpis ? kpis.totalOrders.toLocaleString('en-IN') : '1,248'}
+              {(kpis?.totalOrders || recentOrders.length || 5).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
-              <span>+12.4% this month</span>
+              <span>{(kpis?.todayOrders || 0)} placed today</span>
             </div>
           </div>
         </div>
@@ -165,11 +158,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              {kpis ? kpis.totalCustomers.toLocaleString('en-IN') : '856'}
+              {(kpis?.totalCustomers || 120).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
-              <span>+8.7% new accounts</span>
+              <span>Registered accounts</span>
             </div>
           </div>
         </div>
@@ -184,11 +177,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              ₹{kpis ? kpis.totalProfit.toLocaleString('en-IN') : '6,45,230'}
+              ₹{(kpis?.totalProfit || Math.round((kpis?.totalSales || 2485650) * 0.28)).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
-              <span>+22.1% profit margin</span>
+              <span>28% est. margin</span>
             </div>
           </div>
         </div>
@@ -206,7 +199,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-red-700">
-              {kpis ? kpis.lowStockItems : '23'} Items
+              {kpis?.lowStockItems ?? lowStockProducts.length} Items
             </div>
             <div className="text-[10px] text-red-600 font-semibold mt-0.5">
               Requires immediate PO reorder
@@ -227,7 +220,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-amber-800">
-              {kpis ? kpis.pendingOrders : '17'} Orders
+              {kpis?.pendingOrders ?? recentOrders.filter(o => o.orderStatus === 'Pending').length} Orders
             </div>
             <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
               Awaiting packing & dispatch
@@ -236,7 +229,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
         </div>
       </div>
 
-      {/* Main Charts Row: Sales Overview (8 cols) + Categories Donut (4 cols) */}
+      {/* Main Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Sales Overview Area Chart */}
         <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
@@ -265,7 +258,13 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           {/* Area Chart Container */}
           <div className="h-72 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={salesTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <AreaChart data={salesTrend.length > 0 ? salesTrend : [
+                { date: '1 Aug', sales: 45000, orders: 12 },
+                { date: '8 Aug', sales: 95000, orders: 24 },
+                { date: '15 Aug', sales: 180000, orders: 48 },
+                { date: '22 Aug', sales: 320000, orders: 86 },
+                { date: '29 Aug', sales: 540000, orders: 140 }
+              ]} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#FF7A00" stopOpacity={0.35} />
@@ -282,7 +281,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
                   tick={{ fontSize: 11, fill: '#64748b' }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(val) => `₹${val / 1000}k`}
+                  tickFormatter={(val) => `₹${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
                 />
                 <Tooltip
                   formatter={(value: any, name: string) => [
@@ -309,7 +308,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={categorySales}
+                  data={categorySales.length > 0 ? categorySales : [
+                    { categoryName: 'Gift Boxes', revenue: 65, percentage: 65 },
+                    { categoryName: 'Aerial Shots', revenue: 20, percentage: 20 },
+                    { categoryName: 'Sparklers', revenue: 15, percentage: 15 }
+                  ]}
                   cx="50%"
                   cy="50%"
                   innerRadius={55}
@@ -317,7 +320,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
                   paddingAngle={4}
                   dataKey="revenue"
                 >
-                  {categorySales.map((entry, index) => (
+                  {(categorySales.length > 0 ? categorySales : [1, 2, 3]).map((_, index) => (
                     <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[index % CATEGORY_COLORS.length]} />
                   ))}
                 </Pie>
@@ -328,7 +331,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
 
           {/* Legend Items */}
           <div className="space-y-1.5 pt-2 border-t border-slate-100">
-            {categorySales.map((item, idx) => (
+            {(categorySales.length > 0 ? categorySales : [
+              { categoryName: 'Gift Boxes', percentage: 65 },
+              { categoryName: 'Aerial Shots', percentage: 20 },
+              { categoryName: 'Sparklers & Pots', percentage: 15 }
+            ]).map((item, idx) => (
               <div key={idx} className="flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2">
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }} />
@@ -341,14 +348,14 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
         </div>
       </div>
 
-      {/* Row 2: Recent Orders (8 cols) + Top Products & Payment Methods (4 cols) */}
+      {/* Row 2: Recent Orders + Top Products */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Recent Orders Table */}
         <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-bold text-sm text-navy">Recent Customer Orders</h3>
-              <p className="text-[11px] text-slate-500">Latest transactions from website and wholesale desk</p>
+              <p className="text-[11px] text-slate-500">Latest transactions from customer storefront</p>
             </div>
             <button
               onClick={() => onNavigateTab('orders')}
@@ -375,8 +382,8 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
                 {recentOrders.map((ord) => (
                   <tr key={ord.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-3 font-bold text-navy">{ord.orderNumber}</td>
-                    <td className="py-3 px-3 text-slate-700 font-medium">{ord.customerName}</td>
-                    <td className="py-3 px-3 font-black text-navy">₹{ord.grandTotal.toLocaleString('en-IN')}</td>
+                    <td className="py-3 px-3 text-slate-700 font-medium">{ord.customerName || 'Customer'}</td>
+                    <td className="py-3 px-3 font-black text-navy">₹{(ord.grandTotal || 0).toLocaleString('en-IN')}</td>
                     <td className="py-3 px-3">
                       <StatusBadge status={ord.paymentStatus} type="payment" />
                     </td>
@@ -425,9 +432,9 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
         </div>
       </div>
 
-      {/* Row 3: Low Stock Alerts + Live Activity Feed + Business Summary */}
+      {/* Row 3: Low Stock Alerts + Live Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Low Stock Alerts Table (6 cols) */}
+        {/* Low Stock Alerts Table */}
         <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -453,47 +460,57 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {lowStockProducts.map((p) => (
-                  <tr key={p.id}>
-                    <td className="py-3 px-3 font-bold text-navy">{p.name}</td>
-                    <td className="py-3 px-3 font-black text-red-600">{p.availableQuantity}</td>
-                    <td className="py-3 px-3 text-slate-500">{p.reorderLevel}</td>
-                    <td className="py-3 px-3 text-right">
-                      <button
-                        onClick={() => onNavigateTab('purchases')}
-                        className="px-2.5 py-1 rounded bg-orange text-white text-[11px] font-bold hover:bg-orange-hover transition-colors"
-                      >
-                        Reorder
-                      </button>
+                {lowStockProducts.length > 0 ? (
+                  lowStockProducts.map((p) => (
+                    <tr key={p.id}>
+                      <td className="py-3 px-3 font-bold text-navy">{p.name}</td>
+                      <td className="py-3 px-3 font-black text-red-600">{p.availableQuantity}</td>
+                      <td className="py-3 px-3 text-slate-500">{p.reorderLevel}</td>
+                      <td className="py-3 px-3 text-right">
+                        <button
+                          onClick={() => onNavigateTab('purchases')}
+                          className="px-2.5 py-1 rounded bg-orange text-white text-[11px] font-bold hover:bg-orange-hover transition-colors"
+                        >
+                          Reorder
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-slate-400">
+                      All products have healthy inventory levels.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Live Recent Activities (6 cols) */}
+        {/* Live Recent Activities */}
         <div className="lg:col-span-6 bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-sm text-navy">Recent Activity Feed</h3>
             <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center space-x-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Live Updates</span>
+              <span>Live Feed</span>
             </span>
           </div>
 
           <div className="space-y-3">
-            {recentActivities.map((act, i) => (
-              <div key={i} className="flex items-start space-x-3 text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+            {recentOrders.map((ord, i) => (
+              <div key={ord.id || i} className="flex items-start space-x-3 text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                 <div className="w-6 h-6 rounded-full bg-orange/10 text-orange flex items-center justify-center flex-shrink-0 mt-0.5">
                   <Sparkles className="w-3.5 h-3.5" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-bold text-navy">{act.title}</div>
-                  <div className="text-slate-600 text-[11px]">{act.desc}</div>
+                  <div className="font-bold text-navy">Order {ord.orderNumber} ({ord.orderStatus})</div>
+                  <div className="text-slate-600 text-[11px]">Placed by {ord.customerName || 'Customer'} • ₹{(ord.grandTotal || 0).toLocaleString('en-IN')}</div>
                 </div>
-                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">{act.time}</span>
+                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                  {ord.placedAtUtc ? new Date(ord.placedAtUtc).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                </span>
               </div>
             ))}
           </div>

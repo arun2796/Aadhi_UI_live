@@ -73,6 +73,20 @@ export interface ProductImage {
   isPrimary: boolean;
 }
 
+export interface ProductVariant {
+  id: string;
+  productId: string;
+  sku: string;
+  name: string;
+  price: number;
+  compareAtPrice?: number;
+  costPrice: number;
+  weightKg: number;
+  stockQuantity: number;
+  barcode?: string;
+  isActive: boolean;
+}
+
 export interface Product {
   id: string;
   sku: string;
@@ -100,8 +114,10 @@ export interface Product {
   isFeatured: boolean;
   isBestSeller: boolean;
   isNewArrival: boolean;
+  productType?: 'Standard' | 'GiftBox' | 'Combo' | 'VariantProduct' | 'Accessory';
   primaryImageUrl?: string;
   images?: ProductImage[];
+  variants?: ProductVariant[];
   safetyInformation?: string;
   minOrderQuantity?: number;
   maxOrderQuantity?: number;
@@ -120,6 +136,7 @@ export interface Category {
   imageUrl?: string;
   displayOrder: number;
   isActive: boolean;
+  isFeatured?: boolean;
   productCount: number;
   subCategories?: Category[];
 }
@@ -134,16 +151,69 @@ export interface Brand {
   productCount: number;
 }
 
-export interface CartItem {
+export interface GiftBoxBundleItem {
+  id: string;
   productId: string;
+  productName: string;
   sku: string;
-  name: string;
-  imageUrl?: string;
-  unitPrice: number;
-  compareAtPrice?: number;
   quantity: number;
-  maxStock: number;
-  lineTotal: number;
+  unitPrice: number;
+  imageUrl?: string;
+}
+
+export interface GiftBox {
+  id: string;
+  name: string;
+  sku: string;
+  theme: string;
+  occasion: string;
+  price: number;
+  mrp: number;
+  itemCount: number;
+  description: string;
+  imageUrl: string;
+  isActive: boolean;
+  components: GiftBoxBundleItem[];
+}
+
+export interface ComboOffer {
+  id: string;
+  name: string;
+  slug: string;
+  normalValue: number;
+  comboPrice: number;
+  savings: number;
+  discountPercentage: number;
+  description: string;
+  imageUrl: string;
+  isActive: boolean;
+  items: GiftBoxBundleItem[];
+}
+
+export interface ProductReview {
+  id: string;
+  productId: string;
+  productName: string;
+  customerId: string;
+  customerName: string;
+  rating: number;
+  title?: string;
+  comment: string;
+  status: 'Pending' | 'Approved' | 'Rejected' | 'Hidden';
+  createdAtUtc: string;
+}
+
+export interface HomepageBanner {
+  id: string;
+  title: string;
+  subtitle?: string;
+  imageUrl: string;
+  targetUrl: string;
+  ctaText: string;
+  displayOrder: number;
+  isActive: boolean;
+  startDateUtc?: string;
+  endDateUtc?: string;
 }
 
 export interface Address {
@@ -209,6 +279,69 @@ export interface Order {
   statusHistories: OrderStatusHistory[];
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  totalOrders: number;
+  lifetimeValue: number;
+  outstandingBalance: number;
+  lastOrderDateUtc?: string;
+  status: 'Active' | 'Suspended' | 'Pending';
+  city?: string;
+  createdAtUtc: string;
+}
+
+export interface QuoteItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercentage: number;
+  lineTotal: number;
+}
+
+export interface Quote {
+  id: string;
+  quoteNumber: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  subtotal: number;
+  tax: number;
+  grandTotal: number;
+  status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected' | 'Expired' | 'Converted';
+  expiryDateUtc: string;
+  notes?: string;
+  createdAtUtc: string;
+  items: QuoteItem[];
+}
+
+export interface ReturnItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  reason: string;
+  condition: 'Unopened' | 'Damaged' | 'Defective';
+  refundAmount: number;
+}
+
+export interface ReturnRequest {
+  id: string;
+  returnNumber: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  status: 'Requested' | 'Approved' | 'Rejected' | 'Received' | 'Refunded' | 'Closed';
+  totalRefundAmount: number;
+  requestedAtUtc: string;
+  items: ReturnItem[];
+}
+
 export interface StockItem {
   id: string;
   productId: string;
@@ -247,22 +380,50 @@ export interface Warehouse {
   code: string;
   name: string;
   address?: string;
+  managerName?: string;
   phone?: string;
+  email?: string;
   isActive: boolean;
   isPrimary: boolean;
   totalProducts: number;
   totalStock: number;
+  stockValue?: number;
+}
+
+export interface StockTransferItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+}
+
+export interface StockTransfer {
+  id: string;
+  transferNumber: string;
+  sourceWarehouseId: string;
+  sourceWarehouseName: string;
+  destinationWarehouseId: string;
+  destinationWarehouseName: string;
+  status: 'Draft' | 'Submitted' | 'Approved' | 'InTransit' | 'Received' | 'Completed' | 'Cancelled';
+  reason: string;
+  requestedBy: string;
+  createdAtUtc: string;
+  items: StockTransferItem[];
 }
 
 export interface Supplier {
   id: string;
   code: string;
   name: string;
+  companyName?: string;
   contactPerson?: string;
   email?: string;
   phone: string;
   address?: string;
   gstNumber?: string;
+  paymentTerms?: string;
+  creditLimit?: number;
+  outstandingBalance?: number;
   isActive: boolean;
   totalPurchaseOrders: number;
 }
@@ -293,6 +454,44 @@ export interface PurchaseOrder {
   expectedDeliveryDateUtc?: string;
   notes?: string;
   items: PurchaseOrderItem[];
+}
+
+export interface GoodsReceivedItem {
+  productId: string;
+  productName: string;
+  sku: string;
+  orderedQty: number;
+  receivedQty: number;
+  rejectedQty: number;
+  damagedQty: number;
+  remarks?: string;
+}
+
+export interface GoodsReceivedNote {
+  id: string;
+  grnNumber: string;
+  purchaseOrderId: string;
+  poNumber: string;
+  supplierName: string;
+  warehouseName: string;
+  receivedDateUtc: string;
+  receivedBy: string;
+  items: GoodsReceivedItem[];
+}
+
+export interface SupplierBill {
+  id: string;
+  billNumber: string;
+  supplierId: string;
+  supplierName: string;
+  poNumber?: string;
+  subtotal: number;
+  tax: number;
+  totalAmount: number;
+  paidAmount: number;
+  balanceAmount: number;
+  dueDateUtc: string;
+  status: 'Draft' | 'Issued' | 'PartiallyPaid' | 'Paid' | 'Cancelled' | 'Overdue';
 }
 
 export interface Invoice {
@@ -340,6 +539,81 @@ export interface Expense {
   expenseDateUtc: string;
   reference?: string;
   createdBy?: string;
+}
+
+export interface ProfitAndLossStatement {
+  totalRevenue: number;
+  discountsTotal: number;
+  returnsTotal: number;
+  netSales: number;
+  costOfGoodsSold: number;
+  grossProfit: number;
+  grossMarginPercentage: number;
+  operatingExpenses: {
+    transport: number;
+    packaging: number;
+    rentAndUtilities: number;
+    salaries: number;
+    marketing: number;
+    officeAndAdmin: number;
+    total: number;
+  };
+  netOperatingProfit: number;
+  netProfitMarginPercentage: number;
+}
+
+export interface ReceivableItem {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerPhone: string;
+  invoiceNumber: string;
+  invoiceAmount: number;
+  paidAmount: number;
+  balanceAmount: number;
+  dueDateUtc: string;
+  daysOverdue: number;
+  status: 'Current' | 'Overdue30' | 'Overdue60' | 'Overdue90Plus';
+}
+
+export interface PayableItem {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  billNumber: string;
+  totalAmount: number;
+  paidAmount: number;
+  balanceAmount: number;
+  dueDateUtc: string;
+  daysOverdue: number;
+  status: 'Current' | 'Overdue30' | 'Overdue60';
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  name: string;
+  type: 'Percentage' | 'Flat';
+  value: number;
+  minimumOrderAmount: number;
+  maximumDiscount?: number;
+  usageLimit?: number;
+  usageCount: number;
+  perCustomerLimit: number;
+  startDateUtc: string;
+  endDateUtc: string;
+  isActive: boolean;
+}
+
+export interface Promotion {
+  id: string;
+  title: string;
+  discountPercentage: number;
+  targetType: 'All' | 'Category' | 'Product' | 'Festival';
+  targetValue?: string;
+  startDateUtc: string;
+  endDateUtc: string;
+  isActive: boolean;
 }
 
 export interface DashboardKpis {
@@ -419,8 +693,83 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  fullName?: string;
   phone: string;
   role: string;
   permissions: string[];
   isActive: boolean;
+  lastLoginUtc?: string;
+  createdAtUtc?: string;
+}
+
+export interface LoginHistoryItem {
+  id: string;
+  userId?: string;
+  email: string;
+  ipAddress: string;
+  userAgent: string;
+  timestampUtc: string;
+  success: boolean;
+  failureReason?: string;
+}
+
+export interface RateLimitLogItem {
+  id: string;
+  timestampUtc: string;
+  endpoint: string;
+  policy: string;
+  ipAddress: string;
+  userId?: string;
+  requestsCount: number;
+  blockedCount: number;
+  reason: string;
+}
+
+export interface SystemHealthReport {
+  status: 'Healthy' | 'Degraded' | 'Unhealthy';
+  apiLatencyMs: number;
+  database: {
+    status: 'Healthy' | 'Degraded' | 'Unhealthy';
+    provider: string;
+    latencyMs: number;
+    openConnections: number;
+  };
+  elasticsearch: {
+    status: 'Healthy' | 'Degraded' | 'Disabled';
+    clusterName?: string;
+    outboxBacklogCount: number;
+  };
+  backgroundWorkers: {
+    status: 'Running' | 'Degraded' | 'Stopped';
+    activeJobsCount: number;
+    lastRunUtc: string;
+  };
+  rateLimiter: {
+    status: 'Active';
+    activePoliciesCount: number;
+    blockedRequestsPast24h: number;
+  };
+}
+
+export interface StoreSettings {
+  storeName: string;
+  tagline: string;
+  supportPhone: string;
+  supportEmail: string;
+  gstNumber: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  orderPrefix: string;
+  invoicePrefix: string;
+  minOrderAmount: number;
+  freeShippingThreshold: number;
+  standardShippingFee: number;
+  cancellationWindowHours: number;
+  upiId: string;
+  upiQrCodeUrl: string;
+  allowCashOnDelivery: boolean;
+  allowUpiPayments: boolean;
+  lowStockThresholdDefault: number;
 }

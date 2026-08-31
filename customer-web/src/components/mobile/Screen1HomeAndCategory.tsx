@@ -1,17 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search,
-  ArrowRight,
-  Sparkles,
+  Award,
   ShieldCheck,
   Truck,
-  RotateCcw,
-  Award,
-  ChevronRight,
-  Flame
+  RotateCcw
 } from 'lucide-react';
 import { Product, Category } from '../../types';
-import { RatingStars } from '../common/CommonComponents';
+import { api } from '../../services/api';
 
 interface Screen1HomeProps {
   onNavigate: (page: string, params?: any) => void;
@@ -19,14 +15,11 @@ interface Screen1HomeProps {
 }
 
 export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSearch }) => {
-  const circularCategories = [
-    { name: 'Sparklers', slug: 'sparklers', icon: '✨', img: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=300&auto=format&fit=crop&q=80' },
-    { name: 'Rockets', slug: 'rockets', icon: '🚀', img: 'https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=300&auto=format&fit=crop&q=80' },
-    { name: 'Aerial Shots', slug: 'aerial-shots', icon: '🎆', img: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=300&auto=format&fit=crop&q=80' },
-    { name: 'Ground Chakkar', slug: 'ground-chakkar', icon: '🌀', img: 'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=300&auto=format&fit=crop&q=80' },
-    { name: 'Gift Boxes', slug: 'gift-boxes', icon: '🎁', img: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=300&auto=format&fit=crop&q=80' },
-    { name: 'Combo Offers', slug: 'combo-offers', icon: '📦', img: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=300&auto=format&fit=crop&q=80' }
-  ];
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  useEffect(() => {
+    api.getCategories().then(setCategories);
+  }, []);
 
   return (
     <div className="space-y-4 pb-4 font-sans bg-[#fbfbfb]">
@@ -61,7 +54,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
 
             <div className="pt-2">
               <button
-                onClick={() => onNavigate('category', { category: 'gift-boxes' })}
+                onClick={() => onNavigate('shop')}
                 className="px-4 py-1.5 rounded-full bg-orange hover:bg-orange-hover text-white text-[11px] font-black uppercase tracking-wider shadow-glow active:scale-95 transition-all"
               >
                 SHOP NOW
@@ -69,7 +62,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
             </div>
           </div>
 
-          {/* Right Hero 3D Rockets graphic */}
+          {/* Right Hero graphic */}
           <div className="absolute right-2 bottom-2 w-32 h-32 pointer-events-none">
             <img
               src="https://images.unsplash.com/photo-1513151233558-d860c5398176?w=400&auto=format&fit=crop&q=80"
@@ -80,7 +73,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         </div>
       </div>
 
-      {/* 3. Four Trust Badges in a Row matching Screen 1 */}
+      {/* 3. Four Trust Badges */}
       <div className="px-4">
         <div className="grid grid-cols-4 gap-2 text-center">
           <div className="p-2 rounded-2xl bg-white border border-slate-100 shadow-xs flex flex-col items-center">
@@ -109,7 +102,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         </div>
       </div>
 
-      {/* 4. Shop by Category (Circular Icons matching Screen 1) */}
+      {/* 4. Shop by Category (Dynamic Live Categories) */}
       <div className="px-4 space-y-3 pt-1">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-navy">Shop by Category</h3>
@@ -122,21 +115,18 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          {circularCategories.map((c) => (
+          {categories.map((c) => (
             <div
-              key={c.slug}
+              key={c.id || c.slug}
               onClick={() => onNavigate('category', { category: c.slug })}
               className="flex flex-col items-center text-center cursor-pointer group"
             >
               <div className="w-14 h-14 rounded-full bg-[#111238] border-2 border-orange/40 flex items-center justify-center text-xl shadow-md group-hover:scale-105 transition-transform overflow-hidden relative">
                 <img
-                  src={c.img}
+                  src={c.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=300&auto=format&fit=crop&q=80'}
                   alt={c.name}
                   className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                 />
-                <div className="absolute inset-0 bg-navy/40 flex items-center justify-center">
-                  <span className="text-lg">{c.icon}</span>
-                </div>
               </div>
               <span className="text-[10px] font-bold text-slate-800 mt-1 group-hover:text-orange transition-colors line-clamp-1">
                 {c.name}
@@ -162,72 +152,36 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
   onOpenFilter,
   onOpenSort
 }) => {
-  const categoryProducts = [
-    {
-      id: 'prod-1',
-      sku: 'GB-DLX-001',
-      name: 'Aadhi Deluxe Gift Box',
-      slug: 'aadhi-deluxe-gift-box',
-      price: 2999,
-      compareAtPrice: 4999,
-      discountPercentage: 25,
-      isBestSeller: true,
-      rating: 4.8,
-      reviewCount: 120,
-      img: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'prod-2',
-      sku: 'GB-MGA-002',
-      name: 'Mega Celebration Box',
-      slug: 'mega-celebration-box',
-      price: 4499,
-      compareAtPrice: 5999,
-      discountPercentage: 25,
-      isBestSeller: true,
-      rating: 4.9,
-      reviewCount: 181,
-      img: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=600&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'prod-3',
-      sku: 'GB-RYL-003',
-      name: 'Royal Premium Box',
-      slug: 'royal-premium-box',
-      price: 3999,
-      compareAtPrice: 4999,
-      discountPercentage: 20,
-      isBestSeller: false,
-      rating: 4.7,
-      reviewCount: 76,
-      img: 'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80'
-    },
-    {
-      id: 'prod-4',
-      sku: 'GB-FST-004',
-      name: 'Festival Special Box',
-      slug: 'festival-special-box',
-      price: 1099,
-      compareAtPrice: 1399,
-      discountPercentage: 20,
-      isBestSeller: false,
-      rating: 4.6,
-      reviewCount: 65,
-      img: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80'
-    }
-  ];
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categoryName, setCategoryName] = useState<string>('Gift Boxes');
+
+  useEffect(() => {
+    api.getCategories().then(cats => {
+      const found = cats.find(c => c.slug === categorySlug || c.id === categorySlug);
+      if (found) setCategoryName(found.name);
+    });
+
+    api.getProducts().then(all => {
+      const slug = categorySlug.toLowerCase().replace(/\s+/g, '-');
+      const filtered = all.filter(p =>
+        p.categoryName?.toLowerCase().replace(/\s+/g, '-') === slug ||
+        p.categoryId === categorySlug
+      );
+      setProducts(filtered.length > 0 ? filtered : all.slice(0, 6));
+    });
+  }, [categorySlug]);
 
   return (
     <div className="space-y-3 pb-4 font-sans bg-[#fbfbfb]">
       {/* Title & Breadcrumb */}
       <div className="px-4 pt-3">
-        <h2 className="text-base font-black text-navy">Gift Boxes</h2>
+        <h2 className="text-base font-black text-navy">{categoryName}</h2>
         <div className="text-[10px] text-slate-400 font-medium">
-          Home &gt; <span className="text-slate-600 font-semibold">Gift Boxes</span>
+          Home &gt; <span className="text-slate-600 font-semibold">{categoryName}</span>
         </div>
       </div>
 
-      {/* Filter and Sort bar matching Screen 2 */}
+      {/* Filter and Sort bar */}
       <div className="px-4 grid grid-cols-2 gap-3">
         <button
           onClick={onOpenFilter}
@@ -246,9 +200,9 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
         </button>
       </div>
 
-      {/* 2-Column Product Grid matching Screen 2 */}
+      {/* 2-Column Product Grid */}
       <div className="px-4 grid grid-cols-2 gap-3">
-        {categoryProducts.map((p) => (
+        {products.map((p) => (
           <div
             key={p.id}
             onClick={() => onNavigate('product-detail', { slug: p.slug })}
@@ -257,7 +211,11 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
             <div>
               {/* Product Image + Badges */}
               <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 mb-2">
-                <img src={p.img} alt={p.name} className="w-full h-full object-cover" />
+                <img
+                  src={p.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+                  alt={p.name}
+                  className="w-full h-full object-cover"
+                />
                 {p.isBestSeller && (
                   <div className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs uppercase">
                     BEST SELLER
@@ -273,26 +231,24 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
               {/* Price Row */}
               <div className="flex items-baseline space-x-1.5">
                 <span className="font-black text-xs text-navy">₹{p.price.toLocaleString('en-IN')}</span>
-                <span className="text-[10px] text-red-600 font-bold">{p.discountPercentage}% OFF</span>
+                {p.compareAtPrice && p.compareAtPrice > p.price && (
+                  <span className="text-[10px] text-red-600 font-bold">
+                    {p.discountPercentage || Math.round((1 - p.price / p.compareAtPrice) * 100)}% OFF
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Rating */}
-            <div className="flex items-center space-x-1 mt-2 text-[10px] text-slate-500 font-medium">
-              <span className="text-amber-400 font-bold">★</span>
-              <span className="font-bold text-slate-700">{p.rating}</span>
-              <span className="text-slate-400">({p.reviewCount})</span>
+            {/* Stock status */}
+            <div className="flex items-center space-x-1 mt-2 text-[10px] text-emerald-600 font-bold">
+              <span>● In Stock ({p.availableQuantity} units)</span>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Bottom Pagination Info text matching Screen 2 */}
       <div className="text-center pt-2 text-[11px] text-slate-400 font-medium flex items-center justify-center space-x-2">
-        <span>Showing 12 of 24 products</span>
-        <button onClick={onOpenFilter} className="text-purple hover:underline font-bold">
-          Filter
-        </button>
+        <span>Showing {products.length} products in {categoryName}</span>
       </div>
     </div>
   );

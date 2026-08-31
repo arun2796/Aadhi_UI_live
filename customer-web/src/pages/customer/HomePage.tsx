@@ -35,11 +35,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     api.getProducts().then(setProducts);
   }, []);
 
-  const giftBoxes = products.filter(p => p.categoryName === 'Gift Boxes');
+  const giftBoxes = products.filter(p => p.categoryName?.toLowerCase().includes('gift'));
   const bestSellers = products.filter(p => p.isBestSeller);
   const filteredProducts = activeTab === 'all'
     ? products.slice(0, 8)
-    : products.filter(p => p.categoryName.toLowerCase() === activeTab.toLowerCase());
+    : products.filter(p => (p.categoryName || '').toLowerCase() === activeTab.toLowerCase() || p.categoryId === activeTab);
 
   const faqs = [
     {
@@ -219,7 +219,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
           {/* Filter Tabs */}
           <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-            {['all', 'Gift Boxes', 'Sparklers', 'Ground Chakkar', 'Flower Pots', 'Aerial Shots'].map((tab) => (
+            {['all', ...categories.map(c => c.name)].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}

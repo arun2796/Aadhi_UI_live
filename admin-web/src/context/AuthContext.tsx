@@ -1,65 +1,114 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '../types';
+import { apiClient, TOKEN_STORAGE_KEY, UNAUTHORIZED_EVENT } from '../services/api';
 
 interface AuthContextType {
   user: User | null;
+  isAuthenticated: boolean;
   isAdmin: boolean;
-  login: (email: string, role?: string) => void;
+  isInitializing: boolean;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
-  toggleUserRole: () => void;
 }
 
-const DEFAULT_ADMIN_USER: User = {
-  id: 'usr-admin-1',
-  email: 'admin@aadhicrackers.com',
-  firstName: 'Arun',
-  lastName: 'Kumar (Admin)',
-  phone: '+91 98765 43210',
-  role: 'SuperAdmin',
-  permissions: ['*'],
-  isActive: true
-};
+const USER_STORAGE_KEY = 'aadhi_admin_user';
+
+const ERP_ROLES = ['SuperAdmin', 'Admin', 'Manager', 'SalesExecutive', 'InventoryManager', 'PurchaseManager', 'Accountant', 'SupportAgent'];
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('aadhi_admin_user');
-    return saved ? JSON.parse(saved) : DEFAULT_ADMIN_USER;
-  });
+function readStoredUser(): User | null {
+  try {
+    const saved = localStorage.getItem(USER_STORAGE_KEY);
+    return saved ? (JSON.parse(saved) as User) : null;
+  } catch {
+    localStorage.removeItem(USER_STORAGE_KEY);
+    return null;
+  }
+}
 
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(() =>
+    localStorage.getItem(TOKEN_STORAGE_KEY) ? readStoredUser() : null
+  );
+  const [isInitializing, setIsInitializing] = useState<boolean>(() => !!localStorage.getItem(TOKEN_STORAGE_KEY));
+
+  const clearSession = useCallback(() => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
+    setUser(null);
+  }, []);
+
+  // Validate the stored token against the server on boot
   useEffect(() => {
-    if (user) {
-      localStorage.setItem('aadhi_admin_user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('aadhi_admin_user');
-    }
-  }, [user]);
+    if (!localStorage.getItem(TOKEN_STORAGE_KEY)) return;
+    let cancelled = false;
+    apiClient
+      .get('/auth/me')
+      .then((res) => {
+        if (cancelled) return;
+        const me = res.data?.data as User | undefined;
+        if (me) {
+          setUser(me);
+          localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(me));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) clearSession();
+      })
+      .finally(() => {
+        if (!cancelled) setIsInitializing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clearSession]);
+
+  // Global 401 handler: any API call rejected as unauthenticated forces re-login
+  useEffect(() => {
+    const onUnauthorized = () => clearSession();
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [clearSession]);
+
+  const login = useCallback(
+    async (email: string, password: string, rememberMe = false): Promise<{ success: boolean; message?: string }> => {
+      try {
+        const res = await apiClient.post('/auth/login', { email, password, rememberMe });
+        const auth = res.data?.data;
+        if (!auth?.token || !auth?.user) {
+          return { success: false, message: res.data?.message || 'Login failed' };
+        }
+        if (!ERP_ROLES.includes(auth.user.role)) {
+          return { success: false, message: 'This account does not have access to the ERP.' };
+        }
+        localStorage.setItem(TOKEN_STORAGE_KEY, auth.token);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(auth.user));
+        setUser(auth.user);
+        return { success: true };
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.message ||
+          (error?.response?.status === 429
+            ? 'Too many login attempts. Please wait a minute and try again.'
+            : 'Unable to sign in. Check your connection and try again.');
+        return { success: false, message };
+      }
+    },
+    []
+  );
+
+  const logout = useCallback(() => {
+    apiClient.post('/auth/logout').catch(() => {});
+    clearSession();
+  }, [clearSession]);
 
   const isAdmin = user?.role === 'SuperAdmin' || user?.role === 'Admin';
 
-  const login = (email: string, role: string = 'SuperAdmin') => {
-    const newUser: User = {
-      id: 'usr-admin-' + Date.now(),
-      email,
-      firstName: 'Arun',
-      lastName: 'Kumar',
-      phone: '+91 98765 43210',
-      role: (role as any) || 'SuperAdmin',
-      permissions: ['*'],
-      isActive: true
-    };
-    setUser(newUser);
-  };
-
-  const logout = () => {
-    setUser(null);
-  };
-
-  const toggleUserRole = () => {};
-
   return (
-    <AuthContext.Provider value={{ user, isAdmin, login, logout, toggleUserRole }}>
+    <AuthContext.Provider
+      value={{ user, isAuthenticated: !!user, isAdmin, isInitializing, login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

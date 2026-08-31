@@ -3,13 +3,10 @@ import {
   Truck,
   Search,
   CheckCircle2,
-  Clock,
   PackageCheck,
   MapPin,
-  Calendar,
   AlertCircle
 } from 'lucide-react';
-import { Order } from '../../types';
 import { api } from '../../services/api';
 
 interface TrackOrderPageProps {
@@ -17,9 +14,9 @@ interface TrackOrderPageProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
-export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumber, onNavigate }) => {
-  const [query, setQuery] = useState<string>(initialOrderNumber || 'ORD#1248');
-  const [order, setOrder] = useState<Order | null>(null);
+export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumber }) => {
+  const [query, setQuery] = useState<string>(initialOrderNumber || '');
+  const [order, setOrder] = useState<any | null>(null);
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -35,7 +32,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
     setLoading(true);
     setHasSearched(true);
     try {
-      const res = await api.trackOrder(q);
+      const res = await api.trackOrder(q.trim());
       setOrder(res);
     } catch {
       setOrder(null);
@@ -44,8 +41,8 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
     }
   };
 
-  const getStepIndex = (status: string) => {
-    const s = status.toLowerCase();
+  const getStepIndex = (status: any) => {
+    const s = String(status || '').toLowerCase();
     if (s === 'delivered') return 5;
     if (s === 'outfordelivery') return 4;
     if (s === 'shipped') return 3;
@@ -63,7 +60,8 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
     { title: 'Delivered', desc: 'Safely handed over to you' }
   ];
 
-  const currentStep = order ? getStepIndex(order.orderStatus) : 0;
+  const currentStatus = order?.status || order?.orderStatus || 'Pending';
+  const currentStep = order ? getStepIndex(currentStatus) : 0;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
@@ -77,7 +75,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
           Track Your Fireworks Order
         </h1>
         <p className="text-xs text-slate-500 max-w-md mx-auto">
-          Enter your Order Number (e.g. <strong>ORD#1248</strong>) or your registered 10-digit mobile number.
+          Enter your Order Number (e.g. <strong>ORD-2026-001248</strong>) or your registered 10-digit mobile number.
         </p>
       </div>
 
@@ -91,7 +89,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Enter Order ID (e.g. ORD#1248) or Mobile"
+            placeholder="Enter Order ID (e.g. ORD-2026-001248) or Mobile"
             className="flex-1 px-4 py-2.5 text-xs sm:text-sm text-slate-800 focus:outline-none"
           />
           <button
@@ -114,16 +112,16 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
               <div className="text-xs text-slate-400 font-semibold">Order Tracking Details</div>
               <h2 className="text-xl font-black text-navy">{order.orderNumber}</h2>
               <div className="text-xs text-slate-500">
-                Placed on {new Date(order.placedAtUtc).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                Placed on {order.placedAtUtc ? new Date(order.placedAtUtc).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'}
               </div>
             </div>
 
             <div className="text-right">
               <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Status: {order.orderStatus}
+                Status: {currentStatus}
               </span>
               <div className="text-xs text-slate-500 mt-1 font-medium">
-                Grand Total: <strong className="text-navy">₹{order.grandTotal.toLocaleString('en-IN')}</strong> ({order.paymentMethod})
+                Grand Total: <strong className="text-navy">₹{(order.grandTotal || 0).toLocaleString('en-IN')}</strong> ({order.paymentMethod || 'UPI'})
               </div>
             </div>
           </div>
@@ -168,9 +166,8 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
                 <MapPin className="w-4 h-4 text-orange" />
                 <span>Delivery Address</span>
               </div>
-              <div className="font-semibold text-navy">{order.shippingAddress.fullName} ({order.shippingAddress.phone})</div>
               <div className="text-slate-600">
-                {order.shippingAddress.addressLine1}, {order.shippingAddress.city}, {order.shippingAddress.state} - {order.shippingAddress.postalCode}
+                {order.deliveryAddressSummary || (order.shippingAddress ? `${order.shippingAddress.fullName || ''}, ${order.shippingAddress.addressLine1 || ''}, ${order.shippingAddress.city || ''} - ${order.shippingAddress.postalCode || ''}` : 'Delivery to customer address')}
               </div>
             </div>
 
@@ -180,8 +177,8 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
                 <span>Package Summary</span>
               </div>
               <div className="text-slate-600">
-                {order.items.length > 0 ? (
-                  order.items.map(i => `${i.productName} (x${i.quantity})`).join(', ')
+                {order.items && order.items.length > 0 ? (
+                  order.items.map((i: any) => `${i.productName || i.productNameSnapshot || 'Item'} (x${i.quantity})`).join(', ')
                 ) : (
                   'Festive Assorted Fireworks Gift Pack'
                 )}
@@ -194,7 +191,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
           <AlertCircle className="w-10 h-10 text-orange mx-auto" />
           <h3 className="font-bold text-base text-navy">No order found for "{query}"</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Please verify your Order Number (e.g. ORD#1248) or phone number and try again.
+            Please verify your Order Number (e.g. ORD-2026-001248) or phone number and try again.
           </p>
         </div>
       ) : null}
