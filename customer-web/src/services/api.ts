@@ -23,10 +23,55 @@ apiClient.interceptors.request.use((config) => {
   if (!config.headers['X-Correlation-ID']) {
     config.headers['X-Correlation-ID'] = 'cust-' + Math.random().toString(36).substring(2, 9);
   }
+  const token = localStorage.getItem('aadhi_customer_token');
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
   return config;
 });
 
 export const api = {
+  // AUTH
+  async login(email: string, password: string): Promise<{ user: any; token: string }> {
+    const res = await apiClient.post('/auth/login', { email, password });
+    if (res.data?.data?.token) {
+      localStorage.setItem('aadhi_customer_token', res.data.data.token);
+      return res.data.data;
+    }
+    throw new Error(res.data?.message || 'Login failed');
+  },
+
+  async register(data: { firstName: string; lastName: string; email: string; phone: string; password: string }): Promise<{ user: any; token: string }> {
+    const res = await apiClient.post('/auth/register', data);
+    if (res.data?.data?.token) {
+      localStorage.setItem('aadhi_customer_token', res.data.data.token);
+      return res.data.data;
+    }
+    throw new Error(res.data?.message || 'Registration failed');
+  },
+
+  async getCurrentUser(): Promise<any> {
+    const res = await apiClient.get('/auth/me');
+    return res.data?.data;
+  },
+
+  logout(): void {
+    localStorage.removeItem('aadhi_customer_token');
+    localStorage.removeItem('aadhi_customer_user');
+  },
+
+  async getMyOrders(): Promise<Order[]> {
+    try {
+      const res = await apiClient.get('/orders/my-orders');
+      if (res.data?.data && Array.isArray(res.data.data)) {
+        return res.data.data;
+      }
+      const fallback = await apiClient.get('/orders');
+      return fallback.data?.data?.items || fallback.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
   // PRODUCTS
   async getProducts(params?: {
     category?: string;
