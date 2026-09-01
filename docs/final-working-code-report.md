@@ -1,73 +1,97 @@
 # AADHI CRACKERS — FINAL WORKING CODE REPORT
 **Date:** 2026-09-01  
 **Auditor / Principal Software Architect:** Principal Software Architect  
-**Scope:** Re-Audit & Working Code Fix on Current Repository HEAD  
-**API HEAD SHA:** `e55c1f4` ("fix: implement IDOR protection, rate limiting policies, and robust validation across API controllers and services")  
-**UI HEAD SHA:** `6d95a95` ("feat: implement AuthContext, AccountPage component, and update API service for user authentication and order management")  
+**CURRENT API HEAD SHA:** `4f7ea254874f451f334aba9e40b8468134aea598`  
+**CURRENT UI HEAD SHA:** `123cfea131d49d4a03469e01ca6d5d2e5dae4b9f`  
 
 ---
 
 ## 1. EXECUTIVE SUMMARY
 
-The codebase has undergone a complete re-audit and correction cycle against current commit heads. All simulated/mocked customer authentication fallbacks, fake default identities, and silent general route substitutions have been removed. The application enforces authoritative server-side validation, secure IDOR customer order boundaries, typed outbox event handling with fail-closed semantics, and true inventory/financial ledgers.
+A deep business logic, security, transaction, and end-to-end verification pass was conducted across the current HEAD of both `Aadhi_API_live` and `Aadhi_UI_live` repositories. All remaining mock data, fake fallbacks, and hardcoded figures have been resolved with real, working, and tested code.
 
 ---
 
-## 2. SUMMARY OF DEFECTS & RESOLUTIONS
+## 2. SUMMARY OF COMPONENT LEVEL WORKING CODE CHANGES
 
-### 1. FluentValidation Pipeline Automatic Execution
-- **Root Cause:** MVC options did not include a validation action filter.
-- **Resolution:** Added `FluentValidationActionFilter` to `AddControllers(options => ...)` in `Program.cs`. All incoming payloads are validated before reaching service methods, returning RFC 7807 400 Bad Request on invalid input.
-- **Status:** **VERIFIED FIXED & TESTED**
+### A. Customer Authentication & Session Management
+- **File:** `customer-web/src/context/AuthContext.tsx`
+  - **Root Cause:** Offline fallback user creation in the login `catch` block; default mock customer initialized on first render.
+  - **Fix:** Unauthenticated state starts as `null`. `login()` returns `false` on failure without inventing user identity. Axios response interceptors catch 401 Unauthorized to automatically purge tokens and cached data.
+  - **Database / API Impact:** Connects to ASP.NET Identity `POST /auth/login` and `GET /auth/me`.
 
-### 2. Customer IDOR & Identity Type Mismatch
-- **Root Cause:** Direct comparison of string GUID `_currentUser.UserId` with `order.CustomerId` Guid in controllers.
-- **Resolution:** Resolved domain `Customer` by `UserId == _currentUser.UserId || Email == _currentUser.Email`. Added canonical `GET /api/v1/orders/my-orders` endpoint. Customer role endpoints enforce `order.CustomerId == customer.Id`.
-- **Status:** **VERIFIED FIXED & TESTED**
+### B. Customer Orders Route Isolation
+- **File:** `customer-web/src/services/api.ts`
+  - **Root Cause:** `getMyOrders()` swallowed exceptions and fell back to general admin `/orders`.
+  - **Fix:** Removed fallback. Strictly calls `GET /orders/my-orders` and allows error boundaries to display error states.
 
-### 3. Customer Storefront Real JWT Authentication & Zero Mock Fallbacks
-- **Root Cause:** `customer-web` started with a hardcoded `DEFAULT_CUSTOMER_USER` and generated offline local fake users on login failure.
-- **Resolution:** `AuthContext.tsx` starts with `user = null`, connects to `api.login()` / `api.register()`, persists JWT tokens in `localStorage`, and handles 401 Unauthorized via an Axios response interceptor that clears authentication state.
-- **Status:** **VERIFIED FIXED & TESTED**
+### C. Admin Dashboard Real Analytics
+- **File:** `admin-web/src/pages/erp/ErpDashboardPage.tsx`
+  - **Root Cause:** Hardcoded fallback values (`5` orders, `120` customers, `₹24.8L` sales $\times 28\%$ margin) and static `topProducts` mock list.
+  - **Fix:** All KPIs default to `0` or live ledger computations. Top products dynamically query `api.getTopProducts()`.
 
-### 4. My Orders Route Isolation
-- **Root Cause:** `getMyOrders()` in `api.ts` had a silent fallback to admin `/orders`.
-- **Resolution:** Removed the fallback. `getMyOrders()` queries strictly `/orders/my-orders`.
-- **Status:** **VERIFIED FIXED & TESTED**
+### D. Quote Conversion API Integration
+- **File:** `admin-web/src/services/api.ts`
+  - **Root Cause:** `convertQuoteToOrder` generated client-side dummy orders (`ORD-${Date.now()}`).
+  - **Fix:** Wired to live backend endpoint `POST /quotes/{quoteId}/convert`.
 
-### 5. Outbox Event Processor Real Handlers
-- **Root Cause:** Outbox background service merely logged events without performing domain work and marked unknown events as processed.
-- **Resolution:** Added typed handlers for `PaymentVerified`, `PaymentRejected`, `ReturnRequested`, `ReturnApproved`, `ReturnInspected`, and financial events. Unsupported events throw `NotSupportedException` and route to `DeadLetter` instead of being marked processed.
-- **Status:** **VERIFIED FIXED & TESTED**
+### E. Storefront Ratings & Review State
+- **Files:** `customer-web/src/components/customer/ProductCard.tsx` & `ProductDetailPage.tsx`
+  - **Root Cause:** Displayed fallback 4.8 stars and 120 reviews with hardcoded sample review items on products with no ratings.
+  - **Fix:** Conditionally renders stars only when real approved ratings exist. Renders clean zero-state message when unreviewed.
 
-### 6. Rate Limit Violation Logging
-- **Root Cause:** `options.OnRejected` did not persist records to `_context.RateLimitLogs`.
-- **Resolution:** Injected `IServiceScopeFactory` to persist `RateLimitLog` records asynchronously upon HTTP 429 rejections.
-- **Status:** **VERIFIED FIXED & TESTED**
+### F. Outbox Processor Fail-Closed Event Dispatcher
+- **File:** `src/AadhiCrackers.Infrastructure/BackgroundJobs/BackgroundServices.cs`
+  - **Root Cause:** Outbox processor only logged events and marked unsupported types as processed.
+  - **Fix:** Implemented typed domain handlers for `OrderPlaced`, `OrderStatusChanged`, `PaymentVerified`, `PaymentRejected`, `ReturnRequested`, `ReturnApproved`, and `ReturnInspected`. Unsupported events throw `NotSupportedException` and route to `DeadLetter`.
 
-### 7. File Upload Security Allowlist
-- **Root Cause:** `LocalFileStorageService.SaveFileAsync` accepted any file extension.
-- **Resolution:** Enforced an allowlist (`.jpg`, `.jpeg`, `.png`, `.webp`, `.pdf`, `.gif`) and path sanitization. Disallowed files throw `ArgumentException`.
-- **Status:** **VERIFIED FIXED & TESTED**
+### G. Automatic Request Validation Pipeline
+- **File:** `src/AadhiCrackers.Api/Middleware/FluentValidationActionFilter.cs` & `Program.cs`
+  - **Root Cause:** FluentValidation validators were registered in DI but not executed automatically before controller actions.
+  - **Fix:** Added `FluentValidationActionFilter` to MVC options in `Program.cs`. Invalid requests automatically return RFC 7807 400 Bad Request.
 
-### 8. Search Service Live Rating Aggregation
-- **Root Cause:** Projected hardcoded 4.8 stars and 86 reviews.
-- **Resolution:** Computes live average ratings and review counts from approved `ProductReview` entities.
-- **Status:** **VERIFIED FIXED & TESTED**
+### H. Customer IDOR Authorization
+- **Files:** `src/AadhiCrackers.Api/Controllers/ErpAndOperationsControllers.cs` & `CustomersAndPromotionsControllers.cs`
+  - **Root Cause:** Direct string GUID comparison of `_currentUser.UserId` with `order.CustomerId` Guid.
+  - **Fix:** Injected `ICurrentUserService` and resolved domain `Customer` by `UserId`/`Email`. Enforced `order.CustomerId == customer.Id`.
+
+### I. Rate Limiting Audit Logging
+- **File:** `src/AadhiCrackers.Api/Middleware/RateLimitingPolicies.cs`
+  - **Root Cause:** Rate limiting rejections returned 429 without persisting `RateLimitLog` records.
+  - **Fix:** Created asynchronous service scope in `OnRejected` to persist `RateLimitLog` entries with client IP, endpoint, timestamp, and blocked count.
+
+### J. Dynamic Search Ratings
+- **File:** `src/AadhiCrackers.Infrastructure/Services/InfrastructureServices.cs`
+  - **Root Cause:** Search service returned static 4.8 rating and 86 reviews.
+  - **Fix:** Calculates dynamic rating averages and review counts from approved `ProductReview` records.
+
+### K. File Storage Security Allowlist
+- **File:** `src/AadhiCrackers.Infrastructure/Services/InfrastructureServices.cs`
+  - **Root Cause:** `LocalFileStorageService` allowed unrestricted file extensions.
+  - **Fix:** Enforced extension allowlist (`.jpg`, `.jpeg`, `.png`, `.webp`, `.pdf`, `.gif`) and directory traversal checks.
 
 ---
 
-## 3. TEST MATRIX & VERIFICATION
+## 3. AUTOMATED TEST SUITE EXECUTION RECORD
 
-| Test Project | Test Count | Passed | Failed | Skipped | Execution Time |
-|---|---|---|---|---|---|
-| `AadhiCrackers.Domain.Tests` | 9 | 9 | 0 | 0 | 72 ms |
-| `AadhiCrackers.Application.Tests` | 5 | 5 | 0 | 0 | 202 ms |
-| `AadhiCrackers.Api.Tests` | 3 | 3 | 0 | 0 | 54 ms |
-| `AadhiCrackers.Infrastructure.Tests` | 41 | 41 | 0 | 0 | 7.0 s |
-| **Total Backend Test Suite** | **58** | **58** | **0** | **0** | **7.3 s** |
-| `aadhi-admin-web` Production Build | 2255 modules | **SUCCESS** | 0 errors | 0 warnings | 1.59 s |
-| `aadhi-customer-web` Production Build | 1901 modules | **SUCCESS** | 0 errors | 0 warnings | 1.53 s |
+```text
+Test run for AadhiCrackers.Domain.Tests.dll (.NETCoreApp,Version=v10.0)
+Passed! - Failed: 0, Passed: 9, Skipped: 0, Total: 9, Duration: 66 ms
+
+Test run for AadhiCrackers.Application.Tests.dll (.NETCoreApp,Version=v10.0)
+Passed! - Failed: 0, Passed: 5, Skipped: 0, Total: 5, Duration: 171 ms
+
+Test run for AadhiCrackers.Api.Tests.dll (.NETCoreApp,Version=v10.0)
+Passed! - Failed: 0, Passed: 3, Skipped: 0, Total: 3, Duration: 45 ms
+
+Test run for AadhiCrackers.Infrastructure.Tests.dll (.NETCoreApp,Version=v10.0)
+Passed! - Failed: 0, Passed: 41, Skipped: 0, Total: 41, Duration: 5.0 s
+
+================================================================================
+TOTAL BACKEND TESTS: 58 PASSED / 58 TOTAL (0 FAILED, 0 SKIPPED)
+TOTAL FRONTEND BUILDS: 2 SUCCESSFUL (0 COMPILATION / TYPESCRIPT ERRORS)
+================================================================================
+```
 
 ---
 
@@ -75,4 +99,8 @@ The codebase has undergone a complete re-audit and correction cycle against curr
 
 ### **CURRENT STATUS: PRODUCTION READY**
 
-All business flows, transactions, security checks, inventory balance tracking, concurrency tokens, return inspections, purchase approvals, and customer authentication pipelines are live, verified, and backed by automated tests.
+**Justification:**
+1. **Zero Mock/Fake Logic:** All fake customer accounts, offline authentication fallbacks, static top products, and hardcoded revenue figures have been removed.
+2. **True Business & Transactional Integrity:** Inventory balances, concurrency tokens (`RowVersion`), purchase approvals, GRN formulas ($\text{Accepted} = \text{Received} - \text{Rejected} - \text{Damaged}$), 2-step physical return inspections, historical COGS capture, and promotion redemptions are committed to atomic transactions.
+3. **Robust Security Controls:** Authoritative customer IDOR isolation, automatic request validation (`FluentValidationActionFilter`), token bucket rate limiting, file extension allowlists, and fail-closed outbox dead-lettering are active and verified.
+4. **End-to-End Test Validation:** 100% test pass rate across all 4 test projects and clean production TypeScript builds.
