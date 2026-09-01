@@ -54,22 +54,42 @@ export { apiClient, TOKEN_STORAGE_KEY, UNAUTHORIZED_EVENT, getApiErrorDetails };
 export const api = {
   // Global Search
   searchGlobal: async (query: string) => {
-    try {
-      const [products, orders, customers] = await Promise.all([
-        productApi.getProducts({ search: query, pageSize: 5 }),
-        orderApi.getOrders({ search: query, pageSize: 5 }),
-        customerApi.getCustomers({ search: query, pageSize: 5 })
-      ]);
-      return {
-        products: (products.items || products).map(p => ({ id: p.id, name: p.name, sku: p.sku, price: p.price })),
-        orders: (orders.items || orders).map(o => ({ id: o.id, orderNumber: o.orderNumber, customerName: o.customerName, grandTotal: o.grandTotal, status: o.orderStatus })),
-        customers: (customers.items || customers).map(c => ({ id: c.id, name: c.name, phone: c.phone, email: c.email })),
-        invoices: [],
-        suppliers: []
-      };
-    } catch {
+    if (!query || !query.trim()) {
       return { products: [], orders: [], customers: [], invoices: [], suppliers: [] };
     }
+    const [productsRes, ordersRes, customersRes, invoicesRes, suppliersRes] = await Promise.allSettled([
+      productApi.getProducts({ search: query, pageSize: 5 }),
+      orderApi.getOrders({ search: query, pageSize: 5 }),
+      customerApi.getCustomers({ search: query, pageSize: 5 }),
+      invoiceApi.getInvoices(1, 10),
+      purchaseApi.getSuppliers()
+    ]);
+
+    const products = productsRes.status === 'fulfilled' ? (productsRes.value.items || productsRes.value || []) : [];
+    const orders = ordersRes.status === 'fulfilled' ? (ordersRes.value.items || ordersRes.value || []) : [];
+    const customers = customersRes.status === 'fulfilled' ? (customersRes.value.items || customersRes.value || []) : [];
+    const rawInvoices = invoicesRes.status === 'fulfilled' ? (invoicesRes.value.items || invoicesRes.value || []) : [];
+    const rawSuppliers = suppliersRes.status === 'fulfilled' ? (suppliersRes.value || []) : [];
+
+    const lowerQuery = query.toLowerCase();
+    const invoices = rawInvoices.filter((inv: any) =>
+      inv.invoiceNumber?.toLowerCase().includes(lowerQuery) ||
+      inv.customerName?.toLowerCase().includes(lowerQuery) ||
+      inv.orderNumber?.toLowerCase().includes(lowerQuery)
+    );
+    const suppliers = rawSuppliers.filter((s: any) =>
+      s.name?.toLowerCase().includes(lowerQuery) ||
+      s.code?.toLowerCase().includes(lowerQuery) ||
+      s.contactPerson?.toLowerCase().includes(lowerQuery)
+    );
+
+    return {
+      products: products.map((p: any) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price })),
+      orders: orders.map((o: any) => ({ id: o.id, orderNumber: o.orderNumber, customerName: o.customerName, grandTotal: o.grandTotal, status: o.orderStatus })),
+      customers: customers.map((c: any) => ({ id: c.id, name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim(), phone: c.phone, email: c.email })),
+      invoices: invoices.map((i: any) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, grandTotal: i.grandTotal, status: i.status })),
+      suppliers: suppliers.map((s: any) => ({ id: s.id, name: s.name, code: s.code, contactPerson: s.contactPerson, phone: s.phone }))
+    };
   },
 
   // Auth
@@ -95,9 +115,34 @@ export const api = {
     const res = await apiClient.get<{ data: ComboOffer[] }>(`/products/combo-offers?count=${count}`);
     return res.data?.data || [];
   },
-  getProductReviews: async () => [] as ProductReview[],
-  updateReviewStatus: async (id: string, status: string) => ({ id, status }),
-  getHomepageBanners: async () => [] as HomepageBanner[],
+  getProductReviews: async (params?: { productId?: string; status?: string; page?: number; pageSize?: number }) => {
+    const res = await apiClient.get('/reviews', { params });
+    return (res.data?.data?.items || res.data?.data || []) as ProductReview[];
+  },
+  updateReviewStatus: async (id: string, status: string, notes?: string) => {
+    const res = await apiClient.put(`/reviews/${id}/status`, { status, moderationNotes: notes });
+    return res.data?.data as ProductReview;
+  },
+  deleteReview: async (id: string) => {
+    const res = await apiClient.delete(`/reviews/${id}`);
+    return res.data?.data ?? true;
+  },
+  getHomepageBanners: async (activeOnly = false) => {
+    const res = await apiClient.get('/banners', { params: { activeOnly } });
+    return (res.data?.data?.items || res.data?.data || []) as HomepageBanner[];
+  },
+  createBanner: async (data: Partial<HomepageBanner>) => {
+    const res = await apiClient.post('/banners', data);
+    return res.data?.data as HomepageBanner;
+  },
+  updateBanner: async (id: string, data: Partial<HomepageBanner>) => {
+    const res = await apiClient.put(`/banners/${id}`, data);
+    return res.data?.data as HomepageBanner;
+  },
+  deleteBanner: async (id: string) => {
+    const res = await apiClient.delete(`/banners/${id}`);
+    return res.data?.data ?? true;
+  },
 
   // Categories & Brands
   getCategories: categoryApi.getCategories,
@@ -185,36 +230,88 @@ export const api = {
   getExpenses: financeApi.getExpenses,
   createExpense: financeApi.createExpense,
   getProfitLoss: financeApi.getProfitLoss,
-  getProfitAndLoss: async (): Promise<ProfitAndLossStatement> => {
-    const raw = await financeApi.getProfitLoss();
+  getProfitAndLoss: async (fromDate?: string, toDate?: string): Promise<ProfitAndLossStatement> => {
+    const raw = await financeApi.getProfitLoss(fromDate, toDate);
+    const exp = raw?.operatingExpensesBreakdown || {
+      transport: 0,
+      packaging: 0,
+      rentAndUtilities: 0,
+      salaries: 0,
+      marketing: 0,
+      officeAndAdmin: 0,
+      total: raw?.operatingExpenses ?? raw?.totalExpenses ?? 0
+    };
     return {
-      totalRevenue: raw?.grossSales ?? 0,
+      totalRevenue: raw?.grossSales ?? raw?.totalRevenue ?? 0,
       discountsTotal: raw?.discounts ?? 0,
-      returnsTotal: 0,
-      netSales: raw?.netRevenue ?? 0,
-      costOfGoodsSold: raw?.cogs ?? 0,
+      returnsTotal: raw?.returnsTotal ?? 0,
+      netSales: raw?.netRevenue ?? raw?.netSales ?? 0,
+      costOfGoodsSold: raw?.costOfGoodsSold ?? raw?.cogs ?? 0,
       grossProfit: raw?.grossProfit ?? 0,
       grossMarginPercentage: raw?.grossMarginPercentage ?? 0,
       operatingExpenses: {
-        transport: 0,
-        packaging: 0,
-        rentAndUtilities: 0,
-        salaries: 0,
-        marketing: 0,
-        officeAndAdmin: 0,
-        total: raw?.operatingExpenses ?? 0
+        transport: exp.transport ?? 0,
+        packaging: exp.packaging ?? 0,
+        rentAndUtilities: exp.rentAndUtilities ?? 0,
+        salaries: exp.salaries ?? 0,
+        marketing: exp.marketing ?? 0,
+        officeAndAdmin: exp.officeAndAdmin ?? 0,
+        total: exp.total ?? (raw?.operatingExpenses ?? raw?.totalExpenses ?? 0)
       },
-      netOperatingProfit: raw?.netProfit ?? 0,
-      netProfitMarginPercentage: raw?.netMarginPercentage ?? 0
+      netOperatingProfit: raw?.netProfit ?? raw?.netOperatingProfit ?? 0,
+      netProfitMarginPercentage: raw?.netMarginPercentage ?? raw?.netProfitMarginPercentage ?? 0
     };
   },
-  getReceivables: async (params?: any) => {
-    const res = await apiClient.get('/invoices', { params: { ...params, status: 'Issued' } });
-    return (res.data?.data?.items || res.data?.data || []) as ReceivableItem[];
+  getReceivables: async (params?: any): Promise<ReceivableItem[]> => {
+    const res = await apiClient.get('/invoices', { params: { ...params, pageSize: 100 } });
+    const invoices = (res.data?.data?.items || res.data?.data || []) as any[];
+    const now = new Date().getTime();
+
+    return invoices
+      .filter((inv) => Number(inv.balanceAmount) > 0 || inv.status === 'Issued' || inv.status === 'PartiallyPaid' || inv.status === 'Overdue')
+      .map((inv) => {
+        const dueDate = new Date(inv.dueDateUtc).getTime();
+        const diffDays = Math.max(0, Math.floor((now - dueDate) / (1000 * 60 * 60 * 24)));
+        const statusBucket = diffDays <= 0 ? 'Current' : (diffDays <= 30 ? 'Overdue30' : (diffDays <= 60 ? 'Overdue60' : 'Overdue90Plus'));
+        return {
+          id: inv.id,
+          customerId: inv.customerId,
+          customerName: inv.customerName || 'Customer',
+          customerPhone: inv.customerPhone || '',
+          invoiceNumber: inv.invoiceNumber,
+          invoiceAmount: inv.grandTotal,
+          paidAmount: inv.paidAmount,
+          balanceAmount: inv.balanceAmount,
+          dueDateUtc: inv.dueDateUtc,
+          daysOverdue: diffDays,
+          status: statusBucket
+        };
+      });
   },
-  getPayables: async (params?: any) => {
-    const res = await apiClient.get('/supplier-bills', { params: { ...params, status: 'Issued' } });
-    return (res.data?.data?.items || res.data?.data || []) as PayableItem[];
+  getPayables: async (params?: any): Promise<PayableItem[]> => {
+    const res = await apiClient.get('/supplier-bills', { params: { ...params, pageSize: 100 } });
+    const bills = (res.data?.data?.items || res.data?.data || []) as any[];
+    const now = new Date().getTime();
+
+    return bills
+      .filter((bill) => Number(bill.balanceAmount) > 0 || bill.status === 'Issued' || bill.status === 'PartiallyPaid' || bill.status === 'Overdue')
+      .map((bill) => {
+        const dueDate = new Date(bill.dueDateUtc).getTime();
+        const diffDays = Math.max(0, Math.floor((now - dueDate) / (1000 * 60 * 60 * 24)));
+        const statusBucket = diffDays <= 0 ? 'Current' : (diffDays <= 30 ? 'Overdue30' : 'Overdue60');
+        return {
+          id: bill.id,
+          supplierId: bill.supplierId,
+          supplierName: bill.supplierName || 'Supplier',
+          billNumber: bill.billNumber,
+          totalAmount: bill.total,
+          paidAmount: bill.paidAmount,
+          balanceAmount: bill.balanceAmount,
+          dueDateUtc: bill.dueDateUtc,
+          daysOverdue: diffDays,
+          status: statusBucket
+        };
+      });
   },
 
   // Marketing & Coupons

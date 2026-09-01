@@ -804,15 +804,31 @@ export interface ProfitLoss {
   fromDate?: string;
   toDate?: string;
   grossSales: number;
+  totalRevenue?: number;
   discounts: number;
+  returnsTotal?: number;
   netRevenue: number;
+  netSales?: number;
   cogs: number;
+  costOfGoodsSold?: number;
   grossProfit: number;
   grossMarginPercentage: number;
   operatingExpenses: number;
+  totalExpenses?: number;
+  operatingExpensesBreakdown?: {
+    transport: number;
+    packaging: number;
+    rentAndUtilities: number;
+    salaries: number;
+    marketing: number;
+    officeAndAdmin: number;
+    total: number;
+  };
   netProfit: number;
+  netOperatingProfit?: number;
   netMarginPercentage: number;
-  expensesByCategory: Array<{ category: string; amount: number }>;
+  netProfitMarginPercentage?: number;
+  expensesByCategory?: Array<{ category: string; amount: number }>;
 }
 
 export interface SystemSetting {
