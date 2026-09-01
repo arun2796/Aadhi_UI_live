@@ -117,7 +117,18 @@ export const api = {
   verifyPayment: orderApi.verifyUpiPayment,
   moveToPacking: orderApi.moveToPacking,
   rejectPayment: orderApi.rejectPayment,
-  getQuotes: async () => [] as Quote[],
+  getQuotes: async (params?: { page?: number; pageSize?: number; status?: string }) => {
+    const res = await apiClient.get('/quotes', { params });
+    return wrapPagedResult<Quote>(res.data?.data);
+  },
+  createQuote: async (data: any) => {
+    const res = await apiClient.post('/quotes', data);
+    return res.data?.data as Quote;
+  },
+  updateQuoteStatus: async (quoteId: string, status: string, notes?: string) => {
+    const res = await apiClient.put(`/quotes/${quoteId}/status`, { status, notes });
+    return res.data?.data as Quote;
+  },
   convertQuoteToOrder: async (quoteId: string) => {
     const res = await apiClient.post(`/quotes/${quoteId}/convert`);
     return res.data?.data as Order;
@@ -142,7 +153,10 @@ export const api = {
   adjustStock: inventoryApi.adjustStock,
   transferStock: inventoryApi.transferStock,
   getStockMovements: inventoryApi.getStockMovements,
-  getStockTransfers: async () => [] as StockTransfer[],
+  getStockTransfers: async (params?: { page?: number; pageSize?: number }) => {
+    const res = await apiClient.get('/inventory/transfers', { params });
+    return wrapPagedResult<StockTransfer>(res.data?.data);
+  },
   getLowStockAlerts: inventoryApi.getLowStockAlerts,
 
   // Purchases
@@ -153,7 +167,10 @@ export const api = {
   getPurchaseOrderById: purchaseApi.getPurchaseOrderById,
   createPurchaseOrder: async (data: any) => purchaseApi.createPurchaseOrder(data),
   createGoodsReceipt: purchaseApi.createGoodsReceipt,
-  getGoodsReceivedNotes: async () => [] as GoodsReceipt[],
+  getGoodsReceivedNotes: async (params?: { page?: number; pageSize?: number; purchaseOrderId?: string }) => {
+    const res = await apiClient.get('/purchases/goods-receipts', { params });
+    return wrapPagedResult<GoodsReceipt>(res.data?.data);
+  },
   getSupplierBills: async (params?: { page?: number; pageSize?: number; supplierId?: string; status?: string }) => {
     const res = await apiClient.get('/supplier-bills', { params });
     return wrapPagedResult<SupplierBill>(res.data?.data);
