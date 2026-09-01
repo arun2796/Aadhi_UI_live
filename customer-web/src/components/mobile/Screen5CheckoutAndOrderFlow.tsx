@@ -17,6 +17,7 @@ import {
   Eye
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 import { triggerFireworksConfetti } from '../common/CommonComponents';
 import { api } from '../../services/api';
 
@@ -26,6 +27,7 @@ interface Screen5CheckoutProps {
 }
 
 export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, onBack }) => {
+  const { user } = useAuth();
   const { items, subtotal, discount, grandTotal, clearCart } = useCart();
 
   const [step, setStep] = useState<number>(1); // 1: Address, 2: UPI QR Payment & Screenshot
@@ -36,15 +38,15 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [shippingAddress, setShippingAddress] = useState({
-    fullName: 'Arun Kumar',
-    phone: '+91 98765 43210',
-    addressLine1: '123, West Car Street, Sivakasi Main Road',
-    city: 'Sivakasi / Coimbatore',
+  const [shippingAddress, setShippingAddress] = useState(() => ({
+    fullName: user ? `${user.firstName} ${user.lastName}`.trim() : '',
+    phone: user?.phone || '',
+    addressLine1: '',
+    city: '',
     state: 'Tamil Nadu',
-    postalCode: '626123',
+    postalCode: '',
     country: 'India'
-  });
+  }));
 
   const officialUpiId = 'aadhicrackers@okaxis';
 
@@ -445,10 +447,10 @@ interface Screen6OrderPlacedProps {
 
 export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
   onNavigate,
-  orderNumber = 'ORD-2026-000124',
-  utrNumber = '423456789012',
+  orderNumber = '',
+  utrNumber = '',
   screenshotUrl,
-  grandTotal = 3450
+  grandTotal = 0
 }) => {
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-between p-6 text-center font-sans bg-white">
@@ -461,7 +463,7 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
         <div className="space-y-1">
           <h2 className="text-xl font-black text-navy">Order Placed & Payment Submitted!</h2>
           <div className="text-xs text-slate-500 font-medium">Order Number</div>
-          <div className="text-base font-mono font-black text-purple">{orderNumber}</div>
+          <div className="text-base font-mono font-black text-purple">{orderNumber || '—'}</div>
         </div>
 
         {/* Verification Status Card */}
@@ -471,19 +473,21 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
             <span>Admin Payment Verification Pending</span>
           </div>
           <p className="text-[11px] text-amber-700 leading-relaxed">
-            We have received your payment proof (UTR: <strong>{utrNumber}</strong>). Our admin team will verify the payment and move your order to the packing station.
+            We have received your payment proof {utrNumber ? <span>(UTR: <strong>{utrNumber}</strong>)</span> : null}. Our admin team will verify the payment and move your order to the packing station.
           </p>
         </div>
 
         {/* Action buttons */}
         <div className="space-y-3 pt-2 max-w-xs mx-auto">
-          <button
-            onClick={() => onNavigate('track-order', { orderNumber })}
-            className="w-full py-3.5 rounded-xl bg-navy hover:bg-navy-dark text-white font-bold text-xs transition-colors shadow-sm flex items-center justify-center space-x-1.5"
-          >
-            <Truck className="w-4 h-4 text-gold" />
-            <span>Track Order Status</span>
-          </button>
+          {orderNumber && (
+            <button
+              onClick={() => onNavigate('track-order', { orderNumber })}
+              className="w-full py-3.5 rounded-xl bg-navy hover:bg-navy-dark text-white font-bold text-xs transition-colors shadow-sm flex items-center justify-center space-x-1.5"
+            >
+              <Truck className="w-4 h-4 text-gold" />
+              <span>Track Order Status</span>
+            </button>
+          )}
 
           <button
             onClick={() => onNavigate('home')}
@@ -516,16 +520,28 @@ interface Screen7OrderTrackingProps {
 
 export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
   onNavigate,
-  orderNumber = 'ORD-2026-000124'
+  orderNumber = ''
 }) => {
-  const steps = [
-    { title: 'Order Placed & UPI Proof Attached', time: 'Today, 10:30 AM', active: true, done: true },
-    { title: 'Admin Payment Verification', time: 'In Progress (Admin Verifying UTR)', active: true, done: false, badge: '🟡 Pending Verification' },
-    { title: 'Packing Station', time: 'Estimated: Today, 04:00 PM', active: false, done: false },
-    { title: 'Handed to Express Courier', time: 'Estimated: Tomorrow, 11:00 AM', active: false, done: false },
-    { title: 'Out for Delivery', time: 'Estimated: In 2 Days', active: false, done: false },
-    { title: 'Delivered', time: 'Sivakasi Original Certified', active: false, done: false }
-  ];
+  const [order, setOrder] = useState<any | null>(null);
+  const [loading, setLoading] = useState<boolean>(Boolean(orderNumber));
+  const [error, setError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!orderNumber) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    api.trackOrder(orderNumber)
+      .then(res => {
+        setOrder(res);
+      })
+      .catch(() => {
+        setError('Order not found. Please verify your order number.');
+      })
+      .finally(() => setLoading(false));
+  }, [orderNumber]);
 
   return (
     <div className="space-y-5 p-4 pb-8 font-sans bg-[#fbfbfb]">
@@ -533,47 +549,65 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
       <div className="space-y-1">
         <h2 className="text-base font-black text-navy">Live Order Tracking</h2>
         <div className="flex items-center justify-between text-xs pt-1">
-          <span className="text-slate-500 font-medium">Order: <strong className="text-navy">{orderNumber}</strong></span>
-          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-            Payment Verification
-          </span>
+          <span className="text-slate-500 font-medium">Order: <strong className="text-navy">{orderNumber || order?.orderNumber || '—'}</strong></span>
+          {order?.status && (
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              {order.status}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Live Timeline */}
-      <div className="p-5 rounded-3xl bg-white border border-slate-100 shadow-card">
-        <div className="relative pl-6 border-l-2 border-slate-200 space-y-6 ml-2">
-          {steps.map((s, idx) => (
-            <div key={idx} className="relative">
-              <div
-                className={`absolute -left-[31px] top-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] text-white ${
-                  s.done
-                    ? 'bg-emerald-500 ring-4 ring-emerald-100'
-                    : s.active
-                    ? 'bg-amber-500 ring-4 ring-amber-100 animate-pulse'
-                    : 'bg-slate-300'
-                }`}
-              >
-                {s.done ? '✓' : ''}
-              </div>
-
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h4 className={`text-xs font-bold ${s.active || s.done ? 'text-navy' : 'text-slate-400'}`}>
-                    {s.title}
-                  </h4>
-                  {s.badge && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                      {s.badge}
-                    </span>
-                  )}
+      {loading ? (
+        <div className="p-8 text-center bg-white rounded-3xl border border-slate-100 shadow-card">
+          <Clock className="w-6 h-6 text-purple animate-spin mx-auto mb-2" />
+          <p className="text-xs text-slate-500">Fetching live tracking status...</p>
+        </div>
+      ) : error || !order ? (
+        <div className="p-6 text-center bg-white rounded-3xl border border-slate-100 shadow-card space-y-2">
+          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
+          <p className="text-xs text-slate-600 font-medium">{error || 'No tracking information available.'}</p>
+        </div>
+      ) : (
+        /* Live Timeline from backend OrderStatusHistory */
+        <div className="p-5 rounded-3xl bg-white border border-slate-100 shadow-card">
+          <div className="relative pl-6 border-l-2 border-slate-200 space-y-6 ml-2">
+            {order.timeline && order.timeline.length > 0 ? (
+              order.timeline.map((h: any, idx: number) => (
+                <div key={idx} className="relative">
+                  <div className="absolute -left-[31px] top-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] text-white bg-emerald-500 ring-4 ring-emerald-100">
+                    ✓
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-navy">
+                      {h.toStatus || h.status || 'Status Update'}
+                    </h4>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {h.reason || 'Status transitioned'}
+                    </p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">
+                      {new Date(h.changedAtUtc).toLocaleString('en-IN')}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-0.5">{s.time}</p>
+              ))
+            ) : (
+              <div className="relative">
+                <div className="absolute -left-[31px] top-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] text-white bg-emerald-500 ring-4 ring-emerald-100">
+                  ✓
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-navy">{order.status || 'Order Placed'}</h4>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Order received in system</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    {order.placedAtUtc ? new Date(order.placedAtUtc).toLocaleString('en-IN') : 'Recent'}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Security & Support note */}
       <div className="p-3.5 rounded-2xl bg-purple/5 border border-purple/15 text-xs text-slate-600 space-y-1">

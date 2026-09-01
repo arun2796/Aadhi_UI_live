@@ -148,11 +148,20 @@ function CustomerAppRoot() {
             )}
 
             {currentPage === 'order-placed' && (
-              <Screen6OrderPlaced onNavigate={navigate} />
+              <Screen6OrderPlaced 
+                onNavigate={navigate} 
+                orderNumber={pageParams?.orderNumber}
+                utrNumber={pageParams?.utrNumber}
+                screenshotUrl={pageParams?.screenshotUrl}
+                grandTotal={pageParams?.grandTotal}
+              />
             )}
 
             {currentPage === 'track-order' && (
-              <Screen7OrderTracking onNavigate={navigate} />
+              <Screen7OrderTracking 
+                onNavigate={navigate} 
+                orderNumber={pageParams?.orderNumber}
+              />
             )}
 
             {currentPage === 'account' && (
@@ -267,7 +276,7 @@ function CustomerAppRoot() {
 
             {currentPage === 'order-placed' && (
               <TrackOrderPage
-                initialOrderNumber="AADHI123456"
+                initialOrderNumber={pageParams?.orderNumber}
                 onNavigate={navigate}
               />
             )}

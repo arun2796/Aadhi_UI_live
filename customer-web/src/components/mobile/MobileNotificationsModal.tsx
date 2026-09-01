@@ -19,32 +19,32 @@ export const MobileNotificationsModal: React.FC<MobileNotificationsModalProps> =
     {
       id: 'notif-1',
       title: 'Order Confirmed',
-      message: 'Your order AADHI123456 has been confirmed.',
-      time: '30 May, 02:30 PM',
+      message: 'Your recent order has been confirmed & payment proof verified.',
+      time: 'Recent',
       icon: CheckCircle2,
       color: 'bg-emerald-50 text-emerald-600 border border-emerald-200'
     },
     {
       id: 'notif-2',
-      title: 'Order Shipped',
-      message: 'Your order AADHI123456 has been shipped.',
-      time: '31 May, 11:15 AM',
+      title: 'Order Dispatched',
+      message: 'Your fireworks order is packed and dispatched via Express Sivakasi Transit.',
+      time: 'Recent',
       icon: Truck,
       color: 'bg-purple/10 text-purple border border-purple/20'
     },
     {
       id: 'notif-3',
       title: 'Out for Delivery',
-      message: 'Your order AADHI123456 is out for delivery.',
-      time: '02 Jun, 09:20 AM',
+      message: 'Your parcel is out for delivery with your local delivery agent.',
+      time: 'Recent',
       icon: Clock,
       color: 'bg-orange/10 text-orange border border-orange/20'
     },
     {
       id: 'notif-4',
-      title: 'Delivered',
-      message: 'Your order AADHI123456 has been delivered.',
-      time: '02 Jun, 05:20 PM',
+      title: 'Delivered Safely',
+      message: 'Your order was safely delivered. Enjoy a dazzling celebration!',
+      time: 'Recent',
       icon: PackageCheck,
       color: 'bg-emerald-50 text-emerald-600 border border-emerald-200'
     }
@@ -69,7 +69,7 @@ export const MobileNotificationsModal: React.FC<MobileNotificationsModalProps> =
               key={notif.id}
               onClick={() => {
                 onClose();
-                onNavigate('track-order', { orderNumber: 'AADHI123456' });
+                onNavigate('account');
               }}
               className="p-3.5 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-start space-x-3.5 cursor-pointer hover:bg-slate-50 transition-colors"
             >
