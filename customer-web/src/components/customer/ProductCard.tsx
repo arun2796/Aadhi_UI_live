@@ -97,10 +97,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
             {product.name}
           </h3>
 
-          {/* Rating */}
-          <div className="mb-2">
-            <RatingStars rating={product.rating || 4.8} reviewCount={product.reviewCount || 45} size="w-3.5 h-3.5" />
-          </div>
+          {(product.rating || product.reviewCount) ? (
+            <div className="mb-2">
+              <RatingStars rating={product.rating || 0} reviewCount={product.reviewCount || 0} size="w-3.5 h-3.5" />
+            </div>
+          ) : null}
 
           {/* Short Specs / Bullet */}
           {product.shortDescription && (

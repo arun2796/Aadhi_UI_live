@@ -171,8 +171,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             </h1>
 
             <div className="flex items-center space-x-4 mt-2">
-              <RatingStars rating={product.rating || 4.8} reviewCount={product.reviewCount || 120} />
-              <span className="text-xs text-slate-300">|</span>
+              {(product.rating || product.reviewCount) ? (
+                <>
+                  <RatingStars rating={product.rating || 0} reviewCount={product.reviewCount || 0} />
+                  <span className="text-xs text-slate-300">|</span>
+                </>
+              ) : null}
               <span className="text-xs text-slate-500 font-medium">SKU: <strong className="text-slate-700">{product.sku}</strong></span>
               <span className="text-xs text-slate-300">|</span>
               <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
@@ -372,29 +376,17 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
           {activeTab === 'reviews' && (
             <div className="space-y-6 max-w-3xl">
               <div className="flex items-center space-x-4 p-4 rounded-2xl bg-slate-50 border">
-                <div className="text-3xl font-black text-navy">{product.rating || 4.8}</div>
+                <div className="text-3xl font-black text-navy">{product.rating ? product.rating.toFixed(1) : '0.0'}</div>
                 <div>
-                  <RatingStars rating={product.rating || 4.8} />
-                  <div className="text-xs text-slate-500 mt-1">Based on {product.reviewCount || 120} verified customer reviews</div>
+                  <RatingStars rating={product.rating || 0} />
+                  <div className="text-xs text-slate-500 mt-1">
+                    {product.reviewCount ? `Based on ${product.reviewCount} customer reviews` : 'No customer reviews yet'}
+                  </div>
                 </div>
               </div>
 
-              {/* Sample Reviews */}
-              <div className="space-y-4">
-                {[
-                  { name: 'Karthik Raja', date: '2 days ago', rating: 5, comment: 'Exceptional quality gift box! All sparklers lit instantly with zero duds. Family loved the aerial shot.' },
-                  { name: 'Deepa V', date: '1 week ago', rating: 5, comment: 'Packed very securely in heavy cardboard box. Received in Coimbatore in just 2 days. Highly recommended!' },
-                  { name: 'Ravi Shankar', date: '2 weeks ago', rating: 4, comment: 'Very good variety of crackers. The deluxe pots were the highlight of our celebrations.' }
-                ].map((rev, i) => (
-                  <div key={i} className="p-4 rounded-xl border border-slate-100 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-800">{rev.name}</span>
-                      <span className="text-slate-400">{rev.date}</span>
-                    </div>
-                    <RatingStars rating={rev.rating} />
-                    <p className="text-xs text-slate-600">{rev.comment}</p>
-                  </div>
-                ))}
+              <div className="p-6 rounded-xl border border-slate-100 text-center text-xs text-slate-500">
+                {product.reviewCount ? 'Customer reviews are verified upon delivery.' : 'There are no reviews for this product yet. Purchase and review to share your feedback!'}
               </div>
             </div>
           )}

@@ -118,7 +118,10 @@ export const api = {
   moveToPacking: orderApi.moveToPacking,
   rejectPayment: orderApi.rejectPayment,
   getQuotes: async () => [] as Quote[],
-  convertQuoteToOrder: async (quoteId: string) => ({ id: quoteId, orderNumber: `ORD-${Date.now()}` } as unknown as Order),
+  convertQuoteToOrder: async (quoteId: string) => {
+    const res = await apiClient.post(`/quotes/${quoteId}/convert`);
+    return res.data?.data as Order;
+  },
   getReturns: async (params?: { page?: number; pageSize?: number; status?: string }) => {
     const res = await apiClient.get('/returns', { params });
     return wrapPagedResult<ReturnOrder>(res.data?.data);

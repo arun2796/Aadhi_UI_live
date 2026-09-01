@@ -39,6 +39,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
   const [categorySales, setCategorySales] = useState<any[]>([]);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
+  const [topProducts, setTopProducts] = useState<any[]>([]);
   const [trendPeriod, setTrendPeriod] = useState<string>('month');
 
   useEffect(() => {
@@ -59,17 +60,10 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
     api.getProducts().then(prods => {
       setLowStockProducts(prods.filter(p => p.availableQuantity <= p.reorderLevel).slice(0, 5));
     });
+    api.getTopProducts().then(setTopProducts).catch(() => setTopProducts([]));
   }, [trendPeriod]);
 
   const CATEGORY_COLORS = ['#FF7A00', '#4F2ACB', '#3B82F6', '#10B981', '#64748B'];
-
-  const topProducts = [
-    { name: 'Aadhi Deluxe Gift Box', units: 324, revenue: 971676, img: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80' },
-    { name: 'Mega Celebration Box', units: 210, revenue: 944790, img: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=600&auto=format&fit=crop&q=80' },
-    { name: 'Sparklers (10 Pcs)', units: 560, revenue: 280000, img: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=600&auto=format&fit=crop&q=80' },
-    { name: 'Flower Pots (Big)', units: 430, revenue: 258000, img: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80' },
-    { name: 'Ground Chakkar Deluxe', units: 410, revenue: 246000, img: 'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80' }
-  ];
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -139,7 +133,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              {(kpis?.totalOrders || recentOrders.length || 5).toLocaleString('en-IN')}
+              {(kpis?.totalOrders ?? recentOrders.length ?? 0).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
@@ -158,7 +152,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              {(kpis?.totalCustomers || 120).toLocaleString('en-IN')}
+              {(kpis?.totalCustomers ?? 0).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
@@ -177,11 +171,11 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
           <div className="mt-2">
             <div className="text-lg font-black text-navy">
-              ₹{(kpis?.totalProfit || Math.round((kpis?.totalSales || 2485650) * 0.28)).toLocaleString('en-IN')}
+              ₹{(kpis?.totalProfit ?? 0).toLocaleString('en-IN')}
             </div>
             <div className="text-[11px] text-emerald-600 font-bold flex items-center space-x-0.5 mt-0.5">
               <ArrowUpRight className="w-3 h-3" />
-              <span>28% est. margin</span>
+              <span>{kpis?.totalSales ? `${((kpis.totalProfit / kpis.totalSales) * 100).toFixed(1)}% margin` : 'Calculated from ledger'}</span>
             </div>
           </div>
         </div>
@@ -414,20 +408,24 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
           </div>
 
           <div className="space-y-3">
-            {topProducts.map((p, idx) => (
+            {topProducts.length > 0 ? topProducts.map((p: any, idx: number) => (
               <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                 <div className="flex items-center space-x-3 min-w-0">
-                  <img src={p.img} alt="" className="w-10 h-10 rounded-lg object-cover bg-white border flex-shrink-0" />
+                  <div className="w-10 h-10 rounded-lg bg-orange/10 text-orange flex items-center justify-center text-sm font-black flex-shrink-0">
+                    #{idx + 1}
+                  </div>
                   <div className="min-w-0">
-                    <div className="font-bold text-xs text-navy truncate">{p.name}</div>
-                    <div className="text-[10px] text-slate-400">{p.units} units sold</div>
+                    <div className="font-bold text-xs text-navy truncate">{p.name || p.productName}</div>
+                    <div className="text-[10px] text-slate-400">{p.unitsSold ?? p.quantity ?? 0} units sold</div>
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className="font-black text-xs text-orange">₹{p.revenue.toLocaleString('en-IN')}</div>
+                  <div className="font-black text-xs text-orange">₹{(p.revenue ?? p.totalRevenue ?? 0).toLocaleString('en-IN')}</div>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="text-center text-xs text-slate-400 py-6">No sales data available yet.</div>
+            )}
           </div>
         </div>
       </div>
