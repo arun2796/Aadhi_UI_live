@@ -12,23 +12,12 @@ interface AuthContextType {
   toggleUserRole: () => void;
 }
 
-const DEFAULT_CUSTOMER_USER: User = {
-  id: 'usr-cust-1',
-  email: 'arun.kumar@gmail.com',
-  firstName: 'Arun',
-  lastName: 'Kumar',
-  phone: '+91 98765 43210',
-  role: 'Customer',
-  permissions: ['Products.Read', 'Orders.Create', 'Orders.Read'],
-  isActive: true
-};
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('aadhi_customer_user');
-    return saved ? JSON.parse(saved) : DEFAULT_CUSTOMER_USER;
+    return saved ? JSON.parse(saved) : null;
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -43,17 +32,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               email: profile.email,
               firstName: profile.firstName || profile.name?.split(' ')[0] || 'Customer',
               lastName: profile.lastName || '',
-              phone: profile.phone || profile.phoneNumber || '+91 98765 43210',
+              phone: profile.phone || profile.phoneNumber || '',
               role: profile.role || 'Customer',
               permissions: profile.permissions || ['Products.Read', 'Orders.Create'],
               isActive: profile.isActive !== false
             };
             setUser(mappedUser);
             localStorage.setItem('aadhi_customer_user', JSON.stringify(mappedUser));
+          } else {
+            api.logout();
+            setUser(null);
           }
         })
         .catch(() => {
-          // Token expired or server unreachable - keep cached user
+          // Token expired or invalid - clear authentication
+          api.logout();
+          setUser(null);
         });
     }
   }, []);
@@ -79,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: u.email,
           firstName: u.firstName || email.split('@')[0],
           lastName: u.lastName || '',
-          phone: u.phone || '+91 98765 43210',
+          phone: u.phone || '',
           role: u.role || 'Customer',
           permissions: u.permissions || ['Products.Read', 'Orders.Create'],
           isActive: u.isActive !== false
@@ -88,20 +82,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return true;
       }
       return false;
-    } catch {
-      // Fallback local user if backend offline
-      const fallbackUser: User = {
-        id: 'usr-cust-' + Date.now(),
-        email,
-        firstName: email.split('@')[0],
-        lastName: '',
-        phone: '+91 98765 43210',
-        role: 'Customer',
-        permissions: ['Products.Read', 'Orders.Create'],
-        isActive: true
-      };
-      setUser(fallbackUser);
-      return true;
+    } catch (error) {
+      console.error('Customer login failed:', error);
+      setUser(null);
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +111,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return true;
       }
       return false;
-    } catch {
+    } catch (error) {
+      console.error('Customer registration failed:', error);
       return false;
     } finally {
       setIsLoading(false);

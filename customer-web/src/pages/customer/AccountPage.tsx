@@ -52,10 +52,10 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
           <div>
             <div className="text-xs text-gold font-bold uppercase tracking-wider">Customer Portal</div>
             <h1 className="text-xl sm:text-2xl font-black text-white">
-              {user ? `${user.firstName} ${user.lastName}` : 'Guest Customer'}
+              {user ? `${user.firstName} ${user.lastName}`.trim() : 'Guest Customer'}
             </h1>
             <div className="text-xs text-slate-300">
-              {user?.email || 'customer@aadhicrackers.com'} • {user?.phone || '+91 98765 43210'}
+              {user ? (user.phone ? `${user.email} • ${user.phone}` : user.email) : 'Sign in to access your orders and saved profile'}
             </div>
           </div>
         </div>
@@ -67,13 +67,15 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
           >
             Shop More Fireworks
           </button>
-          <button
-            onClick={logout}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
-            title="Sign Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          {user && (
+            <button
+              onClick={logout}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 

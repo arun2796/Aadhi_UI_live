@@ -30,6 +30,17 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      localStorage.removeItem('aadhi_customer_token');
+      localStorage.removeItem('aadhi_customer_user');
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const api = {
   // AUTH
   async login(email: string, password: string): Promise<{ user: any; token: string }> {
@@ -61,16 +72,8 @@ export const api = {
   },
 
   async getMyOrders(): Promise<Order[]> {
-    try {
-      const res = await apiClient.get('/orders/my-orders');
-      if (res.data?.data && Array.isArray(res.data.data)) {
-        return res.data.data;
-      }
-      const fallback = await apiClient.get('/orders');
-      return fallback.data?.data?.items || fallback.data?.data || [];
-    } catch {
-      return [];
-    }
+    const res = await apiClient.get('/orders/my-orders');
+    return (res.data?.data && Array.isArray(res.data.data)) ? res.data.data : [];
   },
   // PRODUCTS
   async getProducts(params?: {
