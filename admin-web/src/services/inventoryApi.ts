@@ -112,8 +112,13 @@ export const inventoryApi = {
     return wrapPagedResult<StockMovement>(res.data?.data);
   },
 
-  getStockTransfers: async () => {
-    return [] as StockTransfer[];
+  getStockTransfers: async (params?: { page?: number; pageSize?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.append('page', params.page.toString());
+    if (params?.pageSize) searchParams.append('pageSize', params.pageSize.toString());
+
+    const res = await apiClient.get(`/inventory/transfers?${searchParams.toString()}`);
+    return wrapPagedResult<StockTransfer>(res.data?.data);
   },
 
   getLowStockAlerts: async (limit = 10) => {
