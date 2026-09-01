@@ -36,20 +36,16 @@ export const ErpReportsCenterModule: React.FC = () => {
   const handleExportCsv = async () => {
     setIsExporting(true);
     try {
-      // Trigger CSV export
-      const token = localStorage.getItem('aadhi_admin_token') || 'mock-admin-token-aadhi-2026';
-      const endpoint = `http://localhost:5050/api/v1/reports/export-${selectedReport}?period=${dateRange}`;
-
       showToast(`Generating ${selectedReport.toUpperCase()} CSV report...`, 'info');
-
-      // Create an invisible anchor tag to initiate browser file download
+      const blob = await api.exportCsv(selectedReport);
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/csv' }));
       const link = document.createElement('a');
-      link.href = endpoint;
+      link.href = url;
       link.setAttribute('download', `aadhi_${selectedReport}_report_${dateRange}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
+      window.URL.revokeObjectURL(url);
       showToast('CSV export downloaded successfully!', 'success');
     } catch {
       showToast('Failed to export report CSV', 'error');

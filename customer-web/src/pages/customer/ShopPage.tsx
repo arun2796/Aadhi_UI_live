@@ -54,29 +54,28 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   }, [initialSearch]);
 
   useEffect(() => {
-    api.getProducts().then(all => {
+    const params: Record<string, any> = { pageSize: 100 };
+    if (selectedCategory && selectedCategory !== 'all') {
+      params.categorySlug = selectedCategory.toLowerCase().replace(/\s+/g, '-');
+    }
+    if (selectedBrand && selectedBrand !== 'all') {
+      params.brandId = selectedBrand;
+    }
+    if (maxPrice) {
+      params.maxPrice = maxPrice;
+    }
+    if (inStockOnly) {
+      params.inStockOnly = true;
+    }
+    if (searchQuery.trim()) {
+      params.search = searchQuery.trim();
+    }
+    if (sortBy) {
+      params.sortBy = sortBy;
+    }
+
+    api.getProducts(params).then(all => {
       let list = [...all];
-
-      if (selectedCategory && selectedCategory !== 'all') {
-        list = list.filter(p => p.categoryName.toLowerCase().replace(/\s+/g, '-') === selectedCategory.toLowerCase() || p.categoryId === selectedCategory);
-      }
-
-      if (selectedBrand && selectedBrand !== 'all') {
-        list = list.filter(p => p.brandId === selectedBrand || p.brandName?.toLowerCase() === selectedBrand.toLowerCase());
-      }
-
-      if (maxPrice) {
-        list = list.filter(p => p.price <= maxPrice);
-      }
-
-      if (inStockOnly) {
-        list = list.filter(p => p.availableQuantity > 0);
-      }
-
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        list = list.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.categoryName.toLowerCase().includes(q));
-      }
 
       if (sortBy === 'price_asc') {
         list.sort((a, b) => a.price - b.price);
@@ -84,13 +83,13 @@ export const ShopPage: React.FC<ShopPageProps> = ({
         list.sort((a, b) => b.price - a.price);
       } else if (sortBy === 'new') {
         list.sort((a, b) => (b.isNewArrival ? 1 : 0) - (a.isNewArrival ? 1 : 0));
-      } else {
+      } else if (sortBy === 'popular') {
         list.sort((a, b) => (b.isBestSeller ? 1 : 0) - (a.isBestSeller ? 1 : 0));
       }
 
       setProducts(list);
     });
-  }, [selectedCategory, selectedBrand, maxPrice, inStockOnly, sortBy, searchQuery]);
+  }, [selectedCategory, selectedBrand, maxPrice, inStockOnly, searchQuery, sortBy]);
 
   const resetFilters = () => {
     setSelectedCategory('all');

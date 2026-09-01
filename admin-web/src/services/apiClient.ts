@@ -63,14 +63,29 @@ export function getApiErrorDetails(error: unknown): { message: string; correlati
   };
 }
 
-export function wrapPagedResult<T>(data?: { items?: T[]; totalCount?: number; page?: number; pageSize?: number; totalPages?: number; hasPreviousPage?: boolean; hasNextPage?: boolean }): T[] & { items: T[]; totalCount: number; page: number; pageSize: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean } {
-  const items = (data?.items || []) as T[] & { items: T[]; totalCount: number; page: number; pageSize: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean };
+export function wrapPagedResult<T>(data?: { items?: T[]; totalCount?: number; page?: number; pageNumber?: number; pageSize?: number; totalPages?: number; hasPreviousPage?: boolean; hasNextPage?: boolean } | T[]): T[] & { items: T[]; totalCount: number; page: number; pageNumber: number; pageSize: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean } {
+  if (Array.isArray(data)) {
+    const arr = [...data] as T[] & { items: T[]; totalCount: number; page: number; pageNumber: number; pageSize: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean };
+    arr.items = arr;
+    arr.totalCount = data.length;
+    arr.page = 1;
+    arr.pageNumber = 1;
+    arr.pageSize = data.length || 20;
+    arr.totalPages = 1;
+    arr.hasPreviousPage = false;
+    arr.hasNextPage = false;
+    return arr;
+  }
+
+  const items = (data?.items || []) as T[] & { items: T[]; totalCount: number; page: number; pageNumber: number; pageSize: number; totalPages: number; hasPreviousPage: boolean; hasNextPage: boolean };
+  const pageNum = data?.pageNumber ?? data?.page ?? 1;
   items.items = items;
   items.totalCount = data?.totalCount ?? items.length;
-  items.page = data?.page ?? 1;
+  items.page = pageNum;
+  items.pageNumber = pageNum;
   items.pageSize = data?.pageSize ?? 20;
-  items.totalPages = data?.totalPages ?? 1;
-  items.hasPreviousPage = data?.hasPreviousPage ?? false;
-  items.hasNextPage = data?.hasNextPage ?? false;
+  items.totalPages = data?.totalPages ?? (Math.ceil((data?.totalCount ?? items.length) / (data?.pageSize ?? 20)) || 1);
+  items.hasPreviousPage = data?.hasPreviousPage ?? (pageNum > 1);
+  items.hasNextPage = data?.hasNextPage ?? (pageNum < items.totalPages);
   return items;
 }

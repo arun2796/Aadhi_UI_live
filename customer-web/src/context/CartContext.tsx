@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, Product } from '../types';
+import { api } from '../services/api';
 
 interface CartContextType {
   items: CartItem[];
@@ -11,7 +12,7 @@ interface CartContextType {
   subtotal: number;
   discount: number;
   couponCode: string;
-  applyCoupon: (code: string) => boolean;
+  applyCoupon: (code: string) => Promise<boolean>;
   removeCoupon: () => void;
   shippingCharge: number;
   grandTotal: number;
@@ -31,11 +32,37 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [couponCode, setCouponCode] = useState<string>('');
+  const [serverDiscount, setServerDiscount] = useState<number>(0);
+  const [serverShipping, setServerShipping] = useState<number>(0);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState<boolean>(false);
 
   useEffect(() => {
     localStorage.setItem('aadhi_cart', JSON.stringify(items));
   }, [items]);
+
+  // Sync pricing with backend whenever items or coupon change
+  useEffect(() => {
+    let isMounted = true;
+    if (items.length === 0) {
+      setServerDiscount(0);
+      setServerShipping(0);
+      return;
+    }
+
+    api.calculateCart(
+      items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+      couponCode || undefined
+    ).then(calc => {
+      if (isMounted && calc) {
+        setServerDiscount(calc.discount || 0);
+        setServerShipping(calc.shippingCharge || 0);
+      }
+    }).catch(() => {
+      // Fallback
+    });
+
+    return () => { isMounted = false; };
+  }, [items, couponCode]);
 
   const addToCart = (product: Product, quantity: number = 1) => {
     const maxStock = typeof product.availableQuantity === 'number' ? product.availableQuantity : 99;
@@ -88,34 +115,38 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearCart = () => {
     setItems([]);
     setCouponCode('');
+    setServerDiscount(0);
   };
 
-  const applyCoupon = (code: string): boolean => {
+  const applyCoupon = async (code: string): Promise<boolean> => {
     const clean = code.trim().toUpperCase();
-    if (clean === 'DIWALI2026' || clean === 'WELCOME10' || clean === 'AADHI20') {
-      setCouponCode(clean);
-      return true;
+    if (!clean) return false;
+    try {
+      const calc = await api.calculateCart(
+        items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+        clean
+      );
+      if (calc && (calc.couponCode || calc.discount > 0)) {
+        setCouponCode(clean);
+        setServerDiscount(calc.discount || 0);
+        setServerShipping(calc.shippingCharge || 0);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
-    return false;
   };
 
   const removeCoupon = () => {
     setCouponCode('');
+    setServerDiscount(0);
   };
 
   const totalItems = items.reduce((acc, i) => acc + i.quantity, 0);
   const subtotal = items.reduce((acc, i) => acc + (i.lineTotal || (i.unitPrice * i.quantity)), 0);
-
-  let discount = 0;
-  if (couponCode === 'DIWALI2026') {
-    discount = Math.round(subtotal * 0.05);
-  } else if (couponCode === 'WELCOME10') {
-    discount = Math.round(subtotal * 0.10);
-  } else if (couponCode === 'AADHI20') {
-    discount = Math.round(subtotal * 0.20);
-  }
-
-  const shippingCharge = subtotal >= 3000 || subtotal === 0 ? 0 : 150;
+  const discount = serverDiscount;
+  const shippingCharge = subtotal >= 3000 || subtotal === 0 ? 0 : (serverShipping || 150);
   const grandTotal = Math.max(0, subtotal - discount + shippingCharge);
 
   return (
@@ -141,8 +172,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
-export const useCart = () => {
+export const useCart = (): CartContextType => {
   const context = useContext(CartContext);
-  if (!context) throw new Error('useCart must be used within a CartProvider');
+  if (!context) {
+    throw new Error('useCart must be used within a CartProvider');
+  }
   return context;
 };

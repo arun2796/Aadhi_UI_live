@@ -8,31 +8,45 @@ import {
   CartItem
 } from '../types';
 
-const API_BASE_URL = 'http://localhost:5050/api/v1';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5050/api/v1';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
-  timeout: 8000,
+  timeout: 15000,
   headers: {
-    'Content-Type': 'application/json',
-    'X-Correlation-ID': 'cust-' + Math.random().toString(36).substring(2, 9)
+    'Content-Type': 'application/json'
   }
+});
+
+apiClient.interceptors.request.use((config) => {
+  if (!config.headers['X-Correlation-ID']) {
+    config.headers['X-Correlation-ID'] = 'cust-' + Math.random().toString(36).substring(2, 9);
+  }
+  return config;
 });
 
 export const api = {
   // PRODUCTS
   async getProducts(params?: {
     category?: string;
+    categorySlug?: string;
     brand?: string;
+    brandId?: string;
     minPrice?: number;
     maxPrice?: number;
     inStockOnly?: boolean;
     search?: string;
     sortBy?: string;
+    page?: number;
+    pageSize?: number;
   }): Promise<Product[]> {
     try {
-      const res = await apiClient.get('/products', { params });
+      const queryParams: Record<string, any> = { ...params };
+      if (params?.category && !params.categorySlug) {
+        queryParams.categorySlug = params.category.toLowerCase().replace(/\s+/g, '-');
+      }
+      const res = await apiClient.get('/products', { params: queryParams });
       if (res.data?.data?.items) {
         return res.data.data.items.map((p: any) => ({
           id: p.id,
@@ -192,11 +206,28 @@ export const api = {
     }
   },
 
+  // CART PRICING CALCULATION
+  async calculateCart(items: Array<{ productId: string; quantity: number }>, couponCode?: string): Promise<{
+    items: Array<{ productId: string; sku: string; name: string; imageUrl?: string; unitPrice: number; quantity: number; maxStock: number; lineTotal: number }>;
+    totalItems: number;
+    subtotal: number;
+    discount: number;
+    couponCode?: string;
+    shippingCharge: number;
+    grandTotal: number;
+  }> {
+    const res = await apiClient.post('/cart/calculate', {
+      items: items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+      couponCode: couponCode || undefined
+    });
+    return res.data?.data;
+  },
+
   // LIVE ORDER CREATION & TRACKING
   async createOrder(payload: {
     shippingAddress: Address;
     items: Array<{ product: Product; quantity: number }>;
-    paymentMethod: string;
+    paymentMethod: string | number;
     couponCode?: string;
     notes?: string;
     utrNumber?: string;
@@ -214,7 +245,7 @@ export const api = {
         postalCode: payload.shippingAddress.postalCode,
         country: payload.shippingAddress.country || 'India'
       },
-      paymentMethod: 2, // UPI
+      paymentMethod: typeof payload.paymentMethod === 'number' ? payload.paymentMethod : (payload.paymentMethod === 'COD' ? 1 : 2),
       couponCode: payload.couponCode,
       notes: payload.notes,
       utrNumber: payload.utrNumber,
@@ -234,7 +265,7 @@ export const api = {
 
   async trackOrder(orderNumber: string): Promise<any> {
     try {
-      const res = await apiClient.get(`/orders/track/${orderNumber}`);
+      const res = await apiClient.get(`/orders/track/${orderNumber.trim()}`);
       return res.data?.data || null;
     } catch (error) {
       console.error(`Failed to track order ${orderNumber}:`, error);
@@ -261,3 +292,5 @@ export const api = {
     }
   }
 };
+
+export default api;

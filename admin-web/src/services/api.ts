@@ -15,7 +15,7 @@ export * from './reportApi';
 export * from './auditApi';
 export * from './settingsApi';
 
-import { apiClient, TOKEN_STORAGE_KEY, UNAUTHORIZED_EVENT, getApiErrorDetails } from './apiClient';
+import { apiClient, TOKEN_STORAGE_KEY, UNAUTHORIZED_EVENT, getApiErrorDetails, wrapPagedResult } from './apiClient';
 import { authApi } from './authApi';
 import { productApi } from './productApi';
 import { categoryApi } from './categoryApi';
@@ -119,8 +119,15 @@ export const api = {
   rejectPayment: orderApi.rejectPayment,
   getQuotes: async () => [] as Quote[],
   convertQuoteToOrder: async (quoteId: string) => ({ id: quoteId, orderNumber: `ORD-${Date.now()}` } as unknown as Order),
-  getReturns: async () => [] as ReturnOrder[],
-  updateReturnStatus: async (returnId: string, status: string, notes?: string) => ({ id: returnId, status, notes }),
+  getReturns: async (params?: { page?: number; pageSize?: number; status?: string }) => {
+    const res = await apiClient.get('/returns', { params });
+    return wrapPagedResult<ReturnOrder>(res.data?.data);
+  },
+  updateReturnStatus: async (returnId: string, status: string, notes?: string) => {
+    const action = status === 'Approved' ? 'approve' : (status === 'Received' ? 'receive' : 'inspect');
+    const res = await apiClient.post(`/returns/${returnId}/${action}`, { notes });
+    return res.data?.data;
+  },
 
   // Customers
   getCustomers: customerApi.getCustomers,
@@ -144,7 +151,10 @@ export const api = {
   createPurchaseOrder: async (data: any) => purchaseApi.createPurchaseOrder(data),
   createGoodsReceipt: purchaseApi.createGoodsReceipt,
   getGoodsReceivedNotes: async () => [] as GoodsReceipt[],
-  getSupplierBills: async () => [] as SupplierBill[],
+  getSupplierBills: async (params?: { page?: number; pageSize?: number; supplierId?: string; status?: string }) => {
+    const res = await apiClient.get('/supplier-bills', { params });
+    return wrapPagedResult<SupplierBill>(res.data?.data);
+  },
 
   // Invoices & Payments
   getInvoices: invoiceApi.getInvoices,
@@ -178,13 +188,28 @@ export const api = {
       netProfitMarginPercentage: raw?.netMarginPercentage ?? 0
     };
   },
-  getReceivables: async () => [] as ReceivableItem[],
-  getPayables: async () => [] as PayableItem[],
+  getReceivables: async (params?: any) => {
+    const res = await apiClient.get('/invoices', { params: { ...params, status: 'Issued' } });
+    return (res.data?.data?.items || res.data?.data || []) as ReceivableItem[];
+  },
+  getPayables: async (params?: any) => {
+    const res = await apiClient.get('/supplier-bills', { params: { ...params, status: 'Issued' } });
+    return (res.data?.data?.items || res.data?.data || []) as PayableItem[];
+  },
 
   // Marketing & Coupons
-  getCoupons: async () => [] as Coupon[],
-  createCoupon: async (coupon: Partial<Coupon>) => ({ id: `CPN-${Date.now()}`, ...coupon } as unknown as Coupon),
-  deleteCoupon: async (id: string) => true,
+  getCoupons: async (params?: { page?: number; pageSize?: number; search?: string }) => {
+    const res = await apiClient.get('/promotions', { params });
+    return wrapPagedResult<Coupon>(res.data?.data);
+  },
+  createCoupon: async (coupon: Partial<Coupon>) => {
+    const res = await apiClient.post('/promotions', coupon);
+    return res.data?.data as Coupon;
+  },
+  deleteCoupon: async (id: string) => {
+    const res = await apiClient.delete(`/promotions/${id}`);
+    return res.data?.data ?? true;
+  },
 
   // Reports
   getDashboardKpis: reportApi.getDashboardKpis,

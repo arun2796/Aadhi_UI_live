@@ -32,8 +32,12 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
   const [orders, setOrders] = useState<Order[]>([]);
 
   useEffect(() => {
-    api.getOrders().then(setOrders);
-  }, []);
+    if (user?.id) {
+      api.getCustomerOrders(user.id).then(setOrders);
+    } else {
+      api.getOrders().then(setOrders);
+    }
+  }, [user]);
 
   const handleMoveToCart = (product: any) => {
     addToCart(product, 1);

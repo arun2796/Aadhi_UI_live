@@ -16,6 +16,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { Address, Order } from '../../types';
 import { triggerFireworksConfetti } from '../../components/common/CommonComponents';
@@ -26,6 +27,7 @@ interface CheckoutPageProps {
 }
 
 export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
+  const { user } = useAuth();
   const { items, subtotal, discount, couponCode, shippingCharge, grandTotal, clearCart } = useCart();
   const { showToast } = useToast();
 
@@ -34,16 +36,40 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
 
   // Address form
-  const [address, setAddress] = useState<Address>({
-    fullName: 'Arun Kumar',
-    phone: '+91 98765 43210',
-    addressLine1: '123, West Cross Street, Sivanandapuram',
-    addressLine2: 'Near Saravanampatti Junction',
-    city: 'Coimbatore',
+  const [address, setAddress] = useState<Address>(() => ({
+    fullName: user ? `${user.firstName} ${user.lastName}`.trim() : '',
+    phone: user?.phone || '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
     state: 'Tamil Nadu',
-    postalCode: '641012',
+    postalCode: '',
     country: 'India'
-  });
+  }));
+
+  const handleContinueToPayment = () => {
+    if (!address.fullName.trim()) {
+      showToast('Please enter your full name', 'error');
+      return;
+    }
+    if (!address.phone.trim() || address.phone.replace(/\D/g, '').length < 10) {
+      showToast('Please enter a valid 10-digit mobile number', 'error');
+      return;
+    }
+    if (!address.addressLine1.trim()) {
+      showToast('Please enter your delivery street address', 'error');
+      return;
+    }
+    if (!address.city.trim()) {
+      showToast('Please enter your city', 'error');
+      return;
+    }
+    if (!address.postalCode.trim() || address.postalCode.length < 6) {
+      showToast('Please enter a valid 6-digit PIN code', 'error');
+      return;
+    }
+    setStep(2);
+  };
 
   // UPI Payment Proof States
   const [copiedUpi, setCopiedUpi] = useState(false);
@@ -347,7 +373,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
 
                 <div className="pt-4 flex justify-end">
                   <button
-                    onClick={() => setStep(2)}
+                    onClick={handleContinueToPayment}
                     className="px-6 py-3 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider flex items-center space-x-2 shadow-glow"
                   >
                     <span>Continue to UPI Payment</span>
