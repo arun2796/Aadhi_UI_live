@@ -11,7 +11,8 @@ import {
   Award,
   Eye,
   EyeOff,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
 import { Order } from '../../types';
 import { api } from '../../services/api';
@@ -77,7 +78,7 @@ const PasswordInput: React.FC<{
    Left sidebar card + main panel (dashboard / profile / password).
    ───────────────────────────────────────────────────────────── */
 export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
-  const { user, logout, rewardPoints } = useAuth();
+  const { user, logout, rewardPoints, updateProfile } = useAuth();
   const { wishlist } = useWishlist();
   const { showToast } = useToast();
 
@@ -91,6 +92,22 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changing, setChanging] = useState(false);
+
+  // Editable profile fields
+  const [profileFirstName, setProfileFirstName] = useState(user?.firstName || '');
+  const [profileLastName, setProfileLastName] = useState(user?.lastName || '');
+  const [profilePhone, setProfilePhone] = useState(user?.phone || '');
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // Re-seed the profile form whenever the Profile panel is opened.
+  useEffect(() => {
+    if (panel === 'profile' && user) {
+      setProfileFirstName(user.firstName || '');
+      setProfileLastName(user.lastName || '');
+      setProfilePhone(user.phone || '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel]);
 
   useEffect(() => {
     if (!user) return;
@@ -169,6 +186,28 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
       showToast(getErrorMessage(error, 'Could not change password. Please try again.'), 'error');
     } finally {
       setChanging(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    const firstName = profileFirstName.trim();
+    const lastName = profileLastName.trim();
+    const phone = profilePhone.trim();
+    if (!firstName) return showToast('First name is required', 'error');
+    if (phone && !/^\d{10}$/.test(phone)) return showToast('Phone number must be exactly 10 digits', 'error');
+
+    setSavingProfile(true);
+    try {
+      const ok = await updateProfile({ firstName, lastName, phone });
+      if (ok) {
+        showToast('Profile updated successfully', 'success');
+      } else {
+        showToast('Could not update profile. Please try again.', 'error');
+      }
+    } catch (error: any) {
+      showToast(getErrorMessage(error, 'Could not update profile. Please try again.'), 'error');
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -399,37 +438,78 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
           {panel === 'profile' && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-card p-6">
               <h1 className="text-xl font-black text-navy">Profile</h1>
-              <p className="text-sm text-slate-500 mt-1">Your personal details</p>
+              <p className="text-sm text-slate-500 mt-1">Update your personal details</p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 max-w-2xl">
-                <div>
-                  <FieldLabel>First Name</FieldLabel>
-                  <input type="text" value={user.firstName} readOnly className={readOnlyInputClass} />
+              <form
+                className="mt-6 max-w-2xl"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSaveProfile();
+                }}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <FieldLabel>First Name</FieldLabel>
+                    <input
+                      type="text"
+                      value={profileFirstName}
+                      onChange={(e) => setProfileFirstName(e.target.value)}
+                      placeholder="First name"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Last Name</FieldLabel>
+                    <input
+                      type="text"
+                      value={profileLastName}
+                      onChange={(e) => setProfileLastName(e.target.value)}
+                      placeholder="Last name"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <FieldLabel>Email Address</FieldLabel>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        value={user.email || ''}
+                        readOnly
+                        disabled
+                        className={`${readOnlyInputClass} pr-11 bg-slate-100 text-slate-500 cursor-not-allowed`}
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1.5">Email cannot be changed</p>
+                  </div>
+                  <div>
+                    <FieldLabel>Phone Number</FieldLabel>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      value={profilePhone}
+                      onChange={(e) => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      placeholder="10-digit mobile number"
+                      className={inputClass}
+                    />
+                    {profilePhone.length > 0 && profilePhone.length !== 10 && (
+                      <p className="text-[11px] font-semibold text-red-500 mt-1.5">
+                        Phone number must be exactly 10 digits
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <FieldLabel>Last Name</FieldLabel>
-                  <input type="text" value={user.lastName || '—'} readOnly className={readOnlyInputClass} />
-                </div>
-                <div>
-                  <FieldLabel>Email Address</FieldLabel>
-                  <input type="email" value={user.email || '—'} readOnly className={readOnlyInputClass} />
-                </div>
-                <div>
-                  <FieldLabel>Phone Number</FieldLabel>
-                  <input type="tel" value={user.phone || '—'} readOnly className={readOnlyInputClass} />
-                </div>
-              </div>
 
-              <p className="text-xs text-slate-400 mt-5">
-                To update your profile details, please{' '}
                 <button
-                  onClick={() => onNavigate('contact')}
-                  className="font-bold text-purple hover:text-purple-dark"
+                  type="submit"
+                  disabled={savingProfile}
+                  className="mt-6 px-6 py-3 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-sm shadow-md shadow-purple/25 transition-colors disabled:opacity-60 flex items-center space-x-2"
                 >
-                  contact support
+                  {savingProfile && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>Save Changes</span>
                 </button>
-                .
-              </p>
+              </form>
             </div>
           )}
 

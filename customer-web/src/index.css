@@ -79,6 +79,23 @@ h1, h2, h3, h4, h5, h6 {
   40%, 80% { transform: translateX(6px); }
 }
 
+/* Continuous left-to-right marquee (Shop by Category). The track holds the
+   list twice; animating from -50% to 0 makes items flow rightward seamlessly. */
+@keyframes aadhi-marquee-ltr {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
+}
+
+.animate-marquee-ltr {
+  animation: aadhi-marquee-ltr 28s linear infinite;
+  will-change: transform;
+}
+
+.animate-marquee-ltr:hover,
+.animate-marquee-ltr:active {
+  animation-play-state: paused;
+}
+
 .animate-fade-in { animation: aadhi-fade-in 0.35s ease-out both; }
 .animate-slide-in { animation: aadhi-slide-in 0.3s ease-out both; }
 .animate-scale-up { animation: aadhi-scale-up 0.3s ease-out both; }

@@ -12,6 +12,8 @@ interface AuthContextType {
   login: (identifier: string, password: string) => Promise<boolean>;
   loginWithFirebase: (firebaseData: { idToken: string; email?: string; displayName?: string; photoUrl?: string; phoneNumber?: string }) => Promise<boolean>;
   register: (data: { firstName: string; lastName: string; email: string; phone: string; password: string }) => Promise<boolean>;
+  /** Updates the profile (first/last name, phone) on the server; returns true on success. */
+  updateProfile: (data: { firstName: string; lastName?: string; phone?: string }) => Promise<boolean>;
   logout: () => void;
   toggleUserRole: () => void;
 }
@@ -157,6 +159,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateProfile = async (data: { firstName: string; lastName?: string; phone?: string }): Promise<boolean> => {
+    try {
+      const profile = await api.updateProfile(data);
+      if (profile) {
+        const updatedUser: User = {
+          id: profile.id || user?.id || '',
+          email: profile.email || user?.email || '',
+          firstName: profile.firstName || data.firstName,
+          lastName: profile.lastName ?? data.lastName ?? '',
+          phone: profile.phone || data.phone || '',
+          role: profile.role || user?.role || 'Customer',
+          permissions: profile.permissions || user?.permissions || ['Products.Read', 'Orders.Create'],
+          isActive: profile.isActive !== false
+        };
+        setUser(updatedUser);
+        if (typeof profile.rewardPoints === 'number') setRewardPoints(profile.rewardPoints);
+        localStorage.setItem('aadhi_customer_user', JSON.stringify(updatedUser));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Profile update failed:', error);
+      throw error;
+    }
+  };
+
   const logout = () => {
     api.logout();
     setUser(null);
@@ -165,7 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleUserRole = () => {};
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, isLoading, rewardPoints, login, loginWithFirebase, register, logout, toggleUserRole }}>
+    <AuthContext.Provider value={{ user, isAdmin, isLoading, rewardPoints, login, loginWithFirebase, register, updateProfile, logout, toggleUserRole }}>
       {children}
     </AuthContext.Provider>
   );

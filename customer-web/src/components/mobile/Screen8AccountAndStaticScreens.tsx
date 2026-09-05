@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Lock,
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -66,12 +67,55 @@ const ModalPasswordField: React.FC<{
 
 /** Design 15: Profile / Account page — navy header + menu list. */
 export const Screen8Account: React.FC<Screen8AccountProps> = ({ onNavigate }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateProfile } = useAuth();
   const { showToast } = useToast();
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // Editable profile form state
+  const [profileFirstName, setProfileFirstName] = useState('');
+  const [profileLastName, setProfileLastName] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const toggleProfileOpen = () => {
+    setProfileOpen((open) => {
+      if (!open && user) {
+        // Seed the form from the current user each time the section opens.
+        setProfileFirstName(user.firstName || '');
+        setProfileLastName(user.lastName || '');
+        setProfilePhone(user.phone || '');
+      }
+      return !open;
+    });
+  };
+
+  const handleSaveProfile = async () => {
+    const firstName = profileFirstName.trim();
+    const lastName = profileLastName.trim();
+    const phone = profilePhone.trim();
+    if (!firstName) return showToast('First name is required', 'error');
+    if (phone && !/^\d{10}$/.test(phone)) return showToast('Phone number must be exactly 10 digits', 'error');
+
+    setSavingProfile(true);
+    try {
+      const ok = await updateProfile({ firstName, lastName, phone });
+      if (ok) {
+        showToast('Profile updated successfully', 'success');
+      } else {
+        showToast('Could not update profile. Please try again.', 'error');
+      }
+    } catch (error: any) {
+      showToast(
+        error?.response?.data?.message || error?.message || 'Could not update profile. Please try again.',
+        'error'
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   // Change-password modal state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -128,7 +172,7 @@ export const Screen8Account: React.FC<Screen8AccountProps> = ({ onNavigate }) =>
     danger?: boolean;
     expandable?: boolean;
   }> = [
-    { label: 'My Profile', icon: User, expandable: true, action: requireAuth(() => setProfileOpen((o) => !o)) },
+    { label: 'My Profile', icon: User, expandable: true, action: requireAuth(toggleProfileOpen) },
     { label: 'My Orders', icon: CalendarDays, action: () => onNavigate('my-orders') },
     { label: 'Wishlist', icon: Heart, action: () => onNavigate('wishlist') },
     { label: 'Addresses', icon: MapPin, action: () => onNavigate('addresses') },
@@ -210,19 +254,71 @@ export const Screen8Account: React.FC<Screen8AccountProps> = ({ onNavigate }) =>
                   )}
                 </button>
 
-                {/* Inline expandable My Profile details */}
+                {/* Inline expandable My Profile — editable form */}
                 {isProfile && profileOpen && user && (
-                  <div className="px-4 py-3.5 bg-slate-50/70 space-y-2.5 animate-fade-in">
-                    {[
-                      { label: 'Full Name', value: `${user.firstName} ${user.lastName}`.trim() },
-                      { label: 'Mobile Number', value: user.phone || '—' },
-                      { label: 'Email', value: user.email || '—' }
-                    ].map((row) => (
-                      <div key={row.label} className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400 font-medium">{row.label}</span>
-                        <span className="font-bold text-navy text-right truncate max-w-[60%]">{row.value}</span>
+                  <div className="px-4 py-3.5 bg-slate-50/70 space-y-3 animate-fade-in">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 mb-1">First Name</label>
+                        <input
+                          type="text"
+                          value={profileFirstName}
+                          onChange={(e) => setProfileFirstName(e.target.value)}
+                          placeholder="First name"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs text-navy font-semibold placeholder:text-slate-300 focus:outline-none focus:border-purple focus:ring-2 focus:ring-purple/15 transition-colors"
+                        />
                       </div>
-                    ))}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-500 mb-1">Last Name</label>
+                        <input
+                          type="text"
+                          value={profileLastName}
+                          onChange={(e) => setProfileLastName(e.target.value)}
+                          placeholder="Last name"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs text-navy font-semibold placeholder:text-slate-300 focus:outline-none focus:border-purple focus:ring-2 focus:ring-purple/15 transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Mobile Number</label>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={profilePhone}
+                        onChange={(e) => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="10-digit mobile number"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs text-navy font-semibold placeholder:text-slate-300 focus:outline-none focus:border-purple focus:ring-2 focus:ring-purple/15 transition-colors"
+                      />
+                      {profilePhone.length > 0 && profilePhone.length !== 10 && (
+                        <p className="mt-1 text-[10px] font-semibold text-red-500">Phone number must be exactly 10 digits</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">Email</label>
+                      <div className="relative">
+                        <input
+                          type="email"
+                          value={user.email || ''}
+                          readOnly
+                          disabled
+                          className="w-full px-3 py-2.5 pr-9 rounded-xl border border-slate-200 bg-slate-100 text-xs text-slate-500 font-semibold cursor-not-allowed"
+                        />
+                        <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <p className="mt-1 text-[10px] text-slate-400 font-medium">Email cannot be changed</p>
+                    </div>
+
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={savingProfile}
+                      className="w-full py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/25 transition-colors disabled:opacity-60 flex items-center justify-center space-x-2"
+                    >
+                      {savingProfile && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Save Changes</span>
+                    </button>
                   </div>
                 )}
               </React.Fragment>

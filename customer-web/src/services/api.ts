@@ -89,6 +89,14 @@ export const api = {
     return res.data?.data;
   },
 
+  async updateProfile(data: { firstName: string; lastName?: string; phone?: string }): Promise<any> {
+    const res = await apiClient.put('/auth/me', data);
+    if (res.data?.data) {
+      return res.data.data;
+    }
+    throw new Error(res.data?.message || 'Failed to update profile');
+  },
+
   logout(): void {
     localStorage.removeItem('aadhi_customer_token');
     localStorage.removeItem('aadhi_customer_user');

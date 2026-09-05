@@ -147,11 +147,19 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
           <div className="absolute -right-8 -top-10 w-36 h-36 rounded-full bg-orange/20 blur-2xl pointer-events-none" />
           <div className="absolute right-6 bottom-8 w-20 h-20 rounded-full bg-purple/40 blur-xl pointer-events-none" />
 
-          {/* right hero graphic */}
+          {/* right hero graphic — brand logo (public/logo.png); falls back to fireworks art */}
           <img
-            src="https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=500&auto=format&fit=crop&q=80"
-            alt="Fireworks celebration"
-            className="absolute right-0 top-0 h-full w-2/5 object-cover opacity-45 pointer-events-none [mask-image:linear-gradient(to_left,black_55%,transparent)]"
+            src="/logo.png"
+            alt="Aadhi Crackers"
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (!img.src.includes('unsplash')) {
+                img.src = 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=500&auto=format&fit=crop&q=80';
+                img.className =
+                  'absolute right-0 top-0 h-full w-2/5 object-cover opacity-45 pointer-events-none [mask-image:linear-gradient(to_left,black_55%,transparent)]';
+              }
+            }}
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-[92%] w-2/5 object-contain pointer-events-none drop-shadow-[0_0_18px_rgba(255,176,0,0.35)]"
           />
 
           <div className="relative z-10 space-y-2 max-w-[230px]">
@@ -224,29 +232,34 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
           </button>
         </div>
 
-        <div
-          className="flex overflow-x-auto gap-4 px-4 pb-1 snap-x [&::-webkit-scrollbar]:hidden"
-          style={{ scrollbarWidth: 'none' }}
-        >
-          {(categories.length > 0 ? categories : FALLBACK_CATEGORIES).map((c) => (
-            <button
-              key={c.id || c.slug}
-              onClick={() => onNavigate('category', { category: c.slug })}
-              className="flex flex-col items-center flex-shrink-0 w-[68px] snap-start group"
-            >
-              <div className="w-16 h-16 rounded-full bg-navy border-2 border-orange/50 shadow-md overflow-hidden group-active:scale-95 transition-transform">
-                <img
-                  src={c.imageUrl || FALLBACK_CATEGORY_IMG}
-                  alt={c.name}
-                  className="w-full h-full object-cover opacity-90"
-                  loading="lazy"
-                />
+        {/* Auto-scrolling marquee (left → right); pauses while pressed. */}
+        <div className="overflow-hidden pb-1">
+          <div className="flex w-max animate-marquee-ltr">
+            {[0, 1].map((dup) => (
+              <div key={dup} className="flex gap-4 pr-4 pl-4" aria-hidden={dup === 1}>
+                {(categories.length > 0 ? categories : FALLBACK_CATEGORIES).map((c) => (
+                  <button
+                    key={`${dup}-${c.id || c.slug}`}
+                    onClick={() => onNavigate('category', { category: c.slug })}
+                    tabIndex={dup === 1 ? -1 : 0}
+                    className="flex flex-col items-center flex-shrink-0 w-[68px] group"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-navy border-2 border-orange/50 shadow-md overflow-hidden group-active:scale-95 transition-transform">
+                      <img
+                        src={c.imageUrl || FALLBACK_CATEGORY_IMG}
+                        alt={c.name}
+                        className="w-full h-full object-cover opacity-90"
+                        loading="lazy"
+                      />
+                    </div>
+                    <span className="text-[9.5px] font-bold text-slate-700 mt-1.5 leading-tight text-center line-clamp-2">
+                      {c.name}
+                    </span>
+                  </button>
+                ))}
               </div>
-              <span className="text-[9.5px] font-bold text-slate-700 mt-1.5 leading-tight text-center line-clamp-2">
-                {c.name}
-              </span>
-            </button>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 

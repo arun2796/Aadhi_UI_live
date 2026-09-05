@@ -26,8 +26,10 @@ interface HomePageProps {
 const HERO_SLIDES = [
   {
     badge: 'Sivakasi’s Most Trusted Fireworks Portal',
-    image: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=900&auto=format&fit=crop&q=80',
-    imageAlt: 'Festive fireworks celebration'
+    // Brand logo (drop the artwork into public/logo.png); falls back to fireworks art.
+    image: '/logo.png',
+    fallbackImage: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=900&auto=format&fit=crop&q=80',
+    imageAlt: 'Aadhi Crackers'
   },
   {
     badge: 'Festival Gift Boxes for the Whole Family',
@@ -166,7 +168,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   <img
                     src={slide.image}
                     alt={slide.imageAlt}
-                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const fallback = (slide as any).fallbackImage;
+                      if (fallback && e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                    }}
+                    className={slide.image === '/logo.png' ? 'w-full h-full object-contain' : 'w-full h-full object-cover'}
                   />
                 </div>
               </div>
@@ -226,26 +232,33 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
-          {categories.map((c) => (
-            <div
-              key={c.id}
-              onClick={() => onNavigate('shop', { category: c.slug })}
-              className="group flex flex-col items-center text-center cursor-pointer p-3 rounded-2xl bg-white border border-slate-100 hover:border-orange/30 shadow-xs hover:shadow-md transition-all transform hover:-translate-y-1"
-            >
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-2.5 p-1 border-2 border-orange/20 group-hover:border-orange transition-colors">
-                <img
-                  src={c.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
-                  alt={c.name}
-                  className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-300"
-                />
+        {/* Auto-scrolling marquee (left → right); pauses on hover. */}
+        <div className="overflow-hidden">
+          <div className="flex w-max animate-marquee-ltr">
+            {[0, 1].map((dup) => (
+              <div key={dup} className="flex gap-4 pr-4" aria-hidden={dup === 1}>
+                {categories.map((c) => (
+                  <div
+                    key={`${dup}-${c.id}`}
+                    onClick={() => onNavigate('shop', { category: c.slug })}
+                    className="group flex flex-col items-center text-center cursor-pointer p-3 w-32 flex-shrink-0 rounded-2xl bg-white border border-slate-100 hover:border-orange/30 shadow-xs hover:shadow-md transition-all transform hover:-translate-y-1"
+                  >
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-2.5 p-1 border-2 border-orange/20 group-hover:border-orange transition-colors">
+                      <img
+                        src={c.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+                        alt={c.name}
+                        className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-300"
+                      />
+                    </div>
+                    <h4 className="font-bold text-xs text-slate-800 group-hover:text-orange transition-colors">
+                      {c.name}
+                    </h4>
+                    <span className="text-[10px] text-slate-400">{c.productCount} Items</span>
+                  </div>
+                ))}
               </div>
-              <h4 className="font-bold text-xs text-slate-800 group-hover:text-orange transition-colors">
-                {c.name}
-              </h4>
-              <span className="text-[10px] text-slate-400">{c.productCount} Items</span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
