@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, ShoppingBag, Eye, Check, ShieldCheck, Sparkles } from 'lucide-react';
+import { Heart, ShoppingBag, Eye, Check } from 'lucide-react';
 import { Product } from '../../types';
 import { RatingStars } from '../common/CommonComponents';
 import { useCart } from '../../context/CartContext';
@@ -21,6 +21,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
   const cartItem = items.find(i => i.productId === product.id);
   const isOutOfStock = product.availableQuantity <= 0;
 
+  const discountPct =
+    product.discountPercentage && product.discountPercentage > 0
+      ? Math.round(product.discountPercentage)
+      : product.compareAtPrice && product.compareAtPrice > product.price
+      ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
+      : 0;
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isOutOfStock) return;
@@ -39,7 +46,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
       onClick={() => onNavigate('product-detail', { slug: product.slug })}
       className="group bg-white rounded-2xl border border-slate-100 shadow-card hover:shadow-card-hover transition-all duration-300 flex flex-col overflow-hidden cursor-pointer relative transform hover:-translate-y-1"
     >
-      {/* Top Badges & Actions */}
+      {/* Image, Ribbon & Actions */}
       <div className="relative aspect-square w-full bg-slate-50 overflow-hidden">
         <img
           src={product.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
@@ -47,23 +54,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
           className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-500"
         />
 
-        {/* Discount Badge */}
-        {product.discountPercentage && product.discountPercentage > 0 && (
-          <div className="absolute top-3 left-3 bg-red-600 text-white text-[11px] font-black px-2.5 py-1 rounded-lg shadow-md uppercase tracking-wider">
-            {product.discountPercentage}% OFF
-          </div>
-        )}
-
-        {/* Best Seller / New Badge */}
+        {/* BESTSELLER red ribbon */}
         {product.isBestSeller && (
-          <div className="absolute top-3 right-11 bg-orange text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm uppercase">
-            Best Seller
+          <div className="absolute top-3 left-0 bg-red-600 text-white text-[10px] font-black px-3 py-1 rounded-r-lg shadow-md uppercase tracking-wider">
+            Bestseller
           </div>
         )}
 
         {/* Wishlist Button */}
         <button
           onClick={handleToggleWishlist}
+          aria-label={inWish ? 'Remove from wishlist' : 'Add to wishlist'}
           className={`absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-md ${
             inWish ? 'bg-red-50 text-red-500' : 'bg-white/90 text-slate-400 hover:text-red-500 hover:bg-white'
           }`}
@@ -97,49 +98,46 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
             {product.name}
           </h3>
 
+          {/* Price row: price + strikethrough MRP + orange % OFF */}
+          <div className="flex items-baseline flex-wrap gap-x-1.5 mb-1.5">
+            <span className="text-base sm:text-lg font-black text-navy">
+              ₹{product.price.toLocaleString('en-IN')}
+            </span>
+            {product.compareAtPrice && product.compareAtPrice > product.price && (
+              <span className="text-xs text-slate-400 line-through">
+                ₹{product.compareAtPrice.toLocaleString('en-IN')}
+              </span>
+            )}
+            {discountPct > 0 && (
+              <span className="text-xs font-bold text-orange">{discountPct}% OFF</span>
+            )}
+          </div>
+
+          {/* Star rating + count */}
           {(product.rating || product.reviewCount) ? (
             <div className="mb-2">
               <RatingStars rating={product.rating || 0} reviewCount={product.reviewCount || 0} size="w-3.5 h-3.5" />
             </div>
           ) : null}
 
-          {/* Short Specs / Bullet */}
-          {product.shortDescription && (
-            <p className="text-xs text-slate-500 line-clamp-1 mb-3">
-              {product.shortDescription}
-            </p>
+          {product.availableQuantity <= 5 && product.availableQuantity > 0 && (
+            <span className="text-[10px] text-red-600 font-semibold">
+              Only {product.availableQuantity} left!
+            </span>
           )}
         </div>
 
-        {/* Price & Add to Cart */}
-        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-          <div>
-            <div className="flex items-baseline space-x-1.5">
-              <span className="text-base sm:text-lg font-black text-navy">
-                ₹{product.price.toLocaleString('en-IN')}
-              </span>
-              {product.compareAtPrice && product.compareAtPrice > product.price && (
-                <span className="text-xs text-slate-400 line-through">
-                  ₹{product.compareAtPrice.toLocaleString('en-IN')}
-                </span>
-              )}
-            </div>
-            {product.availableQuantity <= 5 && product.availableQuantity > 0 && (
-              <span className="text-[10px] text-red-600 font-semibold">
-                Only {product.availableQuantity} left!
-              </span>
-            )}
-          </div>
-
+        {/* Purple-outline Add to Cart */}
+        <div className="pt-3 mt-2 border-t border-slate-100">
           <button
             onClick={handleAddToCart}
             disabled={isOutOfStock}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm ${
+            className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all ${
               isOutOfStock
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                 : cartItem
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'bg-orange hover:bg-orange-hover text-white'
+                ? 'bg-purple text-white border border-purple hover:bg-purple-dark'
+                : 'bg-white text-purple border-[1.5px] border-purple hover:bg-purple hover:text-white'
             }`}
           >
             {cartItem ? (
@@ -150,7 +148,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
             ) : (
               <>
                 <ShoppingBag className="w-3.5 h-3.5" />
-                <span>Add</span>
+                <span>{isOutOfStock ? 'Out of Stock' : 'Add to Cart'}</span>
               </>
             )}
           </button>

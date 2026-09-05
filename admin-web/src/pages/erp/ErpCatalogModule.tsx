@@ -1,31 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Package,
   Layers,
   Plus,
   Search,
-  Filter,
   Edit2,
   Trash2,
   Image as ImageIcon,
   Sparkles,
-  Tag,
   Star,
-  CheckCircle,
   XCircle,
-  AlertCircle,
-  Eye,
-  ArrowUpDown,
-  Upload,
   RefreshCw,
   Gift,
-  Boxes,
-  ShieldCheck,
-  Percent
+  Filter,
+  ChevronRight
 } from 'lucide-react';
-import { Product, Category, Brand, GiftBox, ComboOffer, ProductReview, HomepageBanner } from '../../types';
-import { api } from '../../services/api';
+import { Product, Category, GiftBox, ComboOffer, ProductReview, HomepageBanner } from '../../types';
+import { api, getApiErrorDetails } from '../../services/api';
+import { flattenCategories } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
+import { Pagination } from '../../components/common/Pagination';
+import { ErpConfirmDialog } from './ErpConfirmDialog';
+
+const PRODUCTS_PAGE_SIZE = 10;
+const CATEGORIES_PAGE_SIZE = 8;
 
 interface ErpCatalogModuleProps {
   initialSubTab?: 'products' | 'categories' | 'combos' | 'reviews' | 'banners';
@@ -38,26 +37,34 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   initialSelectedProductId,
   initialSelectedCategoryId
 }) => {
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [subTab, setSubTab] = useState<'products' | 'categories' | 'combos' | 'reviews' | 'banners'>(initialSubTab);
 
-  // Products state
+  // Products state (server-side paged)
   const [products, setProducts] = useState<Product[]>([]);
+  const [productsTotal, setProductsTotal] = useState(0);
+  const [productsPage, setProductsPage] = useState(1);
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [deleteProductTarget, setDeleteProductTarget] = useState<Product | null>(null);
+
+  // Categories state (flattened: top-level + sub-categories)
   const [categories, setCategories] = useState<Category[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [categoriesPage, setCategoriesPage] = useState(1);
+  const [deleteCategoryTarget, setDeleteCategoryTarget] = useState<Category | null>(null);
+
+  // Other catalog data
   const [giftBoxes, setGiftBoxes] = useState<GiftBox[]>([]);
   const [combos, setCombos] = useState<ComboOffer[]>([]);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [banners, setBanners] = useState<HomepageBanner[]>([]);
-
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
-
-  // Product Creation / Edit Modal state (Multi-step Form)
-  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
-  const [productFormStep, setProductFormStep] = useState(1);
-  const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
 
   // Category Modal state
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -70,21 +77,36 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     isActive: true
   });
 
-  const loadData = async () => {
+  const loadProducts = async () => {
+    setIsProductsLoading(true);
+    try {
+      const res = await api.getProducts({
+        page: productsPage,
+        pageSize: PRODUCTS_PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        categoryId: selectedCategoryFilter !== 'all' ? selectedCategoryFilter : undefined
+      });
+      setProducts([...res]);
+      setProductsTotal(res.totalCount);
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to load products', 'error');
+    } finally {
+      setIsProductsLoading(false);
+    }
+  };
+
+  const loadAuxData = async () => {
     setIsLoading(true);
     try {
-      const [prods, cats, brs, gbs, cmbs, revs, bans] = await Promise.all([
-        api.getProducts(),
+      const [cats, gbs, cmbs, revs, bans] = await Promise.all([
         api.getCategories(true),
-        api.getBrands(),
         api.getGiftBoxes(),
         api.getComboOffers(),
         api.getProductReviews(),
         api.getHomepageBanners()
       ]);
-      setProducts(prods);
-      setCategories(cats);
-      setBrands(brs);
+      setCategories(flattenCategories(cats || []));
       setGiftBoxes(gbs);
       setCombos(cmbs);
       setReviews(revs);
@@ -96,44 +118,97 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     }
   };
 
+  const loadData = async () => {
+    await Promise.all([loadAuxData(), loadProducts()]);
+  };
+
   useEffect(() => {
-    loadData();
+    loadAuxData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Filtered Products
-  const filteredProducts = products.filter((p) => {
-    const matchesSearch =
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.sku.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory =
-      selectedCategoryFilter === 'all' ||
-      p.categoryId === selectedCategoryFilter ||
-      p.categoryName?.toLowerCase() === selectedCategoryFilter.toLowerCase();
-    return matchesSearch && matchesCategory;
-  });
+  // Debounce product search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setProductsPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-  // Handle Product Save (Multi-Step Form)
-  const handleSaveProduct = async () => {
-    if (!editingProduct?.name || !editingProduct?.sku || !editingProduct?.price) {
-      showToast('Please fill in required fields (Name, SKU, Price)', 'warning');
-      return;
-    }
+  useEffect(() => {
+    loadProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productsPage, debouncedSearch, selectedCategoryFilter]);
 
-    try {
-      if (editingProduct.id) {
-        await api.updateProduct(editingProduct.id, editingProduct);
-        showToast('Product updated successfully!', 'success');
-      } else {
-        await api.createProduct(editingProduct);
-        showToast('Product created successfully!', 'success');
-      }
-      setIsProductModalOpen(false);
-      setEditingProduct(null);
-      loadData();
-    } catch {
-      showToast('Error saving product', 'error');
+  // Deep link: /admin/products/:id → dedicated edit page
+  useEffect(() => {
+    if (initialSelectedProductId) {
+      navigate(`/admin/products/${initialSelectedProductId}/edit`, { replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedProductId]);
+
+  // Deep link: /admin/categories/:id → open the category editor once categories are loaded
+  const categoryDeepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (!initialSelectedCategoryId || categoryDeepLinkHandled.current || categories.length === 0) return;
+    categoryDeepLinkHandled.current = true;
+    const cat = categories.find((c) => c.id === initialSelectedCategoryId);
+    if (cat) {
+      setSubTab('categories');
+      setCategoryFormData({ ...cat });
+      setIsCategoryModalOpen(true);
+    } else {
+      showToast('Category not found', 'warning');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedCategoryId, categories]);
+
+  // Category lookups
+  const categoryById = useMemo(() => {
+    const map = new Map<string, Category>();
+    categories.forEach((c) => map.set(c.id, c));
+    return map;
+  }, [categories]);
+
+  const topLevelCategories = useMemo(() => categories.filter((c) => !c.parentCategoryId), [categories]);
+
+  /** Resolves Category / Sub Category display cells for a product row. */
+  const resolveCategoryCells = (p: Product): { category: string; subCategory: string } => {
+    const cat = categoryById.get(p.categoryId);
+    if (cat?.parentCategoryId) {
+      return {
+        category: categoryById.get(cat.parentCategoryId)?.name || cat.parentCategoryName || '—',
+        subCategory: cat.name
+      };
+    }
+    return { category: cat?.name || p.categoryName || '—', subCategory: '—' };
   };
+
+  // Status filter is applied client-side over the current page (backend GET /products has no isActive filter)
+  const displayedProducts = useMemo(() => {
+    if (selectedStatusFilter === 'all') return products;
+    return products.filter((p) => (selectedStatusFilter === 'active' ? p.isActive : !p.isActive));
+  }, [products, selectedStatusFilter]);
+
+  // Categories tab: search + client-side pagination over top-level categories
+  const filteredTopCategories = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return topLevelCategories;
+    return topLevelCategories.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q)
+    );
+  }, [topLevelCategories, categorySearch]);
+
+  const pagedCategories = filteredTopCategories.slice(
+    (categoriesPage - 1) * CATEGORIES_PAGE_SIZE,
+    categoriesPage * CATEGORIES_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setCategoriesPage(1);
+  }, [categorySearch]);
 
   // Handle Category Save
   const handleSaveCategory = async () => {
@@ -142,18 +217,57 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       return;
     }
     try {
+      const payload: Partial<Category> = {
+        name: categoryFormData.name,
+        slug: categoryFormData.slug || categoryFormData.name.toLowerCase().replace(/\s+/g, '-'),
+        description: categoryFormData.description,
+        imageUrl: categoryFormData.imageUrl,
+        parentCategoryId: categoryFormData.parentCategoryId || undefined,
+        displayOrder: categoryFormData.displayOrder ?? 1,
+        isActive: categoryFormData.isActive ?? true
+      };
       if (categoryFormData.id) {
-        await api.updateCategory(categoryFormData.id, categoryFormData);
+        await api.updateCategory(categoryFormData.id, payload);
         showToast('Category updated successfully!', 'success');
       } else {
-        await api.createCategory(categoryFormData);
+        await api.createCategory(payload);
         showToast('Category created successfully!', 'success');
       }
       setIsCategoryModalOpen(false);
       setCategoryFormData({ name: '', slug: '', description: '', imageUrl: '', displayOrder: 1, isActive: true });
-      loadData();
-    } catch {
-      showToast('Error saving category', 'error');
+      loadAuxData();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Error saving category', 'error');
+    }
+  };
+
+  // Handle deletes (with design-system confirmation dialogs)
+  const handleDeleteProduct = async () => {
+    if (!deleteProductTarget) return;
+    try {
+      await api.deleteProduct(deleteProductTarget.id);
+      showToast(`Product "${deleteProductTarget.name}" removed`, 'info');
+      setDeleteProductTarget(null);
+      loadProducts();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to delete product', 'error');
+      setDeleteProductTarget(null);
+    }
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!deleteCategoryTarget) return;
+    try {
+      await api.deleteCategory(deleteCategoryTarget.id);
+      showToast(`Category "${deleteCategoryTarget.name}" removed`, 'info');
+      setDeleteCategoryTarget(null);
+      loadAuxData();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to delete category', 'error');
+      setDeleteCategoryTarget(null);
     }
   };
 
@@ -187,30 +301,13 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
             className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-2xs"
             title="Refresh"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isLoading || isProductsLoading ? 'animate-spin' : ''}`} />
           </button>
 
           {subTab === 'products' && (
             <button
-              onClick={() => {
-                setEditingProduct({
-                  name: '',
-                  sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
-                  price: 999,
-                  costPrice: 650,
-                  taxRate: 18,
-                  stockQuantity: 50,
-                  reorderLevel: 10,
-                  unit: 'Box',
-                  isActive: true,
-                  isFeatured: false,
-                  productType: 'Standard',
-                  categoryId: categories[0]?.id || ''
-                });
-                setProductFormStep(1);
-                setIsProductModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all"
+              onClick={() => navigate('/admin/products/new')}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
             >
               <Plus className="w-4 h-4" />
               <span>Add Product</span>
@@ -218,23 +315,32 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
           )}
 
           {subTab === 'categories' && (
-            <button
-              onClick={() => {
-                setCategoryFormData({
-                  name: '',
-                  slug: '',
-                  description: '',
-                  imageUrl: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=400&auto=format&fit=crop&q=80',
-                  displayOrder: categories.length + 1,
-                  isActive: true
-                });
-                setIsCategoryModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Category</span>
-            </button>
+            <>
+              <button
+                onClick={() => navigate('/admin/sub-categories')}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold flex items-center space-x-1.5 shadow-2xs"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Sub Categories</span>
+              </button>
+              <button
+                onClick={() => {
+                  setCategoryFormData({
+                    name: '',
+                    slug: '',
+                    description: '',
+                    imageUrl: '',
+                    displayOrder: topLevelCategories.length + 1,
+                    isActive: true
+                  });
+                  setIsCategoryModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Category</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -242,8 +348,8 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       {/* Sub-tabs Bar */}
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
-          { id: 'products', label: `Products (${products.length})`, icon: Package },
-          { id: 'categories', label: `Categories (${categories.length})`, icon: Layers },
+          { id: 'products', label: `Products (${productsTotal})`, icon: Package },
+          { id: 'categories', label: `Categories (${topLevelCategories.length})`, icon: Layers },
           { id: 'combos', label: `Gift Boxes & Combos (${giftBoxes.length + combos.length})`, icon: Gift },
           { id: 'reviews', label: `Reviews & Moderation (${reviews.length})`, icon: Star },
           { id: 'banners', label: `Homepage Banners (${banners.length})`, icon: ImageIcon }
@@ -267,7 +373,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         })}
       </div>
 
-      {/* 1. PRODUCTS TAB */}
+      {/* 1. PRODUCTS TAB (design 07) */}
       {subTab === 'products' && (
         <div className="space-y-4">
           {/* Filter and Search Bar */}
@@ -276,27 +382,87 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
               <Search className="w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search by product name, SKU..."
+                placeholder="Search product name or SKU..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
               />
             </div>
 
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
-              <span className="text-xs font-bold text-slate-500">Category:</span>
-              <select
-                value={selectedCategoryFilter}
-                onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-navy outline-none"
+            <div className="relative w-full sm:w-auto flex justify-end">
+              <button
+                onClick={() => setIsFilterOpen((v) => !v)}
+                className={`px-4 py-1.5 rounded-xl border text-xs font-bold flex items-center space-x-1.5 transition-colors ${
+                  isFilterOpen || selectedCategoryFilter !== 'all' || selectedStatusFilter !== 'all'
+                    ? 'border-purple text-purple bg-purple/5'
+                    : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'
+                }`}
               >
-                <option value="all">All Categories ({products.length})</option>
-                {categories.map((c) => (
-                  <option key={c.id || c.slug} value={c.id || c.slug}>
-                    {c.name}
-                  </option>
+                <Filter className="w-3.5 h-3.5" />
+                <span>Filters</span>
+              </button>
+
+              {isFilterOpen && (
+                <div className="absolute right-0 top-full mt-2 z-30 w-64 bg-white rounded-2xl border border-slate-200 shadow-xl p-4 space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-navy">Category</label>
+                    <select
+                      value={selectedCategoryFilter}
+                      onChange={(e) => {
+                        setSelectedCategoryFilter(e.target.value);
+                        setProductsPage(1);
+                      }}
+                      className="w-full mt-1 p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-navy outline-none"
+                    >
+                <option value="all">All Categories</option>
+                {topLevelCategories.map((parent) => (
+                  <React.Fragment key={parent.id}>
+                    <option value={parent.id}>{parent.name}</option>
+                    {categories
+                      .filter((c) => c.parentCategoryId === parent.id)
+                      .map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {'  — ' + sub.name}
+                        </option>
+                      ))}
+                  </React.Fragment>
                 ))}
               </select>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-navy">Status</label>
+                    <select
+                      value={selectedStatusFilter}
+                      onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                      className="w-full mt-1 p-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-navy outline-none"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <button
+                      onClick={() => {
+                        setSelectedCategoryFilter('all');
+                        setSelectedStatusFilter('all');
+                        setProductsPage(1);
+                      }}
+                      className="text-[11px] font-bold text-slate-400 hover:text-slate-600"
+                    >
+                      Clear all
+                    </button>
+                    <button
+                      onClick={() => setIsFilterOpen(false)}
+                      className="px-3 py-1.5 rounded-lg bg-purple hover:bg-purple-dark text-white text-[11px] font-bold"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -309,136 +475,217 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     <th className="py-3 px-4">Product</th>
                     <th className="py-3 px-3">SKU</th>
                     <th className="py-3 px-3">Category</th>
-                    <th className="py-3 px-3">Selling Price</th>
-                    <th className="py-3 px-3">Stock Available</th>
+                    <th className="py-3 px-3">Stock</th>
+                    <th className="py-3 px-3">Price</th>
                     <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
+                    <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {filteredProducts.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center space-x-3">
-                          <img
-                            src={p.primaryImageUrl || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=200&auto=format&fit=crop&q=80'}
-                            alt={p.name}
-                            className="w-10 h-10 rounded-xl object-cover border border-slate-200"
-                          />
-                          <div>
-                            <div className="font-bold text-navy text-xs">{p.name}</div>
-                            <div className="text-[10px] text-slate-400">Unit: {p.unit || 'Box'} • Weight: {p.weightKg || 0.5}kg</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 font-mono font-bold text-purple">{p.sku}</td>
-                      <td className="py-3 px-3">
-                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold border border-slate-200">
-                          {p.categoryName}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3">
-                        <div className="font-black text-navy text-xs">₹{p.price.toLocaleString('en-IN')}</div>
-                        {p.costPrice && <div className="text-[10px] text-slate-400">Cost: ₹{p.costPrice}</div>}
-                      </td>
-                      <td className="py-3 px-3">
-                        <div className="flex items-center space-x-1.5">
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              p.availableQuantity > 10 ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'
-                            }`}
-                          />
-                          <span className="font-bold text-navy">{p.availableQuantity || p.stockQuantity} units</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            p.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {p.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <button
-                            onClick={() => {
-                              setEditingProduct(p);
-                              setProductFormStep(1);
-                              setIsProductModalOpen(true);
-                            }}
-                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-                            title="Edit Product"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                  {isProductsLoading && displayedProducts.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-slate-400">
+                        Loading products...
                       </td>
                     </tr>
-                  ))}
+                  )}
+                  {!isProductsLoading && displayedProducts.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-10 text-center text-slate-400">
+                        No products found.
+                      </td>
+                    </tr>
+                  )}
+                  {displayedProducts.map((p) => {
+                    const cells = resolveCategoryCells(p);
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center space-x-3">
+                            <img
+                              src={p.primaryImageUrl || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=200&auto=format&fit=crop&q=80'}
+                              alt={p.name}
+                              className="w-10 h-10 rounded-xl object-cover border border-slate-200"
+                            />
+                            <div>
+                              <div className="font-bold text-navy text-xs">{p.name}</div>
+                              <div className="text-[10px] text-slate-400">Unit: {p.unit || 'Box'} • Weight: {p.weightKg || 0.5}kg</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold text-purple">{p.sku}</td>
+                        <td className="py-3 px-3">
+                          <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold border border-slate-200">
+                            {cells.category}
+                          </span>
+                          {cells.subCategory !== '—' && (
+                            <div className="text-[10px] text-slate-400 mt-1 pl-0.5">{cells.subCategory}</div>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="flex items-center space-x-1.5">
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                (p.availableQuantity ?? p.stockQuantity) > 10 ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'
+                              }`}
+                            />
+                            <span className="font-bold text-navy">{p.availableQuantity ?? p.stockQuantity}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3">
+                          <div className="font-black text-navy text-xs">₹{p.price.toLocaleString('en-IN')}</div>
+                          {p.costPrice ? <div className="text-[10px] text-slate-400">Cost: ₹{p.costPrice}</div> : null}
+                        </td>
+                        <td className="py-3 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              p.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {p.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end space-x-1.5">
+                            <button
+                              onClick={() => navigate(`/admin/products/${p.id}/edit`)}
+                              className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                              title="Edit Product"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteProductTarget(p)}
+                              className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                              title="Delete Product"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => navigate(`/admin/products/${p.id}/edit`)}
+                              className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                              title="View Details"
+                            >
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+            </div>
+            <div className="px-4 pb-4">
+              <Pagination
+                page={productsPage}
+                pageSize={PRODUCTS_PAGE_SIZE}
+                total={productsTotal}
+                onPageChange={setProductsPage}
+              />
             </div>
           </div>
         </div>
       )}
 
-      {/* 2. CATEGORIES TAB */}
+      {/* 2. CATEGORIES TAB (design 04 — top-level categories only) */}
       {subTab === 'categories' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {categories.map((c) => (
-              <div
-                key={c.id || c.slug}
-                className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex flex-col justify-between space-y-3 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start space-x-3">
-                  <img
-                    src={c.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=200&auto=format&fit=crop&q=80'}
-                    alt={c.name}
-                    className="w-12 h-12 rounded-xl object-cover border border-slate-200 flex-shrink-0"
-                  />
-                  <div>
-                    <h3 className="font-bold text-xs text-navy">{c.name}</h3>
-                    <p className="text-[10px] text-slate-400 font-mono">/{c.slug}</p>
-                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-purple/10 text-purple text-[10px] font-bold">
-                      {c.productCount || 0} Products
-                    </span>
-                  </div>
-                </div>
-
-                {c.description && <p className="text-[11px] text-slate-500 line-clamp-2">{c.description}</p>}
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="text-[10px] text-slate-400 font-medium">Order: #{c.displayOrder}</span>
-                  <div className="flex items-center space-x-1">
-                    <button
-                      onClick={() => {
-                        setCategoryFormData(c);
-                        setIsCategoryModalOpen(true);
-                      }}
-                      className="p-1 text-slate-500 hover:text-purple"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (window.confirm(`Delete category "${c.name}"?`)) {
-                          await api.deleteCategory(c.id);
-                          showToast('Category removed', 'info');
-                          loadData();
-                        }
-                      }}
-                      className="p-1 text-slate-400 hover:text-red-500"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
+          {/* Search */}
+          <div className="flex items-center space-x-2 w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs">
+            <Search className="w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search categories..."
+              value={categorySearch}
+              onChange={(e) => setCategorySearch(e.target.value)}
+              className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
+            />
           </div>
+
+          {/* Categories Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Category Name</th>
+                  <th className="py-3 px-3">Description</th>
+                  <th className="py-3 px-3">Products</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {pagedCategories.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-slate-400">
+                      {isLoading ? 'Loading categories...' : 'No categories found.'}
+                    </td>
+                  </tr>
+                )}
+                {pagedCategories.map((c) => (
+                  <tr key={c.id || c.slug} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 px-4">
+                      <div className="flex items-center space-x-3">
+                        <img
+                          src={c.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=200&auto=format&fit=crop&q=80'}
+                          alt={c.name}
+                          className="w-9 h-9 rounded-xl object-cover border border-slate-200"
+                        />
+                        <div>
+                          <div className="font-bold text-navy text-xs">{c.name}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">/{c.slug}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-slate-500">{c.description || '—'}</td>
+                    <td className="py-3 px-3">
+                      <span className="px-2 py-0.5 rounded-full bg-purple/10 text-purple text-[10px] font-bold">
+                        {c.productCount || 0} Products
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          c.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {c.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        <button
+                          onClick={() => {
+                            setCategoryFormData({ ...c });
+                            setIsCategoryModalOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          title="Edit Category"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteCategoryTarget(c)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                          title="Delete Category"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            page={categoriesPage}
+            pageSize={CATEGORIES_PAGE_SIZE}
+            total={filteredTopCategories.length}
+            onPageChange={setCategoriesPage}
+          />
         </div>
       )}
 
@@ -598,261 +845,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* MULTI-STEP PRODUCT CREATION / EDIT MODAL */}
-      {isProductModalOpen && editingProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div>
-                <h3 className="font-black text-sm text-navy uppercase tracking-wider">
-                  {editingProduct.id ? 'Edit Product' : 'Add New Product (Multi-Step)'}
-                </h3>
-                <div className="text-[10px] text-slate-400">Step {productFormStep} of 3</div>
-              </div>
-              <button onClick={() => setIsProductModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Step Indicators */}
-            <div className="px-6 pt-3 flex items-center space-x-2">
-              {['1. Basic Info & Category', '2. Pricing & Tax', '3. Stock & Safety'].map((lbl, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setProductFormStep(idx + 1)}
-                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
-                    productFormStep === idx + 1
-                      ? 'bg-orange text-white border-orange shadow-2xs'
-                      : 'bg-slate-50 text-slate-500 border-slate-200'
-                  }`}
-                >
-                  {lbl}
-                </button>
-              ))}
-            </div>
-
-            {/* Modal Form Body */}
-            <div className="p-6 flex-1 overflow-y-auto space-y-4 text-xs">
-              {/* Step 1: Basic Info & Category */}
-              {productFormStep === 1 && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="font-bold text-navy">Product Name *</label>
-                    <input
-                      type="text"
-                      value={editingProduct.name || ''}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                      placeholder="e.g. Aadhi Deluxe 30 Shots"
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="font-bold text-navy">SKU Code *</label>
-                      <input
-                        type="text"
-                        value={editingProduct.sku || ''}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, sku: e.target.value })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono outline-none focus:border-orange"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-bold text-navy">Category *</label>
-                      <select
-                        value={editingProduct.categoryId || ''}
-                        onChange={(e) => {
-                          const cat = categories.find((c) => c.id === e.target.value);
-                          setEditingProduct({
-                            ...editingProduct,
-                            categoryId: e.target.value,
-                            categoryName: cat?.name || ''
-                          });
-                        }}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                      >
-                        {categories.map((c) => (
-                          <option key={c.id || c.slug} value={c.id || c.slug}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-navy">Short Description</label>
-                    <textarea
-                      rows={2}
-                      value={editingProduct.shortDescription || ''}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, shortDescription: e.target.value })}
-                      placeholder="Brief highlight of the firecracker effect..."
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-navy">Primary Image URL</label>
-                    <input
-                      type="text"
-                      value={editingProduct.primaryImageUrl || ''}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, primaryImageUrl: e.target.value })}
-                      placeholder="https://..."
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Step 2: Pricing & Tax */}
-              {productFormStep === 2 && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="font-bold text-navy">Selling Price (₹) *</label>
-                      <input
-                        type="number"
-                        value={editingProduct.price || 0}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, price: Number(e.target.value) })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange font-bold text-navy"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-bold text-navy">Cost Price (₹) *</label>
-                      <input
-                        type="number"
-                        value={editingProduct.costPrice || 0}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, costPrice: Number(e.target.value) })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="font-bold text-navy">Compare at Price / MRP (₹)</label>
-                      <input
-                        type="number"
-                        value={editingProduct.compareAtPrice || 0}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, compareAtPrice: Number(e.target.value) })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-bold text-navy">GST Tax Rate (%)</label>
-                      <input
-                        type="number"
-                        value={editingProduct.taxRate || 18}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, taxRate: Number(e.target.value) })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium">
-                    Calculated Gross Profit Margin: <span className="font-bold">
-                      ₹{((editingProduct.price || 0) - (editingProduct.costPrice || 0)).toLocaleString('en-IN')} (
-                      {editingProduct.price ? Math.round((((editingProduct.price - (editingProduct.costPrice || 0)) / editingProduct.price) * 100)) : 0}%
-                    )</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: Stock & Safety */}
-              {productFormStep === 3 && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="font-bold text-navy">Initial Stock Quantity</label>
-                      <input
-                        type="number"
-                        value={editingProduct.stockQuantity || 0}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, stockQuantity: Number(e.target.value), availableQuantity: Number(e.target.value) })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                      />
-                    </div>
-                    <div>
-                      <label className="font-bold text-navy">Reorder Level Threshold</label>
-                      <input
-                        type="number"
-                        value={editingProduct.reorderLevel || 10}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, reorderLevel: Number(e.target.value) })}
-                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-navy">Safety & Lighting Instructions</label>
-                    <textarea
-                      rows={2}
-                      value={editingProduct.safetyInformation || ''}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, safetyInformation: e.target.value })}
-                      placeholder="e.g. Maintain 5m distance. Light only using an agarbatti or incense stick outdoors."
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-orange"
-                    />
-                  </div>
-
-                  <div className="flex items-center space-x-4 pt-2">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editingProduct.isActive ?? true}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, isActive: e.target.checked })}
-                        className="accent-orange w-4 h-4"
-                      />
-                      <span className="font-bold text-navy">Active in Store</span>
-                    </label>
-
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editingProduct.isFeatured ?? false}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, isFeatured: e.target.checked })}
-                        className="accent-orange w-4 h-4"
-                      />
-                      <span className="font-bold text-navy">Featured on Homepage</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer Controls */}
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-              {productFormStep > 1 ? (
-                <button
-                  onClick={() => setProductFormStep((p) => p - 1)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-white text-xs font-bold"
-                >
-                  &larr; Back
-                </button>
-              ) : (
-                <div />
-              )}
-
-              {productFormStep < 3 ? (
-                <button
-                  onClick={() => setProductFormStep((p) => p + 1)}
-                  className="px-5 py-2 rounded-xl bg-navy text-white text-xs font-bold hover:bg-navy-dark"
-                >
-                  Continue &rarr;
-                </button>
-              ) : (
-                <button
-                  onClick={handleSaveProduct}
-                  className="px-6 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-black uppercase tracking-wider shadow-md shadow-orange/20"
-                >
-                  Save Product
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CATEGORY MODAL */}
+      {/* CATEGORY MODAL (create / edit — supports optional parent for sub-category deep links) */}
       {isCategoryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/60 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
@@ -881,6 +874,26 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                   placeholder="e.g. Aerial Repeaters"
                   className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
                 />
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Parent Category</label>
+                <select
+                  value={categoryFormData.parentCategoryId || ''}
+                  onChange={(e) =>
+                    setCategoryFormData({ ...categoryFormData, parentCategoryId: e.target.value || undefined })
+                  }
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
+                >
+                  <option value="">None (Top Level)</option>
+                  {topLevelCategories
+                    .filter((c) => c.id !== categoryFormData.id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div>
@@ -943,6 +956,43 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
           </div>
         </div>
       )}
+
+      {/* DELETE PRODUCT CONFIRMATION */}
+      <ErpConfirmDialog
+        open={Boolean(deleteProductTarget)}
+        title="Delete Product?"
+        message={
+          <>
+            Are you sure you want to delete{' '}
+            <span className="font-bold text-navy">"{deleteProductTarget?.name}"</span>
+            {deleteProductTarget?.sku ? (
+              <>
+                {' '}(<span className="font-mono">{deleteProductTarget.sku}</span>)
+              </>
+            ) : null}
+            ? This action cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={handleDeleteProduct}
+        onCancel={() => setDeleteProductTarget(null)}
+      />
+
+      {/* DELETE CATEGORY CONFIRMATION */}
+      <ErpConfirmDialog
+        open={Boolean(deleteCategoryTarget)}
+        title="Delete Category?"
+        message={
+          <>
+            Are you sure you want to delete category{' '}
+            <span className="font-bold text-navy">"{deleteCategoryTarget?.name}"</span>? Products and
+            sub-categories under it may become uncategorized. This action cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={handleDeleteCategory}
+        onCancel={() => setDeleteCategoryTarget(null)}
+      />
     </div>
   );
 };

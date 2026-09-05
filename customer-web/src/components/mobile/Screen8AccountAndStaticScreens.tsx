@@ -1,26 +1,29 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   User,
-  ShoppingBag,
   Heart,
   MapPin,
-  Lock,
-  Bell,
   LogOut,
   ChevronRight,
+  ChevronDown,
   Phone,
   Mail,
   Clock,
   Award,
   ShieldCheck,
   Truck,
-  RotateCcw,
   Sparkles,
   Flame,
-  ChevronLeft
+  ChevronLeft,
+  CalendarDays,
+  KeyRound,
+  Camera,
+  Eye,
+  EyeOff,
+  Loader2,
+  X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../services/api';
 
@@ -29,59 +32,271 @@ interface Screen8AccountProps {
   onOpenNotifications: () => void;
 }
 
-export const Screen8Account: React.FC<Screen8AccountProps> = ({ onNavigate, onOpenNotifications }) => {
+/** Small labelled password input with show/hide toggle (Change Password modal). */
+const ModalPasswordField: React.FC<{
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}> = ({ label, value, onChange }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-500 mb-1.5">{label}</label>
+      <div className="relative">
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="••••••••"
+          autoComplete="off"
+          className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-200 bg-white text-sm text-navy font-medium placeholder:text-slate-300 focus:outline-none focus:border-purple focus:ring-2 focus:ring-purple/15 transition-colors"
+        />
+        <button
+          type="button"
+          onClick={() => setShow((s) => !s)}
+          aria-label={show ? 'Hide password' : 'Show password'}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+        >
+          {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/** Design 15: Profile / Account page — navy header + menu list. */
+export const Screen8Account: React.FC<Screen8AccountProps> = ({ onNavigate }) => {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
 
-  const menuItems = [
-    { label: 'My Orders', icon: ShoppingBag, action: () => onNavigate('orders') },
-    { label: 'My Wishlist', icon: Heart, action: () => onNavigate('wishlist') },
-    { label: 'Addresses', icon: MapPin, action: () => showToast('Saved addresses view', 'info') },
-    { label: 'Profile Information', icon: User, action: () => showToast('Profile details', 'info') },
-    { label: 'Change Password', icon: Lock, action: () => showToast('Change password modal', 'info') },
-    { label: 'Notification Preferences', icon: Bell, action: onOpenNotifications },
-    { label: 'Log Out', icon: LogOut, action: () => { logout(); showToast('Logged out', 'info'); } }
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // Change-password modal state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changing, setChanging] = useState(false);
+
+  const closeChangePassword = () => {
+    setShowChangePassword(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword) return showToast('Please enter your current password', 'error');
+    if (newPassword.length < 8) return showToast('New password must be at least 8 characters', 'error');
+    if (newPassword !== confirmPassword) return showToast('Passwords do not match', 'error');
+    setChanging(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      showToast('Password changed successfully', 'success');
+      closeChangePassword();
+    } catch (error: any) {
+      showToast(
+        error?.response?.data?.message || error?.message || 'Could not change password. Please try again.',
+        'error'
+      );
+    } finally {
+      setChanging(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setShowLogoutConfirm(false);
+    logout();
+    showToast('Logged out successfully', 'info');
+    onNavigate('home');
+  };
+
+  const requireAuth = (action: () => void) => () => {
+    if (!user) {
+      showToast('Please login to continue', 'info');
+      onNavigate('auth');
+      return;
+    }
+    action();
+  };
+
+  const menuItems: Array<{
+    label: string;
+    icon: React.ElementType;
+    action: () => void;
+    danger?: boolean;
+    expandable?: boolean;
+  }> = [
+    { label: 'My Profile', icon: User, expandable: true, action: requireAuth(() => setProfileOpen((o) => !o)) },
+    { label: 'My Orders', icon: CalendarDays, action: () => onNavigate('my-orders') },
+    { label: 'Wishlist', icon: Heart, action: () => onNavigate('wishlist') },
+    { label: 'Addresses', icon: MapPin, action: () => onNavigate('addresses') },
+    { label: 'Change Password', icon: KeyRound, action: requireAuth(() => setShowChangePassword(true)) },
+    { label: 'Logout', icon: LogOut, danger: true, action: requireAuth(() => setShowLogoutConfirm(true)) }
   ];
 
   return (
-    <div className="space-y-4 p-4 pb-8 font-sans bg-[#fbfbfb]">
-      {/* Title */}
-      <h2 className="text-base font-black text-navy">My Account</h2>
+    <div className="pb-8 font-sans bg-[#fbfbfb] animate-fade-in">
+      {/* ── Navy profile header (design 15) ── */}
+      <div className="bg-navy rounded-b-3xl px-4 pt-3 pb-6 text-center relative">
+        <button
+          onClick={() => onNavigate('home')}
+          aria-label="Back"
+          className="absolute left-3 top-3 p-1 text-white/80 hover:text-white"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
 
-      {/* User Profile Card matching Screen 8 */}
-      <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center space-x-3.5">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-purple to-purple-dark text-white font-black text-base flex items-center justify-center shadow-md">
-          {user ? user.firstName.charAt(0) : 'A'}
+        {/* Avatar with camera badge */}
+        <div className="relative inline-block mt-2">
+          <div className="w-24 h-24 rounded-full bg-slate-200/90 border-4 border-white/10 flex items-center justify-center overflow-hidden">
+            <User className="w-12 h-12 text-navy/70" strokeWidth={1.75} />
+          </div>
+          <button
+            onClick={() => showToast('Photo upload coming soon', 'info')}
+            aria-label="Change photo"
+            className="absolute -bottom-1 -right-1 w-8 h-8 rounded-lg bg-white shadow-md flex items-center justify-center text-navy active:scale-95 transition-transform"
+          >
+            <Camera className="w-4 h-4" />
+          </button>
         </div>
-        <div className="min-w-0">
-          <h3 className="font-bold text-sm text-navy truncate">
-            {user ? `${user.firstName} ${user.lastName}` : 'Arun Kumar'}
-          </h3>
-          <p className="text-[11px] text-slate-400 font-medium truncate">
-            {user?.email || 'arun.kumar@email.com'}
-          </p>
-        </div>
-      </div>
 
-      {/* Menu List matching Screen 8 */}
-      <div className="rounded-2xl bg-white border border-slate-100 shadow-xs divide-y divide-slate-100 overflow-hidden">
-        {menuItems.map((item, idx) => {
-          const Icon = item.icon;
-          return (
+        {user ? (
+          <>
+            <h2 className="mt-3 text-lg font-black text-white">
+              {`${user.firstName} ${user.lastName}`.trim()}
+            </h2>
+            <p className="mt-1 text-xs text-white/70 font-medium">
+              {[user.phone, user.email].filter(Boolean).join(' | ')}
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="mt-3 text-lg font-black text-white">Welcome, Guest</h2>
+            <p className="mt-1 text-xs text-white/70 font-medium">Sign in to view your orders and wishlist</p>
             <button
-              key={idx}
-              onClick={item.action}
-              className="w-full p-3.5 flex items-center justify-between text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors text-left"
+              onClick={() => onNavigate('auth')}
+              className="mt-3 px-6 py-2.5 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold shadow-md transition-colors"
             >
-              <div className="flex items-center space-x-3">
-                <Icon className="w-4 h-4 text-slate-500" />
-                <span>{item.label}</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-300" />
+              Login / Register
             </button>
-          );
-        })}
+          </>
+        )}
       </div>
+
+      {/* ── Menu list ── */}
+      <div className="p-4">
+        <div className="rounded-2xl bg-white border border-slate-100 shadow-xs divide-y divide-slate-100 overflow-hidden">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const isProfile = item.expandable;
+            return (
+              <React.Fragment key={item.label}>
+                <button
+                  onClick={item.action}
+                  className={`w-full p-4 flex items-center justify-between text-sm font-semibold transition-colors text-left ${
+                    item.danger ? 'text-red-500 hover:bg-red-50' : 'text-navy hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3.5">
+                    <Icon className={`w-4.5 h-4.5 ${item.danger ? 'text-red-500' : 'text-navy/70'}`} />
+                    <span>{item.label}</span>
+                  </div>
+                  {isProfile && profileOpen ? (
+                    <ChevronDown className="w-4 h-4 text-slate-300" />
+                  ) : (
+                    <ChevronRight className={`w-4 h-4 ${item.danger ? 'text-red-300' : 'text-slate-300'}`} />
+                  )}
+                </button>
+
+                {/* Inline expandable My Profile details */}
+                {isProfile && profileOpen && user && (
+                  <div className="px-4 py-3.5 bg-slate-50/70 space-y-2.5 animate-fade-in">
+                    {[
+                      { label: 'Full Name', value: `${user.firstName} ${user.lastName}`.trim() },
+                      { label: 'Mobile Number', value: user.phone || '—' },
+                      { label: 'Email', value: user.email || '—' }
+                    ].map((row) => (
+                      <div key={row.label} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400 font-medium">{row.label}</span>
+                        <span className="font-bold text-navy text-right truncate max-w-[60%]">{row.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Change Password modal ── */}
+      {showChangePassword && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-5 animate-fade-in">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 space-y-4 animate-scale-up shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-navy">Change Password</h3>
+              <button onClick={closeChangePassword} aria-label="Close" className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <ModalPasswordField label="Current Password" value={currentPassword} onChange={setCurrentPassword} />
+            <ModalPasswordField label="New Password" value={newPassword} onChange={setNewPassword} />
+            <ModalPasswordField label="Confirm New Password" value={confirmPassword} onChange={setConfirmPassword} />
+            {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+              <p className="text-[11px] font-semibold text-red-500 -mt-2">Passwords do not match</p>
+            )}
+
+            <div className="flex space-x-3 pt-1">
+              <button
+                onClick={closeChangePassword}
+                className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleChangePassword}
+                disabled={changing}
+                className="flex-1 py-3 rounded-xl bg-purple hover:bg-purple-dark text-white text-sm font-bold shadow-md shadow-purple/25 transition-colors disabled:opacity-60 flex items-center justify-center space-x-2"
+              >
+                {changing && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>Update</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Logout confirmation modal ── */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-5 animate-fade-in">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 space-y-4 animate-scale-up shadow-2xl text-center">
+            <div className="w-12 h-12 mx-auto rounded-full bg-red-50 flex items-center justify-center">
+              <LogOut className="w-5 h-5 text-red-500" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-navy">Logout?</h3>
+              <p className="text-xs text-slate-500 mt-1">Are you sure you want to logout of your account?</p>
+            </div>
+            <div className="flex space-x-3 pt-1">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-bold shadow-md transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -220,60 +435,6 @@ export const Screen10ContactUs: React.FC<{ onBack: () => void }> = ({ onBack }) 
             ▶
           </a>
         </div>
-      </div>
-    </div>
-  );
-};
-
-export const Screen13Wishlist: React.FC<{
-  onNavigate: (page: string, params?: any) => void;
-}> = ({ onNavigate }) => {
-  const { wishlist, toggleWishlist } = useWishlist();
-
-  const defaultItems = [
-    { id: 'w-1', name: 'Mega Celebration Box', price: 4499, slug: 'mega-celebration-box', img: 'https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=300&auto=format&fit=crop&q=80' },
-    { id: 'w-2', name: 'Ground Chakkar Deluxe', price: 280, slug: 'ground-chakkar-deluxe', img: 'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=300&auto=format&fit=crop&q=80' },
-    { id: 'w-3', name: 'Flower Pots (Big)', price: 120, slug: 'flower-pots-big', img: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=300&auto=format&fit=crop&q=80' },
-    { id: 'w-4', name: 'Aerial Shot - 30 Shots', price: 249, slug: 'aerial-shot-30-shots', img: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=300&auto=format&fit=crop&q=80' }
-  ];
-
-  return (
-    <div className="space-y-3 p-4 pb-8 font-sans bg-[#fbfbfb]">
-      <h2 className="text-base font-black text-navy">My Wishlist (4)</h2>
-
-      {/* 4 Items List matching Screen 13 */}
-      <div className="space-y-2.5">
-        {defaultItems.map((item) => (
-          <div
-            key={item.id}
-            onClick={() => onNavigate('product-detail', { slug: item.slug })}
-            className="p-3 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
-          >
-            <div className="flex items-center space-x-3 min-w-0">
-              <img
-                src={item.img}
-                alt={item.name}
-                className="w-12 h-12 rounded-xl object-cover bg-slate-100 border border-slate-100 flex-shrink-0"
-              />
-              <div className="min-w-0">
-                <h4 className="font-bold text-xs text-navy truncate">{item.name}</h4>
-                <div className="text-xs font-black text-slate-700 mt-0.5">
-                  ₹{item.price.toLocaleString('en-IN')}
-                </div>
-              </div>
-            </div>
-
-            {/* Filled Red Heart */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-              className="p-2 text-red-500 hover:scale-110 transition-transform"
-            >
-              <Heart className="w-5 h-5 fill-red-500 text-red-500" />
-            </button>
-          </div>
-        ))}
       </div>
     </div>
   );

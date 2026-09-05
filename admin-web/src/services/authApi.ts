@@ -17,8 +17,25 @@ export const authApi = {
     return res.data?.data || [];
   },
 
+  /** Admin-create staff user (POST /auth/users). */
+  createUser: async (data: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    role: string;
+  }) => {
+    const res = await apiClient.post<{ data: User }>('/auth/users', data);
+    return res.data?.data;
+  },
+
   updateUserRole: async (userId: string, role: string) => {
     const res = await apiClient.put(`/auth/users/${userId}/role`, { role });
+    return res.data?.data;
+  },
+
+  updateUserStatus: async (userId: string, isActive: boolean) => {
+    const res = await apiClient.put(`/auth/users/${userId}/status`, { isActive });
     return res.data?.data;
   },
 

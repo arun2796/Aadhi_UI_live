@@ -1,48 +1,82 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Tag,
-  Percent,
-  Plus,
-  Search,
-  RefreshCw,
-  Trash2,
-  CheckCircle2,
-  XCircle,
-  Calendar,
-  Sparkles,
-  Gift,
-  Copy
-} from 'lucide-react';
-import { Coupon, Promotion } from '../../types';
-import { api } from '../../services/api';
+import { Plus, Search, Filter, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { api, apiClient, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { Pagination } from '../../components/common/Pagination';
+
+const PAGE_SIZE = 10;
+
+type OfferTab = 'all' | 'Active' | 'Scheduled' | 'Expired';
+type OfferStatus = 'Active' | 'Scheduled' | 'Expired';
+
+/** Normalized view over the backend PromotionDto (/promotions). */
+interface OfferRow {
+  id: string;
+  code: string;
+  name: string;
+  discountType: 'Percentage' | 'FixedAmount';
+  discountValue: number;
+  validFrom?: string;
+  validTo?: string;
+  isActive: boolean;
+}
+
+/** Spec 13 derivation: Scheduled = validFrom in future; Expired = validTo past (or switched off);
+ *  Active = now within validity window and isActive. */
+const deriveOfferStatus = (offer: OfferRow): OfferStatus => {
+  const now = Date.now();
+  if (offer.validFrom && new Date(offer.validFrom).getTime() > now) return 'Scheduled';
+  if (offer.validTo && new Date(offer.validTo).getTime() < now) return 'Expired';
+  return offer.isActive ? 'Active' : 'Expired';
+};
+
+const OFFER_STATUS_STYLES: Record<OfferStatus, string> = {
+  Active: 'bg-emerald-100 text-emerald-700',
+  Scheduled: 'bg-amber-100 text-amber-700',
+  Expired: 'bg-red-100 text-red-700'
+};
+
+const formatDate = (iso?: string) =>
+  iso ? new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 export const ErpMarketingModule: React.FC = () => {
   const { showToast } = useToast();
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [offers, setOffers] = useState<OfferRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [offerTab, setOfferTab] = useState<OfferTab>('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
-  // Coupon Creation Modal state
-  const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
-  const [couponForm, setCouponForm] = useState<Partial<Coupon>>({
-    code: '',
+  // Create Offer modal state
+  const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
+  const [isSavingOffer, setIsSavingOffer] = useState(false);
+  const [offerForm, setOfferForm] = useState({
     name: '',
-    type: 'Percentage',
-    value: 15,
-    minimumOrderAmount: 2500,
-    maximumDiscount: 1000,
-    usageLimit: 200,
-    perCustomerLimit: 1,
-    isActive: true
+    code: '',
+    discountType: 'Percentage' as 'Percentage' | 'FixedAmount',
+    discountValue: 10,
+    validFrom: new Date().toISOString().slice(0, 10),
+    validTo: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)
   });
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const coup = await api.getCoupons();
-      setCoupons(coup);
+      const raw = await api.getCoupons({ pageSize: 100 });
+      const rows: OfferRow[] = (raw as unknown as any[]).map((p) => ({
+        id: p.id,
+        code: p.code || '',
+        name: p.name || p.code || 'Untitled Offer',
+        discountType:
+          p.discountType === 'FixedAmount' || p.type === 'Flat' ? 'FixedAmount' : 'Percentage',
+        discountValue: Number(p.discountValue ?? p.value ?? 0),
+        validFrom: p.startDateUtc,
+        validTo: p.endDateUtc,
+        isActive: p.isActive !== false
+      }));
+      setOffers(rows);
     } catch {
-      showToast('Failed to load marketing coupons', 'error');
+      showToast('Failed to load offers & discounts', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -50,37 +84,76 @@ export const ErpMarketingModule: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSaveCoupon = async () => {
-    if (!couponForm.code || !couponForm.name || !couponForm.value) {
-      showToast('Coupon code, name and discount value are required', 'warning');
+  const handleSaveOffer = async () => {
+    const { name, code, discountType, discountValue, validFrom, validTo } = offerForm;
+    if (!name.trim() || !code.trim() || !discountValue || !validFrom || !validTo) {
+      showToast('Offer name, code, discount value and validity dates are required', 'warning');
       return;
     }
-
+    if (new Date(validTo) < new Date(validFrom)) {
+      showToast('Valid To must be after Valid From', 'warning');
+      return;
+    }
+    setIsSavingOffer(true);
     try {
-      await api.createCoupon({
-        ...couponForm,
-        code: couponForm.code.toUpperCase().trim(),
-        usageCount: 0,
-        startDateUtc: new Date().toISOString(),
-        endDateUtc: new Date(Date.now() + 86400000 * 30).toISOString()
+      // Backend CreatePromotionRequest: { code, name, discountType, discountValue, startDateUtc, endDateUtc, isActive }
+      await apiClient.post('/promotions', {
+        code: code.toUpperCase().trim(),
+        name: name.trim(),
+        discountType,
+        discountValue,
+        startDateUtc: `${validFrom}T00:00:00Z`,
+        endDateUtc: `${validTo}T23:59:59Z`,
+        isActive: true
       });
-      showToast(`Coupon ${couponForm.code} created successfully!`, 'success');
-      setIsCouponModalOpen(false);
+      showToast(`Offer "${name.trim()}" created!`, 'success');
+      setIsOfferModalOpen(false);
+      setOfferForm({
+        name: '',
+        code: '',
+        discountType: 'Percentage',
+        discountValue: 10,
+        validFrom: new Date().toISOString().slice(0, 10),
+        validTo: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)
+      });
       loadData();
-    } catch {
-      showToast('Failed to create coupon', 'error');
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to create offer', 'error');
+    } finally {
+      setIsSavingOffer(false);
     }
   };
 
-  const handleDeleteCoupon = async (id: string, code: string) => {
-    if (window.confirm(`Delete coupon "${code}"?`)) {
-      await api.deleteCoupon(id);
-      showToast(`Coupon ${code} removed`, 'info');
-      loadData();
+  const handleDeleteOffer = async (offer: OfferRow) => {
+    if (window.confirm(`Delete offer "${offer.name}"?`)) {
+      try {
+        await api.deleteCoupon(offer.id);
+        showToast(`Offer "${offer.name}" removed`, 'info');
+        loadData();
+      } catch {
+        showToast('Failed to delete offer', 'error');
+      }
     }
   };
+
+  const filteredOffers = offers.filter((o) => {
+    const matchesTab = offerTab === 'all' || deriveOfferStatus(o) === offerTab;
+    const q = search.toLowerCase();
+    const matchesSearch = !q || o.name.toLowerCase().includes(q) || o.code.toLowerCase().includes(q);
+    return matchesTab && matchesSearch;
+  });
+  const pagedOffers = filteredOffers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const offerTabs: { id: OfferTab; label: string; count: number }[] = [
+    { id: 'all', label: 'All Offers', count: offers.length },
+    { id: 'Active', label: 'Active', count: offers.filter((o) => deriveOfferStatus(o) === 'Active').length },
+    { id: 'Scheduled', label: 'Scheduled', count: offers.filter((o) => deriveOfferStatus(o) === 'Scheduled').length },
+    { id: 'Expired', label: 'Expired', count: offers.filter((o) => deriveOfferStatus(o) === 'Expired').length }
+  ];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -88,10 +161,10 @@ export const ErpMarketingModule: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Marketing, Coupons & Festival Discounts</span>
+            <span>Offers / Discounts</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Create flat or percentage discount coupon codes, configure minimum order constraints, and monitor redemption rates.
+            Create percentage or flat discount offers with validity windows and monitor their live status.
           </p>
         </div>
 
@@ -105,137 +178,180 @@ export const ErpMarketingModule: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setIsCouponModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all"
+            onClick={() => setIsOfferModalOpen(true)}
+            className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
           >
             <Plus className="w-4 h-4" />
-            <span>Create Coupon Code</span>
+            <span>Create Offer</span>
           </button>
         </div>
       </div>
 
-      {/* Coupons Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {coupons.map((c) => (
-          <div key={c.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-orange/15 to-transparent rounded-bl-3xl pointer-events-none" />
-
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <span className="font-mono font-black text-sm text-purple bg-purple/10 px-2 py-0.5 rounded-lg border border-purple/20">
-                    {c.code}
-                  </span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(c.code);
-                      showToast(`Copied ${c.code} to clipboard!`, 'success');
-                    }}
-                    className="p-1 text-slate-400 hover:text-purple"
-                    title="Copy code"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <h3 className="font-bold text-xs text-navy">{c.name}</h3>
-              </div>
-
-              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                {c.isActive ? 'Active' : 'Expired'}
-              </span>
-            </div>
-
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5 text-xs text-slate-600">
-              <div className="flex justify-between">
-                <span>Discount Value:</span>
-                <span className="font-black text-navy">
-                  {c.type === 'Percentage' ? `${c.value}% OFF` : `₹${c.value} FLAT OFF`}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Minimum Order Required:</span>
-                <span className="font-bold text-slate-800">₹{c.minimumOrderAmount.toLocaleString('en-IN')}</span>
-              </div>
-              {c.maximumDiscount && (
-                <div className="flex justify-between">
-                  <span>Max Cap:</span>
-                  <span>₹{c.maximumDiscount}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span>Redemptions:</span>
-                <span className="font-bold text-purple">{c.usageCount} / {c.usageLimit || '∞'} uses</span>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-[10px] text-slate-400">Limit: {c.perCustomerLimit} per customer</span>
-              <button
-                onClick={() => handleDeleteCoupon(c.id, c.code)}
-                className="p-1 text-slate-400 hover:text-red-600"
-                title="Delete Coupon"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        ))}
+      {/* Status tab bar (spec 13: All Offers | Active | Scheduled | Expired) */}
+      <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
+        {offerTabs.map((t) => {
+          const isActive = offerTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => {
+                setOfferTab(t.id);
+                setPage(1);
+              }}
+              className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                isActive ? 'border-purple text-purple' : 'border-transparent text-slate-500 hover:text-navy'
+              }`}
+            >
+              {t.label}{' '}
+              {t.count > 0 && <span className={isActive ? 'text-purple' : 'text-slate-400'}>({t.count})</span>}
+            </button>
+          );
+        })}
       </div>
 
-      {/* CREATE COUPON MODAL */}
-      {isCouponModalOpen && (
+      {/* Search + Filters */}
+      <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
+        <div className="flex items-center space-x-2 w-full sm:w-96 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
+          <Search className="w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search offer name or code..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
+          />
+        </div>
+        <button className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold flex items-center space-x-1.5 shadow-2xs shrink-0">
+          <Filter className="w-3.5 h-3.5" />
+          <span>Filters</span>
+        </button>
+      </div>
+
+      {/* Offers table (spec 13) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+              <tr>
+                <th className="py-3 px-4">Offer Name</th>
+                <th className="py-3 px-3">Type</th>
+                <th className="py-3 px-3">Discount</th>
+                <th className="py-3 px-3">Valid From</th>
+                <th className="py-3 px-3">Valid To</th>
+                <th className="py-3 px-3">Status</th>
+                <th className="py-3 px-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+              {pagedOffers.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
+                    {isLoading ? 'Loading offers...' : 'No offers match your filters.'}
+                  </td>
+                </tr>
+              )}
+              {pagedOffers.map((o) => {
+                const status = deriveOfferStatus(o);
+                return (
+                  <tr key={o.id} className="hover:bg-purple/5 transition-colors">
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-navy">{o.name}</div>
+                      {o.code && <div className="text-[10px] text-slate-400 font-mono">{o.code}</div>}
+                    </td>
+                    <td className="py-3 px-3 text-slate-600">
+                      {o.discountType === 'Percentage' ? '% Discount' : 'Flat Discount'}
+                    </td>
+                    <td className="py-3 px-3 font-black text-navy">
+                      {o.discountType === 'Percentage'
+                        ? `${o.discountValue}%`
+                        : `₹${Math.round(o.discountValue).toLocaleString('en-IN')}`}
+                    </td>
+                    <td className="py-3 px-3 text-slate-500">{formatDate(o.validFrom)}</td>
+                    <td className="py-3 px-3 text-slate-500">{formatDate(o.validTo)}</td>
+                    <td className="py-3 px-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${OFFER_STATUS_STYLES[status]}`}>
+                        {status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() => handleDeleteOffer(o)}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 shadow-2xs transition-all"
+                        title="Delete offer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 pb-4">
+          <Pagination page={page} pageSize={PAGE_SIZE} total={filteredOffers.length} onPageChange={setPage} />
+        </div>
+      </div>
+
+      {/* CREATE OFFER MODAL */}
+      {isOfferModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/60 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-black text-sm text-navy uppercase tracking-wider">
-                Create Promotional Coupon Code
-              </h3>
-              <button onClick={() => setIsCouponModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="font-black text-sm text-navy uppercase tracking-wider">Create Offer</h3>
+              <button onClick={() => setIsOfferModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="font-bold text-navy">Coupon Code (Uppercase) *</label>
+                <label className="font-bold text-navy">Offer Name *</label>
                 <input
                   type="text"
-                  value={couponForm.code || ''}
-                  onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
-                  placeholder="e.g. DIWALI25"
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono font-bold text-purple outline-none focus:border-purple uppercase"
+                  value={offerForm.name}
+                  onChange={(e) => setOfferForm({ ...offerForm, name: e.target.value })}
+                  placeholder="e.g. Diwali Special"
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
                 />
               </div>
 
               <div>
-                <label className="font-bold text-navy">Campaign Name *</label>
+                <label className="font-bold text-navy">Offer Code *</label>
                 <input
                   type="text"
-                  value={couponForm.name || ''}
-                  onChange={(e) => setCouponForm({ ...couponForm, name: e.target.value })}
-                  placeholder="e.g. Early Bird Festive Saver"
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                  value={offerForm.code}
+                  onChange={(e) => setOfferForm({ ...offerForm, code: e.target.value.toUpperCase() })}
+                  placeholder="e.g. DIWALI20"
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono font-bold text-purple outline-none focus:border-purple uppercase"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-navy">Discount Type *</label>
+                  <label className="font-bold text-navy">Type *</label>
                   <select
-                    value={couponForm.type}
-                    onChange={(e) => setCouponForm({ ...couponForm, type: e.target.value as any })}
+                    value={offerForm.discountType}
+                    onChange={(e) =>
+                      setOfferForm({ ...offerForm, discountType: e.target.value as 'Percentage' | 'FixedAmount' })
+                    }
                     className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
                   >
-                    <option value="Percentage">Percentage (%)</option>
-                    <option value="Flat">Flat Amount (₹)</option>
+                    <option value="Percentage">% Discount</option>
+                    <option value="FixedAmount">Flat Discount</option>
                   </select>
                 </div>
                 <div>
-                  <label className="font-bold text-navy">Discount Value *</label>
+                  <label className="font-bold text-navy">
+                    Discount {offerForm.discountType === 'Percentage' ? '(%)' : '(₹)'} *
+                  </label>
                   <input
                     type="number"
-                    value={couponForm.value}
-                    onChange={(e) => setCouponForm({ ...couponForm, value: Number(e.target.value) })}
+                    value={offerForm.discountValue}
+                    onChange={(e) => setOfferForm({ ...offerForm, discountValue: Number(e.target.value) })}
                     className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
                   />
                 </div>
@@ -243,21 +359,21 @@ export const ErpMarketingModule: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold text-navy">Min Order (₹) *</label>
+                  <label className="font-bold text-navy">Valid From *</label>
                   <input
-                    type="number"
-                    value={couponForm.minimumOrderAmount}
-                    onChange={(e) => setCouponForm({ ...couponForm, minimumOrderAmount: Number(e.target.value) })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                    type="date"
+                    value={offerForm.validFrom}
+                    onChange={(e) => setOfferForm({ ...offerForm, validFrom: e.target.value })}
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none text-navy"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-navy">Max Cap (₹)</label>
+                  <label className="font-bold text-navy">Valid To *</label>
                   <input
-                    type="number"
-                    value={couponForm.maximumDiscount || 1000}
-                    onChange={(e) => setCouponForm({ ...couponForm, maximumDiscount: Number(e.target.value) })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                    type="date"
+                    value={offerForm.validTo}
+                    onChange={(e) => setOfferForm({ ...offerForm, validTo: e.target.value })}
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none text-navy"
                   />
                 </div>
               </div>
@@ -265,16 +381,17 @@ export const ErpMarketingModule: React.FC = () => {
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
               <button
-                onClick={() => setIsCouponModalOpen(false)}
+                onClick={() => setIsOfferModalOpen(false)}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold"
               >
                 Cancel
               </button>
               <button
-                onClick={handleSaveCoupon}
-                className="px-5 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold shadow-md shadow-orange/20"
+                onClick={handleSaveOffer}
+                disabled={isSavingOffer}
+                className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 disabled:opacity-50"
               >
-                Save Coupon Code
+                {isSavingOffer ? 'Saving...' : 'Save Offer'}
               </button>
             </div>
           </div>

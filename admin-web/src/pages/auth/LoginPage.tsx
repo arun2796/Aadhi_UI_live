@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 
@@ -11,8 +11,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
   const { login } = useAuth();
   const { showToast } = useToast();
 
-  const [email, setEmail] = useState('admin@aadhicrackers.com');
-  const [password, setPassword] = useState('Admin@123456');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -43,18 +43,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#07081c] text-white flex items-center justify-center p-4 relative overflow-hidden font-sans">
+    <div className="min-h-screen bg-navy-dark text-white flex items-center justify-center p-4 relative overflow-hidden font-sans">
       {/* Dynamic Background Glow Elements */}
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-purple/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-orange/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-gold/15 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-md w-full relative z-10 space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple to-orange shadow-lg shadow-orange/20 mb-2">
-            <span className="text-2xl font-black tracking-tight text-white">AC</span>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple to-purple-light border border-gold/40 shadow-lg shadow-purple/25 mb-2">
+            <span className="text-2xl font-black tracking-tight text-gold">AC</span>
           </div>
-          <h1 className="text-2xl font-black tracking-tight text-white flex items-center justify-center space-x-2">
+          <h1 className="text-2xl font-black tracking-tight text-gold flex items-center justify-center space-x-2">
             <span>AADHI CRACKERS</span>
             <span className="px-2 py-0.5 rounded-full bg-gold/20 text-gold border border-gold/40 text-[10px] font-bold">
               ERP 2.0
@@ -93,7 +93,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@aadhicrackers.com"
+                  placeholder="you@aadhicrackers.com"
                   className="w-full bg-[#161845] border border-[#262968] rounded-xl pl-10 pr-3.5 py-3 text-white placeholder-slate-500 font-medium outline-none focus:border-purple transition-colors"
                   required
                 />
@@ -138,29 +138,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-black tracking-wide text-xs flex items-center justify-center space-x-2 shadow-lg shadow-orange/25 transition-all disabled:opacity-50"
+              className="w-full py-3.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-black tracking-wide text-xs flex items-center justify-center space-x-2 shadow-lg shadow-purple/30 transition-all disabled:opacity-50"
             >
               <span>{isLoading ? 'Authenticating...' : 'Sign In to ERP Portal'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
-
-          {/* Seeded Quick Fill Helper */}
-          <div className="pt-4 border-t border-[#1d1f4b] flex items-center justify-between text-[11px] text-slate-400">
-            <span>Demo SuperAdmin:</span>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('admin@aadhicrackers.com');
-                setPassword('Admin@123456');
-                showToast('Filled SuperAdmin credentials', 'info');
-              }}
-              className="text-gold font-bold hover:underline flex items-center space-x-1"
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Fill Admin Credentials</span>
-            </button>
-          </div>
         </div>
 
         {/* Security Footer Note */}

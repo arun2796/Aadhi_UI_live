@@ -180,11 +180,66 @@ export const api = {
   },
   getReturns: async (params?: { page?: number; pageSize?: number; status?: string }) => {
     const res = await apiClient.get('/returns', { params });
-    return wrapPagedResult<ReturnOrder>(res.data?.data);
+    const paged = wrapPagedResult<any>(res.data?.data);
+    // Normalize backend ReturnOrderDto (reason/refundAmount at root, lineTotal per item)
+    // onto the UI ReturnRequest shape (per-item reason/condition/refundAmount, totalRefundAmount).
+    for (let i = 0; i < paged.length; i++) {
+      const r = paged[i];
+      if (!r) continue;
+      paged[i] = {
+        ...r,
+        customerPhone: r.customerPhone || '',
+        totalRefundAmount: r.totalRefundAmount ?? r.refundAmount ?? 0,
+        items: (r.items || []).map((it: any) => ({
+          ...it,
+          reason: it.reason || r.reason || '—',
+          condition: it.condition || (it.isDamaged ? 'Damaged' : 'Unopened'),
+          refundAmount: it.refundAmount ?? it.lineTotal ?? (it.unitPrice ?? 0) * (it.quantity ?? 0)
+        }))
+      };
+    }
+    return paged as unknown as ReturnOrder[] & {
+      items: ReturnOrder[];
+      totalCount: number;
+      page: number;
+      pageNumber: number;
+      pageSize: number;
+      totalPages: number;
+      hasPreviousPage: boolean;
+      hasNextPage: boolean;
+    };
+  },
+  getReturnById: async (returnId: string) => {
+    const res = await apiClient.get(`/returns/${returnId}`);
+    const r = res.data?.data;
+    if (!r) return undefined;
+    return {
+      ...r,
+      customerPhone: r.customerPhone || '',
+      totalRefundAmount: r.totalRefundAmount ?? r.refundAmount ?? 0,
+      items: (r.items || []).map((it: any) => ({
+        ...it,
+        reason: it.reason || r.reason || '—',
+        condition: it.condition || (it.isDamaged ? 'Damaged' : 'Unopened'),
+        refundAmount: it.refundAmount ?? it.lineTotal ?? (it.unitPrice ?? 0) * (it.quantity ?? 0)
+      }))
+    } as ReturnOrder;
   },
   updateReturnStatus: async (returnId: string, status: string, notes?: string) => {
-    const action = status === 'Approved' ? 'approve' : (status === 'Received' ? 'receive' : 'inspect');
-    const res = await apiClient.post(`/returns/${returnId}/${action}`, { notes });
+    // Reject uses the dedicated endpoint (API contract §6: POST /returns/{id}/reject { reason }).
+    if (status === 'Rejected') {
+      const res = await apiClient.post(`/returns/${returnId}/reject`, { reason: notes || 'Rejected by admin' });
+      return res.data?.data;
+    }
+    if (status === 'Inspected') {
+      const res = await apiClient.post(`/returns/${returnId}/inspect`, { inspectionNotes: notes, itemInspections: [] });
+      return res.data?.data;
+    }
+    const action = status === 'Received' ? 'receive' : 'approve';
+    // approve / receive take a raw JSON string body ([FromBody] string? notes).
+    const res = await apiClient.post(`/returns/${returnId}/${action}`, JSON.stringify(notes ?? ''), {
+      headers: { 'Content-Type': 'application/json' }
+    });
     return res.data?.data;
   },
 

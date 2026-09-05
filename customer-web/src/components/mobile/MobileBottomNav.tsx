@@ -1,24 +1,27 @@
 import React from 'react';
-import { Home, Grid, ShoppingBag, User } from 'lucide-react';
+import { Home, Grid, Heart, ShoppingBag, User } from 'lucide-react';
+
+export type BottomNavTab = 'home' | 'categories' | 'wishlist' | 'orders' | 'account';
 
 interface MobileBottomNavProps {
-  currentTab: 'home' | 'categories' | 'orders' | 'account';
-  onSelectTab: (tab: 'home' | 'categories' | 'orders' | 'account') => void;
+  currentTab: BottomNavTab;
+  onSelectTab: (tab: BottomNavTab) => void;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   currentTab,
   onSelectTab
 }) => {
-  const tabs: { id: 'home' | 'categories' | 'orders' | 'account'; label: string; icon: any }[] = [
+  const tabs: { id: BottomNavTab; label: string; icon: any }[] = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'categories', label: 'Categories', icon: Grid },
+    { id: 'wishlist', label: 'Wishlist', icon: Heart },
     { id: 'orders', label: 'Orders', icon: ShoppingBag },
     { id: 'account', label: 'Account', icon: User }
   ];
 
   return (
-    <nav className="sticky bottom-0 z-40 bg-white border-t border-slate-200 px-2 py-1 flex items-center justify-around shadow-lg">
+    <nav className="sticky bottom-0 z-40 bg-white border-t border-slate-200 px-1 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] flex items-center justify-around shadow-lg">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = currentTab === tab.id;
@@ -27,7 +30,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <button
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
-            className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all duration-200 ${
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-200 ${
               isActive ? 'text-purple' : 'text-slate-400 hover:text-slate-600'
             }`}
           >

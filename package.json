@@ -9,5 +9,8 @@
     "build:customer": "npm --prefix customer-web run build",
     "build:admin": "npm --prefix admin-web run build",
     "build:all": "npm run build:customer && npm run build:admin"
+  },
+  "dependencies": {
+    "firebase": "^12.18.0"
   }
 }

@@ -122,7 +122,27 @@ export const inventoryApi = {
   },
 
   getLowStockAlerts: async (limit = 10) => {
-    const res = await apiClient.get<{ data: LowStockAlert[] }>(`/inventory/low-stock?limit=${limit}`);
-    return res.data?.data || [];
+    const res = await apiClient.get<{ data: Array<Record<string, unknown>> }>(`/inventory/low-stock?limit=${limit}`);
+    const raw = res.data?.data || [];
+
+    // Backend returns LowStockAlertDto { productId, productName, sku, imageUrl, currentStock, reorderLevel, status };
+    // normalise onto the StockItem-compatible LowStockAlert shape used across the app.
+    return raw.map((a): LowStockAlert => {
+      const currentStock = Number(a.currentStock ?? a.quantityAvailable ?? 0);
+      return {
+        id: String(a.id ?? a.productId ?? ''),
+        productId: String(a.productId ?? ''),
+        productName: String(a.productName ?? ''),
+        sku: String(a.sku ?? ''),
+        imageUrl: (a.imageUrl as string | undefined) ?? undefined,
+        warehouseId: String(a.warehouseId ?? ''),
+        warehouseName: String(a.warehouseName ?? 'Main Warehouse'),
+        quantityOnHand: Number(a.quantityOnHand ?? currentStock),
+        quantityReserved: Number(a.quantityReserved ?? 0),
+        quantityAvailable: currentStock,
+        reorderLevel: Number(a.reorderLevel ?? 10),
+        status: String(a.status ?? 'Low')
+      };
+    });
   }
 };

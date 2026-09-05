@@ -6,14 +6,12 @@ import {
   Truck,
   ShieldCheck,
   RotateCcw,
-  Check,
+  Package,
   Minus,
   Plus,
-  Share2,
-  Sparkles,
-  Award,
+  Star,
   AlertTriangle,
-  ArrowRight
+  Plus as PlusIcon
 } from 'lucide-react';
 import { Product } from '../../types';
 import { api } from '../../services/api';
@@ -28,6 +26,30 @@ interface ProductDetailPageProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
+const FALLBACK_FEATURES = [
+  '62 Premium Items',
+  'Longer Burning Time',
+  'Safe & Eco Friendly',
+  'Perfect for All Celebrations'
+];
+
+const FALLBACK_GALLERY = [
+  'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=600&auto=format&fit=crop&q=80'
+];
+
+const SAFETY_POINTS = [
+  'Always light fireworks in an open outdoor area with a minimum 5-metre clearance.',
+  'Light from arm’s length using an agarbathi (incense stick) — never bend over the product.',
+  'Keep a bucket of water or sand nearby at all times during use.',
+  'Never attempt to re-ignite a firework that failed to go off on the first attempt.',
+  'Store in a cool, dry place away from heat sources and out of reach of children.',
+  'Wear cotton clothing and avoid loose synthetic garments while bursting crackers.'
+];
+
+type TabId = 'description' | 'specifications' | 'reviews' | 'safety';
+
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNavigate }) => {
   const { addToCart, setIsCartDrawerOpen } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
@@ -37,9 +59,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
-  const [pincode, setPincode] = useState<string>('641012');
-  const [pincodeStatus, setPincodeStatus] = useState<string | null>('Delivery available in 2-3 business days (Express Sivakasi Route)');
-  const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'safety' | 'reviews'>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('description');
 
   useEffect(() => {
     api.getProductBySlug(slug).then((prod) => {
@@ -47,10 +67,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
         setProduct(prod);
         setSelectedImage(prod.primaryImageUrl || '');
         setQuantity(1);
+        setActiveTab('description');
 
-        // Fetch related products
+        // Other products from the same category (Frequently Bought Together + related)
         api.getProducts({ category: prod.categoryName }).then((list) => {
-          setRelatedProducts(list.filter(p => p.id !== prod.id).slice(0, 4));
+          setRelatedProducts(list.filter(p => p.id !== prod.id).slice(0, 7));
         });
       }
     });
@@ -67,6 +88,39 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   const inWish = isInWishlist(product.id);
   const isOutOfStock = product.availableQuantity <= 0;
   const youSave = product.compareAtPrice ? product.compareAtPrice - product.price : 0;
+  const discountPct =
+    product.discountPercentage && product.discountPercentage > 0
+      ? Math.round(product.discountPercentage)
+      : product.compareAtPrice && product.compareAtPrice > product.price
+      ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
+      : 0;
+
+  // Rating line with fallback copy per spec
+  const rating = product.rating ?? 4.7;
+  const reviewCount = product.reviewCount ?? 86;
+  const soldLabel = product.reviewCount ? `${product.reviewCount * 3}+` : '250+';
+
+  // Gallery: real product images first, padded with fallbacks up to 4 thumbnails
+  const productImages = [
+    ...(product.primaryImageUrl ? [product.primaryImageUrl] : []),
+    ...(product.images || []).map(i => i.url)
+  ].filter((url, i, arr) => url && arr.indexOf(url) === i);
+  const galleryImages = [...productImages, ...FALLBACK_GALLERY].slice(0, 4);
+
+  // Gold-bullet feature list derived from description lines, with spec fallback
+  const derivedFeatures = (product.description || '')
+    .split(/\r?\n|•/)
+    .map(s => s.replace(/^[-*\s]+/, '').trim())
+    .filter(s => s.length > 3 && s.length < 90);
+  const features = derivedFeatures.length >= 2 ? derivedFeatures.slice(0, 5) : FALLBACK_FEATURES;
+
+  const fbtProducts = relatedProducts.slice(0, 3);
+  const alsoLikeProducts = relatedProducts.slice(3, 7);
+
+  const placeholderReviews = Array.from(
+    { length: Math.min(3, Math.max(1, product.reviewCount || 3)) },
+    (_, i) => i
+  );
 
   const handleAddToCart = () => {
     addToCart(product, quantity);
@@ -79,76 +133,76 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
     onNavigate('checkout');
   };
 
-  const handleCheckPincode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pincode.length === 6) {
-      setPincodeStatus(`✓ Delivery available to PIN ${pincode} in 2-3 business days!`);
-    } else {
-      setPincodeStatus('Please enter a valid 6-digit Indian PIN code.');
-    }
+  const handleWishlistLink = () => {
+    toggleWishlist(product);
+    showToast(inWish ? 'Removed from wishlist' : `Added "${product.name}" to wishlist!`, 'info');
   };
 
-  const boxContents = [
-    { name: '10 Pcs Electric Sparklers', count: '2 Boxes' },
-    { name: 'Flower Pots (Special Big)', count: '2 Boxes (10 Pcs)' },
-    { name: 'Ground Chakkar Deluxe', count: '2 Boxes (10 Pcs)' },
-    { name: 'Aerial 12-Shot Sky Symphony', count: '1 Unit' },
-    { name: 'Whistling Rockets', count: '1 Pack (10 Pcs)' },
-    { name: 'Color Twinkling Stars', count: '2 Boxes' },
-    { name: 'Fancy Peacock Novelty', count: '2 Pcs' }
+  const handleQuickAdd = (p: Product) => {
+    addToCart(p, 1);
+    showToast(`Added "${p.name}" to cart!`, 'success');
+  };
+
+  const tabs: Array<{ id: TabId; label: string }> = [
+    { id: 'description', label: 'Description' },
+    { id: 'specifications', label: 'Specifications' },
+    { id: 'reviews', label: `Reviews (${reviewCount})` },
+    { id: 'safety', label: 'Safety Info' }
+  ];
+
+  const specifications: Array<{ label: string; value: string }> = [
+    { label: 'SKU', value: product.sku },
+    { label: 'Category', value: product.categoryName },
+    { label: 'Brand', value: product.brandName || 'Aadhi' },
+    { label: 'Unit', value: product.unit },
+    { label: 'GST', value: `${product.taxRate}%` },
+    { label: 'Net Weight', value: `${product.weightKg} kg` },
+    { label: 'Stock', value: isOutOfStock ? 'Out of Stock' : `${product.availableQuantity} units available` }
   ];
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-12">
-      {/* Breadcrumb */}
+      {/* Breadcrumb: Home › Category › Name */}
       <div className="flex items-center space-x-2 text-xs text-slate-400">
         <button onClick={() => onNavigate('home')} className="hover:text-navy">Home</button>
-        <span>/</span>
-        <button onClick={() => onNavigate('shop', { category: product.categoryName.toLowerCase().replace(/\s+/g, '-') })} className="hover:text-navy">
+        <span>›</span>
+        <button
+          onClick={() => onNavigate('shop', { category: product.categoryName.toLowerCase().replace(/\s+/g, '-') })}
+          className="hover:text-navy"
+        >
           {product.categoryName}
         </button>
-        <span>/</span>
+        <span>›</span>
         <span className="text-slate-800 font-semibold truncate">{product.name}</span>
       </div>
 
       {/* Main Product Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left: Gallery (5 cols) */}
+        {/* Left: Gallery */}
         <div className="lg:col-span-6 space-y-4">
           <div className="aspect-square w-full rounded-3xl bg-slate-50 border border-slate-200 overflow-hidden shadow-card relative">
             <img
-              src={selectedImage || product.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+              src={selectedImage || galleryImages[0]}
               alt={product.name}
               className="w-full h-full object-cover"
             />
-            {product.discountPercentage && (
+            {discountPct > 0 && (
               <div className="absolute top-4 left-4 bg-red-600 text-white text-xs font-black px-3 py-1 rounded-xl shadow-md uppercase">
-                {product.discountPercentage}% OFF
+                {discountPct}% OFF
               </div>
             )}
-            <button
-              onClick={() => toggleWishlist(product)}
-              className={`absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center shadow-md transition-colors ${
-                inWish ? 'bg-red-50 text-red-500' : 'bg-white/90 text-slate-400 hover:text-red-500'
-              }`}
-            >
-              <Heart className={`w-5 h-5 ${inWish ? 'fill-current' : ''}`} />
-            </button>
           </div>
 
-          {/* Thumbnails */}
+          {/* Thumbnail strip */}
           <div className="grid grid-cols-4 gap-3">
-            {[
-              product.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80',
-              'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=600&auto=format&fit=crop&q=80',
-              'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80',
-              'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=600&auto=format&fit=crop&q=80'
-            ].map((img, i) => (
+            {galleryImages.map((img, i) => (
               <button
                 key={i}
                 onClick={() => setSelectedImage(img)}
                 className={`aspect-square rounded-2xl overflow-hidden border-2 transition-all ${
-                  selectedImage === img ? 'border-orange shadow-md scale-105' : 'border-slate-200 opacity-70 hover:opacity-100'
+                  (selectedImage || galleryImages[0]) === img
+                    ? 'border-purple shadow-md scale-105'
+                    : 'border-slate-200 opacity-70 hover:opacity-100'
                 }`}
               >
                 <img src={img} alt="" className="w-full h-full object-cover" />
@@ -157,8 +211,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
           </div>
         </div>
 
-        {/* Right: Info & Actions (6 cols) */}
-        <div className="lg:col-span-6 space-y-6">
+        {/* Right: Info & Actions */}
+        <div className="lg:col-span-6 space-y-5">
           <div>
             <div className="flex items-center space-x-2 text-xs font-bold text-orange uppercase tracking-wider mb-1">
               <span>{product.brandName || 'AADHI CRACKERS'}</span>
@@ -170,82 +224,72 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
               {product.name}
             </h1>
 
-            <div className="flex items-center space-x-4 mt-2">
-              {(product.rating || product.reviewCount) ? (
-                <>
-                  <RatingStars rating={product.rating || 0} reviewCount={product.reviewCount || 0} />
-                  <span className="text-xs text-slate-300">|</span>
-                </>
-              ) : null}
-              <span className="text-xs text-slate-500 font-medium">SKU: <strong className="text-slate-700">{product.sku}</strong></span>
-              <span className="text-xs text-slate-300">|</span>
-              <span className="text-xs text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
-                100% Certified Safe
+            {/* Rating line: 4.7 (86 Reviews) • Sold 250+ */}
+            <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mt-2 text-xs text-slate-600">
+              <span className="flex items-center space-x-1 font-bold text-navy">
+                <Star className="w-4 h-4 text-gold fill-current" />
+                <span>{rating.toFixed(1)}</span>
               </span>
+              <span className="font-medium">({reviewCount} Reviews)</span>
+              <span className="text-slate-300">•</span>
+              <span className="font-medium">Sold {soldLabel}</span>
             </div>
           </div>
 
-          {/* Pricing Box */}
-          <div className="p-5 rounded-2xl bg-orange/5 border border-orange/15 space-y-2">
-            <div className="flex items-baseline space-x-3">
+          {/* Price row */}
+          <div className="p-5 rounded-2xl bg-orange/5 border border-orange/15 space-y-1.5">
+            <div className="flex items-baseline flex-wrap gap-x-3 gap-y-1">
               <span className="text-3xl font-black text-navy">
                 ₹{product.price.toLocaleString('en-IN')}
               </span>
-              {product.compareAtPrice && (
+              {product.compareAtPrice && product.compareAtPrice > product.price && (
                 <span className="text-sm text-slate-400 line-through">
                   ₹{product.compareAtPrice.toLocaleString('en-IN')}
                 </span>
               )}
-              {youSave > 0 && (
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
-                  You Save ₹{youSave.toLocaleString('en-IN')} ({product.discountPercentage}% OFF)
+              {discountPct > 0 && (
+                <span className="text-xs font-black text-red-600 bg-red-50 px-2.5 py-0.5 rounded-full">
+                  {discountPct}% OFF
                 </span>
               )}
             </div>
+            {youSave > 0 && (
+              <div className="text-[11px] text-emerald-700 font-semibold">
+                You save ₹{youSave.toLocaleString('en-IN')} on this product
+              </div>
+            )}
             <div className="text-[11px] text-slate-500">
               Inclusive of all GST taxes. Free express shipping on orders over ₹3,000.
             </div>
           </div>
 
-          {/* Highlights */}
-          {product.shortDescription && (
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 font-medium leading-relaxed">
-              ✨ <strong>Highlights:</strong> {product.shortDescription}
+          {/* Gold-bullet feature list */}
+          <ul className="space-y-2">
+            {features.map((f, i) => (
+              <li key={i} className="flex items-start space-x-2 text-xs sm:text-sm font-semibold text-slate-700">
+                <Star className="w-4 h-4 text-gold fill-current shrink-0 mt-0.5" />
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+
+          {/* Stock + Quantity stepper */}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center space-x-2 text-xs font-bold">
+              <span className={`w-2.5 h-2.5 rounded-full ${isOutOfStock ? 'bg-red-500' : 'bg-emerald-500'}`} />
+              {isOutOfStock ? (
+                <span className="text-red-600">Out of Stock</span>
+              ) : (
+                <span className="text-emerald-600">In Stock ({product.availableQuantity} units available)</span>
+              )}
             </div>
-          )}
 
-          {/* Pincode Delivery Checker */}
-          <div className="space-y-2 pt-1">
-            <label className="text-xs font-bold text-slate-700 block">Check Delivery Date & Serviceability:</label>
-            <form onSubmit={handleCheckPincode} className="flex space-x-2 max-w-sm">
-              <input
-                type="text"
-                value={pincode}
-                onChange={(e) => setPincode(e.target.value)}
-                maxLength={6}
-                placeholder="Enter 6-digit PIN"
-                className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-orange"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 bg-navy hover:bg-navy-light text-white text-xs font-bold rounded-xl transition-colors"
-              >
-                Check
-              </button>
-            </form>
-            {pincodeStatus && (
-              <div className="text-xs text-emerald-700 font-medium flex items-center space-x-1">
-                <span>{pincodeStatus}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Quantity & CTA Buttons */}
-          <div className="space-y-3 pt-2">
             <div className="flex items-center space-x-4">
+              <span className="text-xs font-bold text-slate-700">Quantity:</span>
               <div className="flex items-center border border-slate-200 rounded-xl bg-white p-1">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  aria-label="Decrease quantity"
                   className="p-2 text-slate-500 hover:text-navy hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   <Minus className="w-4 h-4" />
@@ -253,26 +297,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                 <span className="px-4 font-bold text-sm text-navy">{quantity}</span>
                 <button
                   onClick={() => setQuantity(Math.min(product.availableQuantity || 99, quantity + 1))}
+                  aria-label="Increase quantity"
                   className="p-2 text-slate-500 hover:text-navy hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
-
-              <span className="text-xs text-slate-500 font-medium">
-                {product.availableQuantity > 0 ? (
-                  <span className="text-emerald-600 font-bold">In Stock ({product.availableQuantity} units available)</span>
-                ) : (
-                  <span className="text-red-600 font-bold">Out of Stock</span>
-                )}
-              </span>
             </div>
 
+            {/* CTAs: orange Add to Cart + purple Buy Now */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <button
                 onClick={handleAddToCart}
                 disabled={isOutOfStock}
-                className="w-full py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-glow hover:shadow-lg transition-all"
+                className="w-full py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-glow hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ShoppingBag className="w-4 h-4" />
                 <span>Add To Cart</span>
@@ -281,50 +319,102 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
               <button
                 onClick={handleBuyNow}
                 disabled={isOutOfStock}
-                className="w-full py-3.5 rounded-xl bg-navy hover:bg-navy-light text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-md transition-all"
+                className="w-full py-3.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 shadow-glow-purple transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Zap className="w-4 h-4 text-gold" />
-                <span>Buy Now (Instant Checkout)</span>
+                <span>Buy Now</span>
               </button>
             </div>
+
+            {/* Wishlist link */}
+            <button
+              onClick={handleWishlistLink}
+              className={`flex items-center space-x-1.5 text-xs font-bold transition-colors ${
+                inWish ? 'text-red-500' : 'text-slate-500 hover:text-red-500'
+              }`}
+            >
+              <Heart className={`w-4 h-4 ${inWish ? 'fill-current' : ''}`} />
+              <span>{inWish ? 'Added to Wishlist' : 'Add to Wishlist'}</span>
+            </button>
           </div>
 
-          {/* Direct Trust Badges */}
-          <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-200 text-center">
+          {/* Trust icon row */}
+          <div className="grid grid-cols-4 gap-3 pt-4 border-t border-slate-200 text-center">
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <Award className="w-5 h-5 text-orange mx-auto mb-1" />
-              <div className="text-[11px] font-bold text-slate-800">Sivakasi Direct</div>
-              <div className="text-[10px] text-slate-400">100% Genuine</div>
+              <ShieldCheck className="w-5 h-5 text-orange mx-auto mb-1" />
+              <div className="text-[11px] font-bold text-slate-800">100% Original</div>
             </div>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <Truck className="w-5 h-5 text-purple mx-auto mb-1" />
-              <div className="text-[11px] font-bold text-slate-800">Safe Transit</div>
-              <div className="text-[10px] text-slate-400">5-Ply Corrugated</div>
+              <Package className="w-5 h-5 text-purple mx-auto mb-1" />
+              <div className="text-[11px] font-bold text-slate-800">Safe Packaging</div>
             </div>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <ShieldCheck className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
-              <div className="text-[11px] font-bold text-slate-800">Green Pyros</div>
-              <div className="text-[10px] text-slate-400">Low Smoke</div>
+              <Truck className="w-5 h-5 text-gold-dark mx-auto mb-1" />
+              <div className="text-[11px] font-bold text-slate-800">Fast Delivery</div>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <RotateCcw className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+              <div className="text-[11px] font-bold text-slate-800">Easy Returns</div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs: Description, Box Contents, Safety Instructions, Reviews */}
+      {/* Frequently Bought Together */}
+      {fbtProducts.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-xl font-black text-navy">Frequently Bought Together</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {fbtProducts.map((p) => (
+              <div
+                key={p.id}
+                className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center space-x-3.5 shadow-xs hover:shadow-md transition-shadow"
+              >
+                <button
+                  onClick={() => onNavigate('product-detail', { slug: p.slug })}
+                  className="w-16 h-16 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0"
+                >
+                  <img
+                    src={p.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=300&auto=format&fit=crop&q=80'}
+                    alt={p.name}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+                <div className="flex-1 min-w-0">
+                  <button
+                    onClick={() => onNavigate('product-detail', { slug: p.slug })}
+                    className="font-bold text-xs text-slate-800 hover:text-purple line-clamp-2 text-left"
+                  >
+                    {p.name}
+                  </button>
+                  <div className="text-sm font-black text-navy mt-1">
+                    ₹{p.price.toLocaleString('en-IN')}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleQuickAdd(p)}
+                  disabled={p.availableQuantity <= 0}
+                  className="px-3 py-2 rounded-xl bg-white text-purple border-[1.5px] border-purple hover:bg-purple hover:text-white text-xs font-bold flex items-center space-x-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                >
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  <span>Add</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Tabs: Description | Specifications | Reviews (n) | Safety Info */}
       <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
         <div className="flex border-b border-slate-200 overflow-x-auto bg-slate-50">
-          {[
-            { id: 'overview', label: 'Product Overview' },
-            { id: 'items', label: 'What’s In The Box' },
-            { id: 'safety', label: 'Safety Guidelines' },
-            { id: 'reviews', label: `Customer Reviews (${product.reviewCount || 120})` }
-          ].map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id)}
               className={`px-6 py-4 text-xs sm:text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
                 activeTab === tab.id
-                  ? 'border-orange text-orange bg-white'
+                  ? 'border-purple text-purple bg-white'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -334,27 +424,60 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
         </div>
 
         <div className="p-6 sm:p-8">
-          {activeTab === 'overview' && (
+          {activeTab === 'description' && (
             <div className="space-y-4 text-xs sm:text-sm text-slate-600 leading-relaxed max-w-4xl">
               <h3 className="text-base font-bold text-navy">About {product.name}</h3>
-              <p>{product.description}</p>
+              <p>{product.description || product.shortDescription || 'Premium quality Sivakasi fireworks, crafted for bright, safe and memorable celebrations.'}</p>
               <p>
                 Manufactured using high-grade chemical compositions with lower sulfur content, resulting in vibrant colors, longer burning duration, and reduced smoke emissions. Suitable for all celebratory events, weddings, Diwali, New Year, and festivals.
               </p>
             </div>
           )}
 
-          {activeTab === 'items' && (
-            <div className="space-y-4 max-w-3xl">
-              <h3 className="text-base font-bold text-navy">Assorted Fireworks Breakdown</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {boxContents.map((c, i) => (
-                  <div key={i} className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs font-semibold text-slate-800">
-                    <span className="flex items-center space-x-2">
-                      <span className="w-2 h-2 rounded-full bg-orange" />
-                      <span>{c.name}</span>
-                    </span>
-                    <span className="text-slate-500 font-normal">{c.count}</span>
+          {activeTab === 'specifications' && (
+            <div className="max-w-2xl">
+              <h3 className="text-base font-bold text-navy mb-4">Product Specifications</h3>
+              <table className="w-full text-xs sm:text-sm">
+                <tbody>
+                  {specifications.map((row, i) => (
+                    <tr key={row.label} className={i % 2 === 0 ? 'bg-slate-50' : 'bg-white'}>
+                      <td className="px-4 py-3 font-bold text-slate-700 w-1/3 border border-slate-100">
+                        {row.label}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 border border-slate-100">
+                        {row.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeTab === 'reviews' && (
+            <div className="space-y-6 max-w-3xl">
+              {/* Rating summary */}
+              <div className="flex items-center space-x-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                <div className="text-3xl font-black text-navy">{rating.toFixed(1)}</div>
+                <div>
+                  <RatingStars rating={rating} />
+                  <div className="text-xs text-slate-500 mt-1">
+                    Based on {reviewCount} reviews from verified buyers
+                  </div>
+                </div>
+              </div>
+
+              {/* Placeholder review list */}
+              <div className="space-y-3">
+                {placeholderReviews.map((i) => (
+                  <div key={i} className="p-4 rounded-xl border border-slate-100 bg-white">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-800">Verified Buyer</span>
+                      <RatingStars rating={Math.max(3, Math.round(rating))} size="w-3.5 h-3.5" />
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Detailed reviews are coming from verified buyers after delivery confirmation.
+                    </p>
                   </div>
                 ))}
               </div>
@@ -368,33 +491,23 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                   <AlertTriangle className="w-4 h-4" />
                   <span>Important Fireworks Safety Instructions</span>
                 </div>
-                <p>{product.safetyInformation || 'Always light in open outdoors with minimum 5m clearance. Light from arms length using agarbathi.'}</p>
+                {product.safetyInformation && <p>{product.safetyInformation}</p>}
               </div>
-            </div>
-          )}
-
-          {activeTab === 'reviews' && (
-            <div className="space-y-6 max-w-3xl">
-              <div className="flex items-center space-x-4 p-4 rounded-2xl bg-slate-50 border">
-                <div className="text-3xl font-black text-navy">{product.rating ? product.rating.toFixed(1) : '0.0'}</div>
-                <div>
-                  <RatingStars rating={product.rating || 0} />
-                  <div className="text-xs text-slate-500 mt-1">
-                    {product.reviewCount ? `Based on ${product.reviewCount} customer reviews` : 'No customer reviews yet'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 rounded-xl border border-slate-100 text-center text-xs text-slate-500">
-                {product.reviewCount ? 'Customer reviews are verified upon delivery.' : 'There are no reviews for this product yet. Purchase and review to share your feedback!'}
-              </div>
+              <ul className="space-y-2.5">
+                {SAFETY_POINTS.map((point, i) => (
+                  <li key={i} className="flex items-start space-x-2.5 text-xs sm:text-sm text-slate-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-orange mt-1.5 shrink-0" />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
       </div>
 
-      {/* Related Products Carousel */}
-      {relatedProducts.length > 0 && (
+      {/* Related Products */}
+      {alsoLikeProducts.length > 0 && (
         <section className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black text-navy">You May Also Like</h2>
@@ -406,7 +519,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5">
-            {relatedProducts.map((p) => (
+            {alsoLikeProducts.map((p) => (
               <ProductCard key={p.id} product={p} onNavigate={onNavigate} />
             ))}
           </div>

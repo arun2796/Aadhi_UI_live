@@ -14,6 +14,8 @@ import { ErpNotFoundPage } from './components/common/ErpNotFoundPage';
 const ErpDashboardPage = lazy(() => import('./pages/erp/ErpDashboardPage').then(m => ({ default: m.ErpDashboardPage })));
 const ErpSalesAndOrdersModule = lazy(() => import('./pages/erp/ErpSalesAndOrdersModule').then(m => ({ default: m.ErpSalesAndOrdersModule })));
 const ErpCatalogModule = lazy(() => import('./pages/erp/ErpCatalogModule').then(m => ({ default: m.ErpCatalogModule })));
+const ErpProductFormPage = lazy(() => import('./pages/erp/ErpProductFormPage').then(m => ({ default: m.ErpProductFormPage })));
+const ErpSubCategoriesPage = lazy(() => import('./pages/erp/ErpSubCategoriesPage').then(m => ({ default: m.ErpSubCategoriesPage })));
 const ErpInventoryLedgerModule = lazy(() => import('./pages/erp/ErpInventoryLedgerModule').then(m => ({ default: m.ErpInventoryLedgerModule })));
 const ErpPurchaseOrdersModule = lazy(() => import('./pages/erp/ErpPurchaseOrdersModule').then(m => ({ default: m.ErpPurchaseOrdersModule })));
 const ErpFinanceAndPnlModule = lazy(() => import('./pages/erp/ErpFinanceAndPnlModule').then(m => ({ default: m.ErpFinanceAndPnlModule })));
@@ -111,9 +113,9 @@ function OrderDetailWrapper() {
   return <ErpSalesAndOrdersModule initialSubTab="orders" initialSelectedOrderId={id} />;
 }
 
-function ProductDetailWrapper() {
+function ProductFormWrapper() {
   const { id } = useParams<{ id: string }>();
-  return <ErpCatalogModule initialSubTab="products" initialSelectedProductId={id} />;
+  return <ErpProductFormPage productId={id} />;
 }
 
 function CategoryDetailWrapper() {
@@ -160,11 +162,12 @@ function AdminAppRoutes() {
 
       {/* Catalog (§5) */}
       <Route path="/admin/products" element={<ProtectedAdminShell currentTab="products"><ErpCatalogModule initialSubTab="products" /></ProtectedAdminShell>} />
-      <Route path="/admin/products/new" element={<ProtectedAdminShell currentTab="products"><ErpCatalogModule initialSubTab="products" /></ProtectedAdminShell>} />
-      <Route path="/admin/products/:id" element={<ProtectedAdminShell currentTab="products"><ProductDetailWrapper /></ProtectedAdminShell>} />
-      <Route path="/admin/products/:id/edit" element={<ProtectedAdminShell currentTab="products"><ProductDetailWrapper /></ProtectedAdminShell>} />
+      <Route path="/admin/products/new" element={<ProtectedAdminShell currentTab="products"><ErpProductFormPage /></ProtectedAdminShell>} />
+      <Route path="/admin/products/:id" element={<ProtectedAdminShell currentTab="products"><ProductFormWrapper /></ProtectedAdminShell>} />
+      <Route path="/admin/products/:id/edit" element={<ProtectedAdminShell currentTab="products"><ProductFormWrapper /></ProtectedAdminShell>} />
       <Route path="/admin/categories" element={<ProtectedAdminShell currentTab="categories"><ErpCatalogModule initialSubTab="categories" /></ProtectedAdminShell>} />
       <Route path="/admin/categories/:id" element={<ProtectedAdminShell currentTab="categories"><CategoryDetailWrapper /></ProtectedAdminShell>} />
+      <Route path="/admin/sub-categories" element={<ProtectedAdminShell currentTab="sub-categories"><ErpSubCategoriesPage /></ProtectedAdminShell>} />
       <Route path="/admin/brands" element={<ProtectedAdminShell currentTab="products"><ErpCatalogModule initialSubTab="products" /></ProtectedAdminShell>} />
       <Route path="/admin/gift-boxes" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
       <Route path="/admin/gift-boxes/:id" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />

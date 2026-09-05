@@ -18,11 +18,36 @@ import {
   AlertTriangle,
   FileCode,
   ShieldCheck,
-  Layers
+  Layers,
+  Plus,
+  Pencil
 } from 'lucide-react';
 import { AuditLog, User, LoginHistoryItem, RateLimitLogItem } from '../../types';
-import { api } from '../../services/api';
+import { api, authApi, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { ErpConfirmDialog } from './ErpConfirmDialog';
+
+const ASSIGNABLE_ROLES = [
+  'SuperAdmin',
+  'Admin',
+  'Manager',
+  'SalesExecutive',
+  'InventoryManager',
+  'PurchaseManager',
+  'Accountant',
+  'SupportAgent'
+] as const;
+
+const ROLE_DESCRIPTIONS: Record<string, string> = {
+  SuperAdmin: 'Full system access including user role management, security policies and audit controls.',
+  Admin: 'Full operational access across catalog, orders, inventory, purchases and reports.',
+  Manager: 'Oversees daily store operations — orders, customers, inventory and business reports.',
+  SalesExecutive: 'Creates and manages orders, quotes and customer accounts for the sales desk.',
+  InventoryManager: 'Controls stock levels, adjustments, warehouse transfers and low stock replenishment.',
+  PurchaseManager: 'Manages suppliers, purchase orders, goods receipts and procurement workflows.',
+  Accountant: 'Handles invoices, payments, supplier bills, expenses and financial statements.',
+  SupportAgent: 'Views orders and assists customers with returns, refunds and support queries.'
+};
 
 interface ErpSecurityAndAuditModuleProps {
   initialSubTab?: 'audit' | 'users' | 'rate-limits' | 'sessions';
@@ -42,6 +67,24 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
 
   // Selected Audit Log for JSON Diff Drawer
   const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLog | null>(null);
+
+  // Users & Roles management state
+  const [roleChangeTarget, setRoleChangeTarget] = useState<{ user: User; newRole: string } | null>(null);
+  const [statusToggleTarget, setStatusToggleTarget] = useState<User | null>(null);
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
+
+  // Users | Roles inner tabs (spec 12) + admin Add User modal + inline role editing
+  const [usersInnerTab, setUsersInnerTab] = useState<'users' | 'roles'>('users');
+  const [editingRoleUserId, setEditingRoleUserId] = useState<string | null>(null);
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [addUserForm, setAddUserForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    role: 'Manager'
+  });
 
   const loadData = async () => {
     setIsLoading(true);
@@ -73,6 +116,76 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
       return JSON.stringify(JSON.parse(jsonString), null, 2);
     } catch {
       return jsonString;
+    }
+  };
+
+  const handleConfirmRoleChange = async () => {
+    if (!roleChangeTarget) return;
+    const { user, newRole } = roleChangeTarget;
+    setSavingUserId(user.id);
+    try {
+      await authApi.updateUserRole(user.id, newRole);
+      showToast(`${user.firstName} ${user.lastName} is now ${newRole}`, 'success');
+      setRoleChangeTarget(null);
+      setEditingRoleUserId(null);
+      const usrs = await api.getUsers();
+      setUsers(usrs);
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to update user role', 'error');
+      setRoleChangeTarget(null);
+    } finally {
+      setSavingUserId(null);
+    }
+  };
+
+  const handleCreateUser = async () => {
+    const { firstName, lastName, email, password, role } = addUserForm;
+    if (!firstName.trim() || !email.trim() || !password.trim() || !role) {
+      showToast('Name, email, role and a temporary password are required', 'warning');
+      return;
+    }
+    setIsCreatingUser(true);
+    try {
+      await authApi.createUser({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        password,
+        role
+      });
+      showToast(`User ${firstName.trim()} created — they can sign in with the temporary password`, 'success');
+      setIsAddUserOpen(false);
+      setAddUserForm({ firstName: '', lastName: '', email: '', password: '', role: 'Manager' });
+      const usrs = await api.getUsers();
+      setUsers(usrs);
+    } catch {
+      showToast('Could not create user', 'error');
+    } finally {
+      setIsCreatingUser(false);
+    }
+  };
+
+  const handleConfirmStatusToggle = async () => {
+    if (!statusToggleTarget) return;
+    const user = statusToggleTarget;
+    const nextActive = !user.isActive;
+    setSavingUserId(user.id);
+    try {
+      await authApi.updateUserStatus(user.id, nextActive);
+      showToast(
+        `${user.firstName} ${user.lastName} ${nextActive ? 'activated' : 'deactivated'} successfully`,
+        'success'
+      );
+      setStatusToggleTarget(null);
+      const usrs = await api.getUsers();
+      setUsers(usrs);
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to update user status', 'error');
+      setStatusToggleTarget(null);
+    } finally {
+      setSavingUserId(null);
     }
   };
 
@@ -202,50 +315,159 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
         </div>
       )}
 
-      {/* 2. USERS & ROLES TAB */}
+      {/* 2. USERS & ROLES TAB (spec 12: inner Users | Roles tabs + purple Add User) */}
       {subTab === 'users' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {users.map((u) => (
-              <div key={u.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-purple/20 text-purple flex items-center justify-center font-black text-sm">
-                      {u.firstName.charAt(0)}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-xs text-navy">{u.firstName} {u.lastName}</h3>
-                      <p className="text-[10px] text-slate-400">{u.email}</p>
-                    </div>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                    Active
-                  </span>
-                </div>
-
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Enterprise Role:</span>
-                    <span className="font-bold text-purple">{u.role}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Phone:</span>
-                    <span className="font-mono text-slate-700">{u.phone}</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="text-[10px] text-slate-400">All permissions granted</span>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto flex-1">
+              {([
+                { id: 'users', label: `Users (${users.length})` },
+                { id: 'roles', label: 'Roles' }
+              ] as { id: 'users' | 'roles'; label: string }[]).map((t) => {
+                const isActive = usersInnerTab === t.id;
+                return (
                   <button
-                    onClick={() => showToast(`Password reset link sent to ${u.email}`, 'success')}
-                    className="text-xs font-bold text-orange hover:underline"
+                    key={t.id}
+                    onClick={() => setUsersInnerTab(t.id)}
+                    className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                      isActive ? 'border-purple text-purple' : 'border-transparent text-slate-500 hover:text-navy'
+                    }`}
                   >
-                    Reset Password
+                    {t.label}
                   </button>
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
+            <button
+              onClick={() => setIsAddUserOpen(true)}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add User</span>
+            </button>
           </div>
+
+          {usersInnerTab === 'users' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3 px-4">Name</th>
+                    <th className="py-3 px-3">Email</th>
+                    <th className="py-3 px-3">Role</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {users.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center space-x-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-purple/15 text-purple flex items-center justify-center font-black text-xs shrink-0">
+                            {(u.firstName || u.email).charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-bold text-navy">{u.firstName} {u.lastName}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{u.phone || '—'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-600">{u.email}</td>
+                      <td className="py-3 px-3">
+                        {editingRoleUserId === u.id ? (
+                          <select
+                            value={ASSIGNABLE_ROLES.includes(u.role as (typeof ASSIGNABLE_ROLES)[number]) ? u.role : ''}
+                            disabled={savingUserId === u.id}
+                            onChange={(e) => {
+                              const newRole = e.target.value;
+                              if (newRole && newRole !== u.role) {
+                                setRoleChangeTarget({ user: u, newRole });
+                              }
+                            }}
+                            className="bg-white border border-purple/40 rounded-lg px-2 py-1.5 text-xs font-bold text-navy outline-none disabled:opacity-50"
+                            title={ROLE_DESCRIPTIONS[u.role] || 'Select role'}
+                          >
+                            {!ASSIGNABLE_ROLES.includes(u.role as (typeof ASSIGNABLE_ROLES)[number]) && (
+                              <option value="">{u.role || 'Unassigned'}</option>
+                            )}
+                            {ASSIGNABLE_ROLES.map((r) => (
+                              <option key={r} value={r}>
+                                {r.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="font-bold text-navy" title={ROLE_DESCRIPTIONS[u.role]}>
+                            {(u.role || 'Unassigned').replace(/([a-z])([A-Z])/g, '$1 $2')}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            u.isActive
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}
+                        >
+                          {u.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          <button
+                            onClick={() => setEditingRoleUserId(editingRoleUserId === u.id ? null : u.id)}
+                            disabled={savingUserId === u.id}
+                            className={`p-1.5 rounded-lg border shadow-2xs transition-all disabled:opacity-50 ${
+                              editingRoleUserId === u.id
+                                ? 'border-purple bg-purple/10 text-purple'
+                                : 'border-slate-200 bg-white text-slate-500 hover:text-purple hover:bg-purple/5'
+                            }`}
+                            title="Change role"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setStatusToggleTarget(u)}
+                            disabled={savingUserId === u.id}
+                            className={`p-1.5 rounded-lg border shadow-2xs bg-white transition-all disabled:opacity-50 ${
+                              u.isActive
+                                ? 'border-red-200 text-red-600 hover:bg-red-50'
+                                : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                            }`}
+                            title={u.isActive ? 'Deactivate user' : 'Activate user'}
+                          >
+                            {u.isActive ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          )}
+
+          {/* Roles tab — role cards with descriptions */}
+          {usersInnerTab === 'roles' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5">
+            <h3 className="font-black text-sm text-navy uppercase tracking-wider flex items-center space-x-2 mb-3">
+              <ShieldCheck className="w-4 h-4 text-purple" />
+              <span>Role Definitions</span>
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {ASSIGNABLE_ROLES.map((r) => (
+                <div key={r} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="font-bold text-xs text-purple">{r.replace(/([a-z])([A-Z])/g, '$1 $2')}</div>
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{ROLE_DESCRIPTIONS[r]}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
         </div>
       )}
 
@@ -416,6 +638,148 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
           </div>
         </div>
       )}
+
+      {/* ADD USER MODAL (POST /auth/users) */}
+      {isAddUserOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-black text-sm text-navy uppercase tracking-wider">Add User</h3>
+              <button onClick={() => setIsAddUserOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-navy">First Name *</label>
+                  <input
+                    type="text"
+                    value={addUserForm.firstName}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, firstName: e.target.value })}
+                    placeholder="e.g. Priya"
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-navy">Last Name</label>
+                  <input
+                    type="text"
+                    value={addUserForm.lastName}
+                    onChange={(e) => setAddUserForm({ ...addUserForm, lastName: e.target.value })}
+                    placeholder="e.g. Raman"
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Email *</label>
+                <input
+                  type="email"
+                  value={addUserForm.email}
+                  onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
+                  placeholder="user@aadhicrackers.com"
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Role *</label>
+                <select
+                  value={addUserForm.role}
+                  onChange={(e) => setAddUserForm({ ...addUserForm, role: e.target.value })}
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-bold text-navy outline-none"
+                >
+                  {ASSIGNABLE_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">{ROLE_DESCRIPTIONS[addUserForm.role]}</p>
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Temporary Password *</label>
+                <input
+                  type="text"
+                  value={addUserForm.password}
+                  onChange={(e) => setAddUserForm({ ...addUserForm, password: e.target.value })}
+                  placeholder="Share securely with the new user"
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono outline-none focus:border-purple"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+              <button
+                onClick={() => setIsAddUserOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateUser}
+                disabled={isCreatingUser}
+                className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 disabled:opacity-50"
+              >
+                {isCreatingUser ? 'Creating...' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ROLE CHANGE CONFIRMATION */}
+      <ErpConfirmDialog
+        open={!!roleChangeTarget}
+        title="Change User Role?"
+        message={
+          roleChangeTarget ? (
+            <>
+              <span className="font-bold text-navy">
+                {roleChangeTarget.user.firstName} {roleChangeTarget.user.lastName}
+              </span>{' '}
+              will be changed from <strong>{roleChangeTarget.user.role}</strong> to{' '}
+              <strong>{roleChangeTarget.newRole}</strong>.
+              <span className="block mt-1.5 text-slate-500">
+                {ROLE_DESCRIPTIONS[roleChangeTarget.newRole]}
+              </span>
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Change Role"
+        onConfirm={handleConfirmRoleChange}
+        onCancel={() => setRoleChangeTarget(null)}
+      />
+
+      {/* STATUS TOGGLE CONFIRMATION */}
+      <ErpConfirmDialog
+        open={!!statusToggleTarget}
+        title={statusToggleTarget?.isActive ? 'Deactivate User?' : 'Activate User?'}
+        message={
+          statusToggleTarget ? (
+            <>
+              <span className="font-bold text-navy">
+                {statusToggleTarget.firstName} {statusToggleTarget.lastName}
+              </span>{' '}
+              ({statusToggleTarget.email}) will be{' '}
+              {statusToggleTarget.isActive
+                ? 'deactivated and can no longer sign in to the admin panel.'
+                : 'reactivated and can sign in to the admin panel again.'}
+            </>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel={statusToggleTarget?.isActive ? 'Deactivate' : 'Activate'}
+        onConfirm={handleConfirmStatusToggle}
+        onCancel={() => setStatusToggleTarget(null)}
+      />
     </div>
   );
 };

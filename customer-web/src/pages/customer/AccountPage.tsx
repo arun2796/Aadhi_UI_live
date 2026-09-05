@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  User,
+  LayoutDashboard,
   ShoppingBag,
   Heart,
   MapPin,
-  FileText,
+  User as UserIcon,
+  KeyRound,
   LogOut,
   ChevronRight,
-  Download,
-  Trash2
+  Award,
+  Eye,
+  EyeOff,
+  Loader2
 } from 'lucide-react';
 import { Order } from '../../types';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useWishlist } from '../../context/WishlistContext';
-import { useCart } from '../../context/CartContext';
 import { StatusBadge } from '../../components/common/CommonComponents';
 import { useToast } from '../../context/ToastContext';
 
@@ -22,232 +24,457 @@ interface AccountPageProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
+type Panel = 'dashboard' | 'profile' | 'password';
+
+const getErrorMessage = (error: any, fallback: string): string =>
+  error?.response?.data?.message || error?.response?.data?.error || error?.message || fallback;
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/* ─── Shared field building blocks ─── */
+
+const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <label className="block text-xs font-semibold text-slate-500 mb-1.5">{children}</label>
+);
+
+const inputClass =
+  'w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-white text-sm text-navy font-medium placeholder:text-slate-300 placeholder:font-normal focus:outline-none focus:border-purple focus:ring-2 focus:ring-purple/15 transition-colors';
+
+const readOnlyInputClass =
+  'w-full px-3.5 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-navy font-medium cursor-default focus:outline-none';
+
+const PasswordInput: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  autoComplete?: string;
+}> = ({ value, onChange, autoComplete = 'new-password' }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="••••••••"
+        autoComplete={autoComplete}
+        className={`${inputClass} pr-11`}
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+      >
+        {show ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+      </button>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   Desktop design 13: MY ACCOUNT DASHBOARD
+   Left sidebar card + main panel (dashboard / profile / password).
+   ───────────────────────────────────────────────────────────── */
 export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
-  const { user, logout } = useAuth();
-  const { wishlist, toggleWishlist } = useWishlist();
-  const { addToCart } = useCart();
+  const { user, logout, rewardPoints } = useAuth();
+  const { wishlist } = useWishlist();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'wishlist' | 'addresses' | 'profile'>('orders');
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [panel, setPanel] = useState<Panel>('dashboard');
+  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [addressCount, setAddressCount] = useState<number | null>(null);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+
+  // Change-password fields
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changing, setChanging] = useState(false);
 
   useEffect(() => {
-    api.getMyOrders().then(setOrders);
+    if (!user) return;
+    let cancelled = false;
+    api.getMyOrders()
+      .then((data) => {
+        if (!cancelled) setOrders(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setOrders([]);
+      });
+    api.getAddresses()
+      .then((data) => {
+        if (!cancelled) setAddressCount(Array.isArray(data) ? data.length : 0);
+      })
+      .catch(() => {
+        if (!cancelled) setAddressCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
-  const handleMoveToCart = (product: any) => {
-    addToCart(product, 1);
-    toggleWishlist(product);
-    showToast(`Moved "${product.name}" to cart!`, 'success');
-  };
-
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-      {/* User Banner */}
-      <div className="rounded-3xl bg-navy text-white p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-card">
-        <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-orange to-gold flex items-center justify-center text-navy font-black text-2xl shadow-glow">
-            {user ? user.firstName.charAt(0) : 'U'}
+  /* ── Logged-out gate: send the visitor to Login preserving intent ── */
+  if (!user) {
+    return (
+      <div className="px-4 py-16 animate-fade-in">
+        <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 shadow-card p-8 text-center space-y-4">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-soft flex items-center justify-center">
+            <UserIcon className="w-7 h-7 text-purple" />
           </div>
           <div>
-            <div className="text-xs text-gold font-bold uppercase tracking-wider">Customer Portal</div>
-            <h1 className="text-xl sm:text-2xl font-black text-white">
-              {user ? `${user.firstName} ${user.lastName}`.trim() : 'Guest Customer'}
-            </h1>
-            <div className="text-xs text-slate-300">
-              {user ? (user.phone ? `${user.email} • ${user.phone}` : user.email) : 'Sign in to access your orders and saved profile'}
-            </div>
+            <h1 className="text-xl font-black text-navy">My Account</h1>
+            <p className="text-sm text-slate-500 mt-1">Please login to view your account dashboard</p>
           </div>
-        </div>
-
-        <div className="flex items-center space-x-3">
           <button
-            onClick={() => onNavigate('shop')}
-            className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold transition-colors"
+            onClick={() => onNavigate('auth', { initialTab: 'login', redirectTo: 'account' })}
+            className="w-full py-3 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-sm shadow-md shadow-purple/25 transition-colors"
           >
-            Shop More Fireworks
+            Login
           </button>
-          {user && (
+          <p className="text-xs text-slate-500">
+            Don't have an account?{' '}
             <button
-              onClick={logout}
-              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
-              title="Sign Out"
+              onClick={() => onNavigate('auth', { initialTab: 'register', redirectTo: 'account' })}
+              className="font-bold text-purple hover:text-purple-dark"
             >
-              <LogOut className="w-4 h-4" />
+              Register
             </button>
-          )}
+          </p>
         </div>
       </div>
+    );
+  }
 
-      {/* Main Tabs Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Navigation Sidebar */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 p-3 space-y-1 shadow-xs">
-          {[
-            { id: 'orders', label: 'Order History', icon: ShoppingBag, count: orders.length },
-            { id: 'wishlist', label: 'My Wishlist', icon: Heart, count: wishlist.length },
-            { id: 'addresses', label: 'Saved Addresses', icon: MapPin },
-            { id: 'profile', label: 'Profile Settings', icon: User }
-          ].map((item) => {
+  const handleLogout = () => {
+    logout();
+    showToast('Logged out successfully', 'success');
+    onNavigate('home');
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword) return showToast('Please enter your current password', 'error');
+    if (newPassword.length < 8) return showToast('New password must be at least 8 characters', 'error');
+    if (newPassword !== confirmPassword) return showToast('Passwords do not match', 'error');
+    if (newPassword === currentPassword) return showToast('New password must be different from the current password', 'error');
+    setChanging(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      showToast('Password changed successfully', 'success');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPanel('dashboard');
+    } catch (error: any) {
+      showToast(getErrorMessage(error, 'Could not change password. Please try again.'), 'error');
+    } finally {
+      setChanging(false);
+    }
+  };
+
+  const recentOrders = (orders ?? [])
+    .slice()
+    .sort((a, b) => new Date(b.placedAtUtc).getTime() - new Date(a.placedAtUtc).getTime())
+    .slice(0, 4);
+
+  const statTiles: Array<{
+    label: string;
+    value: number | null;
+    icon: React.ElementType;
+    iconBg: string;
+    iconColor: string;
+    target?: string;
+  }> = [
+    {
+      label: 'My Orders',
+      value: orders === null ? null : orders.length,
+      icon: ShoppingBag,
+      iconBg: 'bg-purple-soft',
+      iconColor: 'text-purple',
+      target: 'my-orders'
+    },
+    {
+      label: 'Wishlist',
+      value: wishlist.length,
+      icon: Heart,
+      iconBg: 'bg-red-50',
+      iconColor: 'text-red-500',
+      target: 'wishlist'
+    },
+    {
+      label: 'Addresses',
+      value: addressCount,
+      icon: MapPin,
+      iconBg: 'bg-orange-soft',
+      iconColor: 'text-orange',
+      target: 'addresses'
+    },
+    {
+      label: 'Reward Points',
+      value: rewardPoints ?? 0,
+      icon: Award,
+      iconBg: 'bg-gold-soft',
+      iconColor: 'text-gold-dark'
+    }
+  ];
+
+  const sidebarItems: Array<{
+    id: string;
+    label: string;
+    icon: React.ElementType;
+    panel?: Panel;
+    navigateTo?: string;
+  }> = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, panel: 'dashboard' },
+    { id: 'my-orders', label: 'My Orders', icon: ShoppingBag, navigateTo: 'my-orders' },
+    { id: 'wishlist', label: 'Wishlist', icon: Heart, navigateTo: 'wishlist' },
+    { id: 'addresses', label: 'Addresses', icon: MapPin, navigateTo: 'addresses' },
+    { id: 'profile', label: 'Profile', icon: UserIcon, panel: 'profile' },
+    { id: 'password', label: 'Change Password', icon: KeyRound, panel: 'password' }
+  ];
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-8 animate-fade-in">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* ── Left sidebar card ── */}
+        <aside className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-card p-3 space-y-1">
+          {sidebarItems.map((item) => {
             const Icon = item.icon;
-            const isSelected = activeTab === item.id;
+            const isActive = item.panel !== undefined && panel === item.panel;
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id as any)}
-                className={`w-full p-3 rounded-xl text-xs font-bold flex items-center justify-between transition-colors ${
-                  isSelected ? 'bg-orange text-white shadow-sm' : 'text-slate-700 hover:bg-slate-50'
+                onClick={() => {
+                  setConfirmLogout(false);
+                  if (item.panel) setPanel(item.panel);
+                  else if (item.navigateTo) onNavigate(item.navigateTo);
+                }}
+                className={`w-full px-3.5 py-3 rounded-xl text-sm font-bold flex items-center justify-between transition-colors ${
+                  isActive ? 'bg-purple text-white shadow-md shadow-purple/25' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <div className="flex items-center space-x-2.5">
-                  <Icon className="w-4 h-4" />
+                <span className="flex items-center space-x-2.5">
+                  <Icon className="w-4.5 h-4.5" />
                   <span>{item.label}</span>
-                </div>
-                {item.count !== undefined && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${isSelected ? 'bg-white text-orange' : 'bg-slate-100 text-slate-600'}`}>
-                    {item.count}
-                  </span>
-                )}
+                </span>
+                {!isActive && <ChevronRight className="w-4 h-4 text-slate-300" />}
               </button>
             );
           })}
-        </div>
 
-        {/* Content Pane */}
-        <div className="lg:col-span-9 bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
-          {/* Orders History Tab */}
-          {activeTab === 'orders' && (
-            <div className="space-y-6">
-              <h2 className="text-lg font-black text-navy">Your Orders</h2>
-              {orders.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs">
-                  No orders placed yet.
+          <div className="pt-1 mt-1 border-t border-slate-100">
+            {confirmLogout ? (
+              <div className="px-3.5 py-3 space-y-2.5">
+                <p className="text-xs font-semibold text-slate-600">Are you sure you want to logout?</p>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleLogout}
+                    className="flex-1 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition-colors"
+                  >
+                    Logout
+                  </button>
+                  <button
+                    onClick={() => setConfirmLogout(false)}
+                    className="flex-1 py-2 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
                 </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {orders.map((ord) => (
-                    <div key={ord.id} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-sm text-navy">{ord.orderNumber}</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmLogout(true)}
+                className="w-full px-3.5 py-3 rounded-xl text-sm font-bold flex items-center space-x-2.5 text-red-500 hover:bg-red-50 transition-colors"
+              >
+                <LogOut className="w-4.5 h-4.5" />
+                <span>Logout</span>
+              </button>
+            )}
+          </div>
+        </aside>
+
+        {/* ── Main panel ── */}
+        <main className="lg:col-span-9 space-y-6">
+          {panel === 'dashboard' && (
+            <>
+              {/* Greeting */}
+              <div>
+                <h1 className="text-2xl font-black text-navy">Hello, {user.firstName} 👋</h1>
+                <p className="text-sm text-slate-500 mt-1">Welcome to your account dashboard</p>
+              </div>
+
+              {/* 4 stat tiles */}
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+                {statTiles.map((tile) => {
+                  const Icon = tile.icon;
+                  const inner = (
+                    <>
+                      <div className={`w-11 h-11 rounded-xl ${tile.iconBg} flex items-center justify-center shrink-0`}>
+                        <Icon className={`w-5.5 h-5.5 ${tile.iconColor}`} />
+                      </div>
+                      <div className="min-w-0 text-left">
+                        <div className="text-2xl font-black text-navy leading-tight">
+                          {tile.value === null ? (
+                            <span className="inline-block w-8 h-6 rounded bg-slate-100 animate-pulse align-middle" />
+                          ) : (
+                            tile.value
+                          )}
+                        </div>
+                        <div className="text-xs font-semibold text-slate-500 truncate">{tile.label}</div>
+                      </div>
+                    </>
+                  );
+                  return tile.target ? (
+                    <button
+                      key={tile.label}
+                      onClick={() => onNavigate(tile.target!)}
+                      className="bg-white rounded-2xl border border-slate-200 shadow-card p-4 flex items-center space-x-3.5 hover:border-purple/40 hover:shadow-card-hover transition-all"
+                    >
+                      {inner}
+                    </button>
+                  ) : (
+                    <div
+                      key={tile.label}
+                      className="bg-white rounded-2xl border border-slate-200 shadow-card p-4 flex items-center space-x-3.5"
+                    >
+                      {inner}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Recent orders */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-card">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                  <h2 className="text-base font-black text-navy">Recent Orders</h2>
+                  <button
+                    onClick={() => onNavigate('my-orders')}
+                    className="text-xs font-bold text-purple hover:text-purple-dark"
+                  >
+                    View All Orders
+                  </button>
+                </div>
+
+                {orders === null ? (
+                  <div className="px-5 py-10 flex items-center justify-center text-slate-400">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  </div>
+                ) : recentOrders.length === 0 ? (
+                  <div className="px-5 py-10 text-center space-y-3">
+                    <p className="text-sm text-slate-400">You haven't placed any orders yet.</p>
+                    <button
+                      onClick={() => onNavigate('shop')}
+                      className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-colors"
+                    >
+                      Start Shopping
+                    </button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {recentOrders.map((ord) => (
+                      <button
+                        key={ord.id}
+                        onClick={() => onNavigate('order-details', { orderId: ord.id, orderNumber: ord.orderNumber })}
+                        className="w-full px-5 py-4 flex items-center justify-between gap-4 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-sm text-navy truncate">{ord.orderNumber}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">{formatDate(ord.placedAtUtc)}</div>
+                        </div>
+                        <div className="flex items-center space-x-3 shrink-0">
+                          <span className="font-black text-sm text-navy">
+                            ₹{ord.grandTotal.toLocaleString('en-IN')}
+                          </span>
                           <StatusBadge status={ord.orderStatus} />
+                          <ChevronRight className="w-4 h-4 text-slate-300" />
                         </div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          Placed on {new Date(ord.placedAtUtc).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} • {ord.paymentMethod}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-4">
-                        <div className="text-right">
-                          <div className="font-black text-sm text-navy">₹{ord.grandTotal.toLocaleString('en-IN')}</div>
-                          <div className="text-[10px] text-emerald-600 font-semibold">{ord.paymentStatus}</div>
-                        </div>
-
-                        <button
-                          onClick={() => onNavigate('track-order', { orderNumber: ord.orderNumber })}
-                          className="px-3.5 py-1.5 rounded-lg bg-navy text-white text-xs font-bold hover:bg-navy-light transition-colors"
-                        >
-                          Track
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
-          {/* Wishlist Tab */}
-          {activeTab === 'wishlist' && (
-            <div className="space-y-6">
-              <h2 className="text-lg font-black text-navy">Saved Fireworks ({wishlist.length})</h2>
-              {wishlist.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs">
-                  Your wishlist is empty. Browse products and tap the heart icon to save items!
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {wishlist.map((prod) => (
-                    <div key={prod.id} className="p-4 rounded-xl border border-slate-100 flex items-center space-x-3 bg-slate-50">
-                      <img
-                        src={prod.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
-                        alt={prod.name}
-                        className="w-16 h-16 rounded-lg object-cover bg-white border"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-xs text-navy truncate">{prod.name}</h4>
-                        <div className="text-xs font-black text-orange mt-0.5">₹{prod.price.toLocaleString('en-IN')}</div>
-                        <div className="flex items-center space-x-2 mt-2">
-                          <button
-                            onClick={() => handleMoveToCart(prod)}
-                            className="px-2.5 py-1 rounded bg-orange text-white text-[11px] font-bold hover:bg-orange-hover transition-colors"
-                          >
-                            Move to Cart
-                          </button>
-                          <button
-                            onClick={() => toggleWishlist(prod)}
-                            className="text-slate-400 hover:text-red-500 p-1"
-                            title="Remove"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {panel === 'profile' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-card p-6">
+              <h1 className="text-xl font-black text-navy">Profile</h1>
+              <p className="text-sm text-slate-500 mt-1">Your personal details</p>
 
-          {/* Addresses Tab */}
-          {activeTab === 'addresses' && (
-            <div className="space-y-6">
-              <h2 className="text-lg font-black text-navy">Saved Delivery Addresses</h2>
-              <div className="p-4 rounded-2xl border-2 border-orange bg-orange/5 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-navy text-sm">Primary Home Address</span>
-                  <span className="px-2 py-0.5 rounded bg-orange text-white text-[10px] font-bold">Default</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 max-w-2xl">
+                <div>
+                  <FieldLabel>First Name</FieldLabel>
+                  <input type="text" value={user.firstName} readOnly className={readOnlyInputClass} />
                 </div>
-                <div className="text-slate-700 font-semibold">Ramesh Kumar • +91 98765 43210</div>
-                <div className="text-slate-600 leading-relaxed">
-                  123, West Cross Street, Sivanandapuram, Near Saravanampatti Junction, Coimbatore, Tamil Nadu - 641012, India
+                <div>
+                  <FieldLabel>Last Name</FieldLabel>
+                  <input type="text" value={user.lastName || '—'} readOnly className={readOnlyInputClass} />
+                </div>
+                <div>
+                  <FieldLabel>Email Address</FieldLabel>
+                  <input type="email" value={user.email || '—'} readOnly className={readOnlyInputClass} />
+                </div>
+                <div>
+                  <FieldLabel>Phone Number</FieldLabel>
+                  <input type="tel" value={user.phone || '—'} readOnly className={readOnlyInputClass} />
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Profile Tab */}
-          {activeTab === 'profile' && (
-            <div className="space-y-6 max-w-md">
-              <h2 className="text-lg font-black text-navy">Personal Details</h2>
-              <div className="space-y-4 text-xs">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">First Name</label>
-                  <input type="text" defaultValue={user?.firstName || 'Ramesh'} className="w-full px-3 py-2 rounded-xl border" />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Last Name</label>
-                  <input type="text" defaultValue={user?.lastName || 'Kumar'} className="w-full px-3 py-2 rounded-xl border" />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Email Address</label>
-                  <input type="email" defaultValue={user?.email || 'ramesh@example.com'} className="w-full px-3 py-2 rounded-xl border" />
-                </div>
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Phone Number</label>
-                  <input type="tel" defaultValue={user?.phone || '+91 98765 43210'} className="w-full px-3 py-2 rounded-xl border" />
-                </div>
+              <p className="text-xs text-slate-400 mt-5">
+                To update your profile details, please{' '}
                 <button
-                  onClick={() => showToast('Profile updated successfully!', 'success')}
-                  className="px-6 py-2.5 bg-navy hover:bg-navy-light text-white font-bold rounded-xl transition-colors"
+                  onClick={() => onNavigate('contact')}
+                  className="font-bold text-purple hover:text-purple-dark"
                 >
-                  Save Changes
+                  contact support
                 </button>
-              </div>
+                .
+              </p>
             </div>
           )}
-        </div>
+
+          {panel === 'password' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-card p-6">
+              <h1 className="text-xl font-black text-navy">Change Password</h1>
+              <p className="text-sm text-slate-500 mt-1">Choose a strong password of at least 8 characters</p>
+
+              <form className="space-y-4 mt-6 max-w-md" onSubmit={(e) => e.preventDefault()}>
+                <div>
+                  <FieldLabel>Current Password</FieldLabel>
+                  <PasswordInput
+                    value={currentPassword}
+                    onChange={setCurrentPassword}
+                    autoComplete="current-password"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>New Password</FieldLabel>
+                  <PasswordInput value={newPassword} onChange={setNewPassword} />
+                </div>
+                <div>
+                  <FieldLabel>Confirm New Password</FieldLabel>
+                  <PasswordInput value={confirmPassword} onChange={setConfirmPassword} />
+                  {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                    <p className="text-[11px] font-semibold text-red-500 mt-1.5">Passwords do not match</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleChangePassword();
+                  }}
+                  disabled={changing}
+                  className="px-6 py-3 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-sm shadow-md shadow-purple/25 transition-colors disabled:opacity-60 flex items-center space-x-2"
+                >
+                  {changing && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>Update Password</span>
+                </button>
+              </form>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );

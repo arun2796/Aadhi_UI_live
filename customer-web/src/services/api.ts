@@ -52,6 +52,15 @@ export const api = {
     throw new Error(res.data?.message || 'Login failed');
   },
 
+  async loginWithFirebase(firebaseData: { idToken: string; email?: string; displayName?: string; photoUrl?: string; phoneNumber?: string }): Promise<{ user: any; token: string }> {
+    const res = await apiClient.post('/auth/firebase-login', firebaseData);
+    if (res.data?.data?.token) {
+      localStorage.setItem('aadhi_customer_token', res.data.data.token);
+      return res.data.data;
+    }
+    throw new Error(res.data?.message || 'Firebase login failed');
+  },
+
   async register(data: { firstName: string; lastName: string; email: string; phone: string; password: string }): Promise<{ user: any; token: string }> {
     const res = await apiClient.post('/auth/register', data);
     if (res.data?.data?.token) {
@@ -281,21 +290,31 @@ export const api = {
     utrNumber?: string;
     paymentScreenshotUrl?: string;
     paymentScreenshotBase64?: string;
+    deliveryMethod?: string;
   }): Promise<Order> {
+    // Backend requires a bare 10-digit phone: strip "+91 98765 43210" style formatting.
+    const sanitizePhone = (raw: string): string => {
+      let digits = (raw || '').replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+      if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+      return digits;
+    };
+
     const res = await apiClient.post('/orders', {
       shippingAddress: {
-        fullName: payload.shippingAddress.fullName,
-        phone: payload.shippingAddress.phone,
-        addressLine1: payload.shippingAddress.addressLine1,
+        fullName: (payload.shippingAddress.fullName || '').trim(),
+        phone: sanitizePhone(payload.shippingAddress.phone),
+        addressLine1: (payload.shippingAddress.addressLine1 || '').trim(),
         addressLine2: payload.shippingAddress.addressLine2,
-        city: payload.shippingAddress.city,
-        state: payload.shippingAddress.state,
-        postalCode: payload.shippingAddress.postalCode,
+        city: (payload.shippingAddress.city || '').trim(),
+        state: (payload.shippingAddress.state || '').trim(),
+        postalCode: (payload.shippingAddress.postalCode || '').trim(),
         country: payload.shippingAddress.country || 'India'
       },
       paymentMethod: typeof payload.paymentMethod === 'number' ? payload.paymentMethod : (payload.paymentMethod === 'COD' ? 1 : 2),
       couponCode: payload.couponCode,
       notes: payload.notes,
+      deliveryMethod: payload.deliveryMethod || 'standard',
       utrNumber: payload.utrNumber,
       paymentScreenshotUrl: payload.paymentScreenshotUrl,
       paymentScreenshotBase64: payload.paymentScreenshotBase64,
@@ -338,6 +357,140 @@ export const api = {
     } catch {
       return [];
     }
+  },
+
+  // AUTH — OTP / PASSWORD RESET (see docs/API_CONTRACTS_PHASE1.md §1)
+  async loginWithIdentifier(identifier: string, password: string): Promise<{ user: any; token: string }> {
+    const body = identifier.includes('@')
+      ? { email: identifier, identifier, password }
+      : { identifier, password };
+    const res = await apiClient.post('/auth/login', body);
+    if (res.data?.data?.token) {
+      localStorage.setItem('aadhi_customer_token', res.data.data.token);
+      return res.data.data;
+    }
+    throw new Error(res.data?.message || 'Login failed');
+  },
+
+  async forgotPassword(identifier: string): Promise<{ message?: string; devOtp?: string }> {
+    const res = await apiClient.post('/auth/forgot-password', { identifier });
+    return res.data?.data ?? res.data ?? {};
+  },
+
+  async resendOtp(identifier: string): Promise<{ message?: string; devOtp?: string }> {
+    const res = await apiClient.post('/auth/resend-otp', { identifier });
+    return res.data?.data ?? res.data ?? {};
+  },
+
+  async verifyOtp(identifier: string, otp: string): Promise<{ resetToken: string }> {
+    const res = await apiClient.post('/auth/verify-otp', { identifier, otp });
+    const data = res.data?.data ?? res.data;
+    if (data?.resetToken) return data;
+    throw new Error(res.data?.message || 'Invalid or expired OTP');
+  },
+
+  async resetPassword(resetToken: string, newPassword: string, confirmNewPassword: string): Promise<void> {
+    await apiClient.post('/auth/reset-password', { resetToken, newPassword, confirmNewPassword });
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+  },
+
+  // WISHLIST (Authorize)
+  async getWishlist(): Promise<any[]> {
+    try {
+      const res = await apiClient.get('/wishlist');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async addToWishlist(productId: string): Promise<void> {
+    await apiClient.post(`/wishlist/${productId}`);
+  },
+
+  async removeFromWishlist(productId: string): Promise<void> {
+    await apiClient.delete(`/wishlist/${productId}`);
+  },
+
+  // ADDRESSES (Authorize)
+  async getAddresses(): Promise<any[]> {
+    try {
+      const res = await apiClient.get('/addresses');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async createAddress(address: any): Promise<any> {
+    const res = await apiClient.post('/addresses', address);
+    return res.data?.data;
+  },
+
+  async updateAddress(id: string, address: any): Promise<any> {
+    const res = await apiClient.put(`/addresses/${id}`, address);
+    return res.data?.data;
+  },
+
+  async deleteAddress(id: string): Promise<void> {
+    await apiClient.delete(`/addresses/${id}`);
+  },
+
+  async setDefaultAddress(id: string): Promise<void> {
+    await apiClient.post(`/addresses/${id}/set-default`);
+  },
+
+  // DELIVERY OPTIONS
+  async getDeliveryOptions(subtotal: number): Promise<Array<{
+    code: string; name: string; charge: number; etaMinDays: number; etaMaxDays: number;
+  }>> {
+    try {
+      const res = await apiClient.get('/orders/delivery-options', { params: { subtotal } });
+      return res.data?.data || [];
+    } catch {
+      return [
+        { code: 'standard', name: 'Standard Delivery (3-5 Days)', charge: 40, etaMinDays: 3, etaMaxDays: 5 },
+        { code: 'express', name: 'Express Delivery (1-2 Days)', charge: 90, etaMinDays: 1, etaMaxDays: 2 }
+      ];
+    }
+  },
+
+  // PAYMENT PROOF SUBMISSION
+  async submitPaymentProof(orderId: string, utrNumber: string, screenshotBase64?: string): Promise<void> {
+    await apiClient.post(`/orders/${orderId}/payment-proof`, { utrNumber, screenshotBase64 });
+  },
+
+  // ORDER DETAIL
+  async getOrderById(id: string): Promise<any | null> {
+    try {
+      const res = await apiClient.get(`/orders/${id}`);
+      return res.data?.data || null;
+    } catch {
+      return null;
+    }
+  },
+
+  // RETURNS & REFUNDS (customer)
+  async getMyReturns(): Promise<any[]> {
+    try {
+      const res = await apiClient.get('/returns/my');
+      return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async createReturn(payload: {
+    orderId: string;
+    reason: string;
+    comments?: string;
+    items: Array<{ orderItemId: string; quantity: number }>;
+  }): Promise<any> {
+    const res = await apiClient.post('/returns', payload);
+    return res.data?.data;
   }
 };
 

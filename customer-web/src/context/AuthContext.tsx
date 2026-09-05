@@ -6,7 +6,11 @@ interface AuthContextType {
   user: User | null;
   isAdmin: boolean;
   isLoading: boolean;
-  login: (email: string, password?: string) => Promise<boolean>;
+  /** Reward points from /auth/me (undefined when the backend doesn't provide them). */
+  rewardPoints?: number;
+  /** `identifier` accepts a mobile number OR an email address. */
+  login: (identifier: string, password: string) => Promise<boolean>;
+  loginWithFirebase: (firebaseData: { idToken: string; email?: string; displayName?: string; photoUrl?: string; phoneNumber?: string }) => Promise<boolean>;
   register: (data: { firstName: string; lastName: string; email: string; phone: string; password: string }) => Promise<boolean>;
   logout: () => void;
   toggleUserRole: () => void;
@@ -20,6 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return saved ? JSON.parse(saved) : null;
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [rewardPoints, setRewardPoints] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     const token = localStorage.getItem('aadhi_customer_token');
@@ -38,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               isActive: profile.isActive !== false
             };
             setUser(mappedUser);
+            if (typeof profile.rewardPoints === 'number') setRewardPoints(profile.rewardPoints);
             localStorage.setItem('aadhi_customer_user', JSON.stringify(mappedUser));
           } else {
             api.logout();
@@ -62,30 +68,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isAdmin = user?.role === 'SuperAdmin' || user?.role === 'Admin';
 
-  const login = async (email: string, password: string = 'Password@123'): Promise<boolean> => {
+  const login = async (identifier: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const res = await api.login(email, password);
+      // `identifier` may be a mobile number or an email address.
+      const res = await api.loginWithIdentifier(identifier, password);
       if (res && res.user) {
         const u = res.user;
         const loggedUser: User = {
           id: u.id,
-          email: u.email,
-          firstName: u.firstName || email.split('@')[0],
+          email: u.email || (identifier.includes('@') ? identifier : ''),
+          firstName: u.firstName || u.name?.split(' ')[0] || 'Customer',
           lastName: u.lastName || '',
-          phone: u.phone || '',
+          phone: u.phone || u.phoneNumber || (identifier.includes('@') ? '' : identifier),
           role: u.role || 'Customer',
           permissions: u.permissions || ['Products.Read', 'Orders.Create'],
           isActive: u.isActive !== false
         };
         setUser(loggedUser);
+        if (typeof u.rewardPoints === 'number') setRewardPoints(u.rewardPoints);
         return true;
       }
       return false;
     } catch (error) {
       console.error('Customer login failed:', error);
       setUser(null);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loginWithFirebase = async (firebaseData: { idToken: string; email?: string; displayName?: string; photoUrl?: string; phoneNumber?: string }): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      const res = await api.loginWithFirebase(firebaseData);
+      if (res && res.user) {
+        const u = res.user;
+        const loggedUser: User = {
+          id: u.id,
+          email: u.email || firebaseData.email || '',
+          firstName: u.firstName || firebaseData.displayName?.split(' ')[0] || 'Customer',
+          lastName: u.lastName || '',
+          phone: u.phone || firebaseData.phoneNumber || '',
+          role: u.role || 'Customer',
+          permissions: u.permissions || ['Products.Read', 'Orders.Create'],
+          isActive: u.isActive !== false
+        };
+        setUser(loggedUser);
+        if (typeof u.rewardPoints === 'number') setRewardPoints(u.rewardPoints);
+        return true;
+      }
       return false;
+    } catch (error) {
+      console.error('Customer Firebase login failed:', error);
+      setUser(null);
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleUserRole = () => {};
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, isLoading, login, register, logout, toggleUserRole }}>
+    <AuthContext.Provider value={{ user, isAdmin, isLoading, rewardPoints, login, loginWithFirebase, register, logout, toggleUserRole }}>
       {children}
     </AuthContext.Provider>
   );

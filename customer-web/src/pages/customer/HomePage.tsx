@@ -2,44 +2,81 @@ import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   ArrowRight,
-  Flame,
-  Star,
+  ChevronLeft,
   ChevronRight,
-  Gift,
+  ChevronDown,
   ShieldCheck,
-  Zap,
-  Percent,
+  BadgeCheck,
+  Truck,
+  BadgePercent,
   CheckCircle2,
   HelpCircle,
-  ChevronDown
+  Percent
 } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { api } from '../../services/api';
 import { ProductCard } from '../../components/customer/ProductCard';
-import { TrustIndicators, SafetySection } from '../../components/customer/CustomerSections';
+import { SafetySection } from '../../components/customer/CustomerSections';
 import { Modal } from '../../components/common/CommonComponents';
 
 interface HomePageProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
+const HERO_SLIDES = [
+  {
+    badge: 'Sivakasi’s Most Trusted Fireworks Portal',
+    image: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=900&auto=format&fit=crop&q=80',
+    imageAlt: 'Festive fireworks celebration'
+  },
+  {
+    badge: 'Festival Gift Boxes for the Whole Family',
+    image: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=900&auto=format&fit=crop&q=80',
+    imageAlt: 'Diwali gift boxes'
+  },
+  {
+    badge: 'Use Code DIWALI2026 for 15% OFF',
+    image: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=900&auto=format&fit=crop&q=80',
+    imageAlt: 'Sky shot fireworks display'
+  }
+];
+
+const TRUST_TILES = [
+  { icon: ShieldCheck, title: '100% Original', subtitle: 'Trusted Brands', color: 'text-orange bg-orange/10 border-orange/20' },
+  { icon: BadgeCheck, title: 'Safe & Secure', subtitle: 'Quality Assured', color: 'text-purple bg-purple/10 border-purple/20' },
+  { icon: Truck, title: 'Fast Delivery', subtitle: 'On Time Delivery', color: 'text-gold-dark bg-gold/10 border-gold/20' },
+  { icon: BadgePercent, title: 'Best Prices', subtitle: 'Lowest Guaranteed', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' }
+];
+
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [activeTab, setActiveTab] = useState<string>('all');
+  const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [heroIndex, setHeroIndex] = useState(0);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   useEffect(() => {
     api.getCategories().then(setCategories);
     api.getProducts().then(setProducts);
+    api.getBestSellers().then((list) => {
+      if (list.length > 0) {
+        setBestSellers(list);
+      } else {
+        api.getFeaturedProducts().then(setBestSellers);
+      }
+    });
   }, []);
 
-  const giftBoxes = products.filter(p => p.categoryName?.toLowerCase().includes('gift'));
-  const bestSellers = products.filter(p => p.isBestSeller);
-  const filteredProducts = activeTab === 'all'
-    ? products.slice(0, 8)
-    : products.filter(p => (p.categoryName || '').toLowerCase() === activeTab.toLowerCase() || p.categoryId === activeTab);
+  const giftBoxes = products.filter(p => p.categoryName?.toLowerCase().includes('gift')).slice(0, 4);
+  const localBestSellers = products.filter(p => p.isBestSeller);
+  const bestSelling = (
+    bestSellers.length > 0 ? bestSellers : localBestSellers.length > 0 ? localBestSellers : products
+  ).slice(0, 8);
+
+  const slide = HERO_SLIDES[heroIndex];
+  const prevSlide = () => setHeroIndex((heroIndex - 1 + HERO_SLIDES.length) % HERO_SLIDES.length);
+  const nextSlide = () => setHeroIndex((heroIndex + 1) % HERO_SLIDES.length);
 
   const faqs = [
     {
@@ -62,115 +99,118 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-12 pb-16">
-      {/* 1. Hero Festive Banner */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#111238] via-[#1a1c54] to-[#111238] text-white pt-10 pb-16 px-4">
-        {/* Ambient decorative glowing particles */}
-        <div className="absolute top-10 left-1/4 w-72 h-72 bg-purple/30 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-orange/20 rounded-full blur-3xl pointer-events-none" />
+      {/* 1. Hero navy card with carousel arrows */}
+      <section className="max-w-7xl mx-auto px-4 pt-6">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#111238] via-[#1a1c54] to-[#111238] text-white shadow-2xl">
+          {/* Ambient decorative glowing particles */}
+          <div className="absolute top-0 left-1/4 w-72 h-72 bg-purple/30 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-orange/20 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">
-          <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-gold text-xs font-bold uppercase tracking-wider animate-pulse-subtle">
-              <Sparkles className="w-4 h-4 text-orange" />
-              <span>Sivakasi’s Most Trusted Fireworks Direct Factory Portal</span>
+          {/* Carousel arrows */}
+          <button
+            onClick={prevSlide}
+            aria-label="Previous slide"
+            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5 text-white" />
+          </button>
+          <button
+            onClick={nextSlide}
+            aria-label="Next slide"
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors"
+          >
+            <ChevronRight className="w-5 h-5 text-white" />
+          </button>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10 px-10 sm:px-16 py-10 sm:py-14">
+            <div className="lg:col-span-7 space-y-5 text-center lg:text-left">
+              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-gold text-xs font-bold uppercase tracking-wider">
+                <Sparkles className="w-4 h-4 text-orange" />
+                <span>{slide.badge}</span>
+              </div>
+
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight">
+                Celebrate Every Moment with{' '}
+                <span className="text-gold">AADHI CRACKERS</span>
+              </h1>
+
+              <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto lg:mx-0 leading-relaxed">
+                Quality You Trust, Celebrations You Love!
+              </p>
+
+              {/* ✓ bullet trio */}
+              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2">
+                {['100% Original', 'Safe & Secure', 'Fast Delivery'].map((b) => (
+                  <span key={b} className="inline-flex items-center space-x-1.5 text-xs sm:text-sm font-semibold text-slate-200">
+                    <CheckCircle2 className="w-4 h-4 text-gold" />
+                    <span>{b}</span>
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 pt-2">
+                <button
+                  onClick={() => onNavigate('shop')}
+                  className="px-8 py-4 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-sm uppercase tracking-wider flex items-center space-x-2 shadow-glow hover:shadow-xl hover:scale-105 transition-all"
+                >
+                  <span>Shop Now</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
-              Light Up Your Celebrations with{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange via-gold to-yellow-300">
-                AADHI CRACKERS
-              </span>
-            </h1>
-
-            <p className="text-sm sm:text-base text-slate-300 max-w-xl mx-auto lg:mx-0 leading-relaxed font-normal">
-              Premium Sivakasi Green Fireworks, Sky Symphony Aerials, and Curated Family Gift Boxes with up to <strong className="text-gold font-bold">70% Direct Wholesale Savings</strong>!
-            </p>
-
-            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4 pt-2">
-              <button
-                onClick={() => onNavigate('shop')}
-                className="px-8 py-4 rounded-xl bg-gradient-to-r from-orange to-orange-hover text-white font-bold text-sm uppercase tracking-wider flex items-center space-x-2 shadow-glow hover:shadow-xl hover:scale-105 transition-all"
-              >
-                <span>Shop Fireworks Now</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => onNavigate('shop', { category: 'gift-boxes' })}
-                className="px-8 py-4 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm border border-white/20 backdrop-blur-md transition-all flex items-center space-x-2"
-              >
-                <Gift className="w-4 h-4 text-gold" />
-                <span>Explore Gift Boxes</span>
-              </button>
-            </div>
-
-            {/* Micro trust stats */}
-            <div className="pt-6 grid grid-cols-3 gap-4 border-t border-white/10 max-w-md mx-auto lg:mx-0">
-              <div>
-                <div className="text-xl sm:text-2xl font-black text-white">25+</div>
-                <div className="text-[11px] text-slate-400">Years Heritage</div>
-              </div>
-              <div>
-                <div className="text-xl sm:text-2xl font-black text-gold">100%</div>
-                <div className="text-[11px] text-slate-400">Tested & Safe</div>
-              </div>
-              <div>
-                <div className="text-xl sm:text-2xl font-black text-orange">50,000+</div>
-                <div className="text-[11px] text-slate-400">Happy Families</div>
+            {/* Slide image */}
+            <div className="lg:col-span-5 hidden lg:flex justify-center">
+              <div className="relative w-full max-w-md rounded-3xl p-1 bg-gradient-to-b from-gold/50 via-purple/40 to-transparent">
+                <div className="rounded-[22px] overflow-hidden border border-white/10 aspect-4/3 bg-navy-dark">
+                  <img
+                    src={slide.image}
+                    alt={slide.imageAlt}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Hero Featured Box Spotlight */}
-          <div className="lg:col-span-5 relative flex justify-center">
-            <div className="relative w-full max-w-md rounded-3xl p-1 bg-gradient-to-b from-gold/50 via-purple/40 to-transparent shadow-2xl">
-              <div className="rounded-[22px] bg-navy-card p-6 border border-white/10 space-y-4 text-white">
-                <div className="relative aspect-4/3 rounded-xl overflow-hidden bg-navy-dark">
-                  <img
-                    src="https://images.unsplash.com/photo-1531259683007-016a7b628fc3?w=600&auto=format&fit=crop&q=80"
-                    alt="Mega Celebration Box"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute top-3 left-3 bg-red-600 text-white text-xs font-black px-3 py-1 rounded-lg shadow-md uppercase">
-                    25% OFF
-                  </div>
-                  <div className="absolute bottom-3 right-3 bg-navy/90 text-gold text-xs font-bold px-3 py-1 rounded-lg backdrop-blur-md">
-                    62 Premium Items
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs text-gold font-semibold uppercase tracking-wider">Festival Master Box</div>
-                  <h3 className="text-xl font-bold text-white mt-0.5">Mega Celebration Box</h3>
-                  <p className="text-xs text-slate-300 mt-1 line-clamp-2">
-                    Deluxe flower pots, high speed chakkars, 12-shot sky repeaters, and multi-color sparklers.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                  <div>
-                    <span className="text-2xl font-black text-gold">₹4,499</span>
-                    <span className="text-xs text-slate-400 line-through ml-2">₹5,999</span>
-                  </div>
-                  <button
-                    onClick={() => onNavigate('product-detail', { slug: 'mega-celebration-box' })}
-                    className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold transition-colors"
-                  >
-                    View Details
-                  </button>
-                </div>
-              </div>
-            </div>
+          {/* Carousel dots */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-2">
+            {HERO_SLIDES.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setHeroIndex(i)}
+                aria-label={`Go to slide ${i + 1}`}
+                className={`h-2 rounded-full transition-all ${i === heroIndex ? 'w-6 bg-gold' : 'w-2 bg-white/40 hover:bg-white/70'}`}
+              />
+            ))}
           </div>
         </div>
       </section>
 
-      {/* 2. Five Trust Indicators */}
-      <div className="max-w-7xl mx-auto px-4 -mt-8 relative z-20">
-        <TrustIndicators />
-      </div>
+      {/* 2. Four Trust Tiles */}
+      <section className="max-w-7xl mx-auto px-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {TRUST_TILES.map((tile) => {
+            const Icon = tile.icon;
+            return (
+              <div
+                key={tile.title}
+                className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-shadow flex items-center space-x-4"
+              >
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center border flex-shrink-0 ${tile.color}`}>
+                  <Icon className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-800 text-sm">{tile.title}</h4>
+                  <p className="text-xs text-slate-500">{tile.subtitle}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
-      {/* 3. Shop by Category (Circular Layout matching screenshot) */}
+      {/* 3. Shop by Category */}
       <section className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -209,34 +249,24 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 4. Featured Products Grid */}
+      {/* 4. Best Selling Products */}
       <section className="max-w-7xl mx-auto px-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-black text-navy">Featured Fireworks</h2>
+            <h2 className="text-2xl font-black text-navy">Best Selling Products</h2>
             <p className="text-xs text-slate-500">Handpicked top performers for vibrant night displays</p>
           </div>
-
-          {/* Filter Tabs */}
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1">
-            {['all', ...categories.map(c => c.name)].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${
-                  activeTab === tab
-                    ? 'bg-navy text-white shadow-sm'
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                {tab === 'all' ? 'All Products' : tab}
-              </button>
-            ))}
-          </div>
+          <button
+            onClick={() => onNavigate('shop', { sortBy: 'popular' })}
+            className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
+          >
+            <span>View All</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {filteredProducts.map((product) => (
+          {bestSelling.map((product) => (
             <ProductCard
               key={product.id}
               product={product}
@@ -278,33 +308,35 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 6. Gift Boxes Showcase (Matching user screenshot) */}
-      <section className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="text-xs font-bold text-orange uppercase tracking-wider">Family Celebrations</div>
-            <h2 className="text-2xl font-black text-navy">Exclusive Gift Boxes</h2>
+      {/* 6. Gift Boxes Showcase */}
+      {giftBoxes.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="text-xs font-bold text-orange uppercase tracking-wider">Family Celebrations</div>
+              <h2 className="text-2xl font-black text-navy">Exclusive Gift Boxes</h2>
+            </div>
+            <button
+              onClick={() => onNavigate('shop', { category: 'gift-boxes' })}
+              className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
+            >
+              <span>View All Boxes</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            onClick={() => onNavigate('shop', { category: 'gift-boxes' })}
-            className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
-          >
-            <span>View All Boxes</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {giftBoxes.map((box) => (
-            <ProductCard
-              key={box.id}
-              product={box}
-              onNavigate={onNavigate}
-              onQuickView={setQuickViewProduct}
-            />
-          ))}
-        </div>
-      </section>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {giftBoxes.map((box) => (
+              <ProductCard
+                key={box.id}
+                product={box}
+                onNavigate={onNavigate}
+                onQuickView={setQuickViewProduct}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 7. Safety Precautions Section */}
       <section className="max-w-7xl mx-auto px-4">
@@ -371,7 +403,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     <span className="text-sm text-slate-400 line-through">₹{quickViewProduct.compareAtPrice.toLocaleString('en-IN')}</span>
                   )}
                   {quickViewProduct.discountPercentage && (
-                    <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
+                    <span className="text-xs font-bold text-orange">
                       {quickViewProduct.discountPercentage}% OFF
                     </span>
                   )}

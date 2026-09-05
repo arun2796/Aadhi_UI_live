@@ -10,20 +10,83 @@ import {
   Database,
   RefreshCw,
   CheckCircle2,
-  AlertTriangle,
-  Clock,
   Save,
-  Download,
   Terminal,
-  Zap
+  Zap,
+  Mail,
+  MessageSquare,
+  Image as ImageIcon,
+  Upload
 } from 'lucide-react';
-import { StoreSettings, SystemHealthReport } from '../../types';
-import { api } from '../../services/api';
+import { SystemSetting, SystemHealthReport } from '../../types';
+import { api, settingsApi } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
 interface ErpSystemHealthAndSettingsModuleProps {
   initialSubTab?: 'settings' | 'health' | 'backup';
 }
+
+// ---------- Spec 16: left sub-nav sections over SystemSettings keys ----------
+
+type SettingsSectionId = 'store' | 'payment' | 'shipping' | 'email' | 'sms' | 'general' | 'logo';
+
+const LOGO_KEY = 'Store.LogoUrl';
+
+const SETTINGS_NAV: { id: SettingsSectionId; label: string; icon: React.ElementType }[] = [
+  { id: 'store', label: 'Store Settings', icon: Store },
+  { id: 'payment', label: 'Payment Settings', icon: CreditCard },
+  { id: 'shipping', label: 'Shipping Settings', icon: Truck },
+  { id: 'email', label: 'Email Settings', icon: Mail },
+  { id: 'sms', label: 'SMS Settings', icon: MessageSquare },
+  { id: 'general', label: 'General Settings', icon: Settings },
+  { id: 'logo', label: 'Logo', icon: ImageIcon }
+];
+
+interface SettingsField {
+  key: string;
+  label: string;
+  type?: 'text' | 'number' | 'email' | 'textarea';
+  description?: string;
+}
+
+/** Known backend keys pinned to their design section (rendered even when missing — PUT upserts). */
+const PINNED_FIELDS: Partial<Record<SettingsSectionId, SettingsField[]>> = {
+  store: [
+    { key: 'Store.BusinessName', label: 'Store Name' },
+    { key: 'Store.Tagline', label: 'Tagline' },
+    { key: 'Store.Email', label: 'Support Email', type: 'email' },
+    { key: 'Store.Phone', label: 'Support Phone' },
+    { key: 'Store.Address', label: 'Store Address', type: 'textarea' }
+  ],
+  shipping: [
+    { key: 'Shipping.FreeShippingThreshold', label: 'Free Shipping Threshold (₹)', type: 'number' },
+    { key: 'Delivery.StandardCharge', label: 'Standard Delivery Charge (₹)', type: 'number' },
+    { key: 'Delivery.ExpressCharge', label: 'Express Delivery Charge (₹)', type: 'number' }
+  ]
+};
+
+const SECTION_HINTS: Record<SettingsSectionId, string> = {
+  store: 'Business identity shown on the storefront, invoices and customer emails.',
+  payment: 'UPI VPA and payment gateway configuration.',
+  shipping: 'Delivery charges and the free-shipping threshold applied at checkout.',
+  email: 'Outbound email / SMTP configuration.',
+  sms: 'Transactional SMS gateway configuration.',
+  general: 'Everything else — tax rates, security switches and other system keys.',
+  logo: 'Brand logo used across the admin and storefront.'
+};
+
+/** Buckets a backend SystemSetting into a design section by group/key prefix. */
+const sectionForSetting = (s: SystemSetting): SettingsSectionId => {
+  const key = (s.key || '').toLowerCase();
+  const group = (s.group || '').toLowerCase();
+  if (key === LOGO_KEY.toLowerCase()) return 'logo';
+  if (group === 'store' || key.startsWith('store.')) return 'store';
+  if (group === 'payment' || key.startsWith('payment.') || key.startsWith('upi.')) return 'payment';
+  if (group === 'shipping' || key.startsWith('shipping.') || key.startsWith('delivery.')) return 'shipping';
+  if (group === 'email' || key.startsWith('email.') || key.startsWith('smtp.')) return 'email';
+  if (group === 'sms' || key.startsWith('sms.')) return 'sms';
+  return 'general';
+};
 
 export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettingsModuleProps> = ({
   initialSubTab = 'settings'
@@ -31,7 +94,10 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
   const { showToast } = useToast();
   const [subTab, setSubTab] = useState<'settings' | 'health' | 'backup'>(initialSubTab);
 
-  const [settings, setSettings] = useState<StoreSettings | null>(null);
+  const [systemSettings, setSystemSettings] = useState<SystemSetting[]>([]);
+  const [settingValues, setSettingValues] = useState<Record<string, string>>({});
+  const [originalValues, setOriginalValues] = useState<Record<string, string>>({});
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('store');
   const [health, setHealth] = useState<SystemHealthReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -40,10 +106,16 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
     setIsLoading(true);
     try {
       const [st, hl] = await Promise.all([
-        api.getStoreSettings(),
+        settingsApi.getSettings(),
         api.getSystemHealth()
       ]);
-      setSettings(st);
+      setSystemSettings(st);
+      const map: Record<string, string> = {};
+      st.forEach((s) => {
+        map[s.key] = s.value;
+      });
+      setSettingValues(map);
+      setOriginalValues(map);
       setHealth(hl);
     } catch {
       showToast('Failed to load system settings and diagnostics', 'error');
@@ -54,19 +126,62 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSaveSettings = async () => {
-    if (!settings) return;
+  /** Pinned fields for a section plus any other backend keys bucketed into it. */
+  const sectionFields = (id: SettingsSectionId): SettingsField[] => {
+    const pinned = PINNED_FIELDS[id] || [];
+    const pinnedKeys = new Set(pinned.map((f) => f.key));
+    const extras: SettingsField[] = systemSettings
+      .filter((s) => sectionForSetting(s) === id && !pinnedKeys.has(s.key))
+      .map((s) => ({ key: s.key, label: s.key, description: s.description }));
+    return [...pinned, ...extras];
+  };
+
+  const setValue = (key: string, value: string) =>
+    setSettingValues((prev) => ({ ...prev, [key]: value }));
+
+  const handleSaveSection = async (id: SettingsSectionId) => {
+    const fields: SettingsField[] = id === 'logo' ? [{ key: LOGO_KEY, label: 'Logo' }] : sectionFields(id);
+    const dirty = fields.filter((f) => (settingValues[f.key] ?? '') !== (originalValues[f.key] ?? ''));
+    if (dirty.length === 0) {
+      showToast('No changes to save in this section', 'info');
+      return;
+    }
     setIsSaving(true);
     try {
-      await api.updateStoreSettings(settings);
-      showToast('Store settings saved successfully!', 'success');
+      for (const f of dirty) {
+        await settingsApi.updateSetting(f.key, settingValues[f.key] ?? '');
+      }
+      setOriginalValues((prev) => ({
+        ...prev,
+        ...Object.fromEntries(dirty.map((f) => [f.key, settingValues[f.key] ?? '']))
+      }));
+      showToast('Settings saved successfully!', 'success');
     } catch {
       showToast('Failed to save settings', 'error');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  /** "Choose File" → base64 data URL held in Store.LogoUrl until Save Changes. */
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please choose an image file', 'warning');
+      return;
+    }
+    if (file.size > 500 * 1024) {
+      showToast('Please choose an image under 500 KB', 'warning');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setValue(LOGO_KEY, String(reader.result || ''));
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -90,24 +205,13 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
-
-          {subTab === 'settings' && (
-            <button
-              onClick={handleSaveSettings}
-              disabled={isSaving}
-              className="px-5 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Saving...' : 'Save Configuration'}</span>
-            </button>
-          )}
         </div>
       </div>
 
       {/* Sub-tabs Navigation */}
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
-          { id: 'settings', label: 'Store & Payment Settings', icon: Settings },
+          { id: 'settings', label: 'Settings', icon: Settings },
           { id: 'health', label: 'System Health Diagnostics', icon: Activity },
           { id: 'backup', label: 'Database Backup & Restore', icon: HardDrive }
         ].map((tab) => {
@@ -130,181 +234,107 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
         })}
       </div>
 
-      {/* 1. STORE & PAYMENT SETTINGS TAB */}
-      {subTab === 'settings' && settings && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Store Information Card */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-4">
-              <h3 className="font-black text-sm text-navy uppercase tracking-wider flex items-center space-x-2">
-                <Store className="w-4 h-4 text-orange" />
-                <span>Company & Store Information</span>
-              </h3>
+      {/* 1. SETTINGS TAB — two-column layout (spec 16) */}
+      {subTab === 'settings' && (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+          {/* LEFT sub-nav card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-2 space-y-1">
+            {SETTINGS_NAV.map((s) => {
+              const Icon = s.icon;
+              const isActive = settingsSection === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSettingsSection(s.id)}
+                  className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-2.5 text-left transition-all ${
+                    isActive ? 'bg-purple text-white shadow-md shadow-purple/20' : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{s.label}</span>
+                </button>
+              );
+            })}
+          </div>
 
+          {/* RIGHT form panel for the selected section */}
+          <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-5">
+            <div>
+              <h3 className="font-black text-sm text-navy uppercase tracking-wider">
+                {SETTINGS_NAV.find((s) => s.id === settingsSection)?.label}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">{SECTION_HINTS[settingsSection]}</p>
+            </div>
+
+            {isLoading ? (
+              <div className="py-10 text-center text-xs text-slate-400">Loading settings...</div>
+            ) : settingsSection === 'logo' ? (
+              <div className="space-y-4">
+                <div className="w-40 h-40 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                  {settingValues[LOGO_KEY] ? (
+                    <img
+                      src={settingValues[LOGO_KEY]}
+                      alt="Store logo"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  ) : (
+                    <div className="text-center text-slate-400 text-xs px-4">
+                      <ImageIcon className="w-8 h-8 mx-auto mb-2" />
+                      <span>No logo uploaded yet</span>
+                    </div>
+                  )}
+                </div>
+                <label className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold shadow-2xs cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Choose File</span>
+                  <input type="file" accept="image/*" onChange={handleLogoFile} className="hidden" />
+                </label>
+                <p className="text-[10px] text-slate-400">
+                  PNG / JPG / SVG up to 500 KB. Stored as a data URL in the "{LOGO_KEY}" setting.
+                </p>
+              </div>
+            ) : sectionFields(settingsSection).length === 0 ? (
+              <div className="py-10 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                No settings in this group yet.
+              </div>
+            ) : (
               <div className="space-y-3 text-xs">
-                <div>
-                  <label className="font-bold text-navy">Store Brand Name</label>
-                  <input
-                    type="text"
-                    value={settings.storeName}
-                    onChange={(e) => setSettings({ ...settings, storeName: e.target.value })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-bold text-navy outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-bold text-navy">Brand Tagline</label>
-                  <input
-                    type="text"
-                    value={settings.tagline}
-                    onChange={(e) => setSettings({ ...settings, tagline: e.target.value })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold text-navy">Support Phone</label>
-                    <input
-                      type="text"
-                      value={settings.supportPhone}
-                      onChange={(e) => setSettings({ ...settings, supportPhone: e.target.value })}
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
-                    />
+                {sectionFields(settingsSection).map((f) => (
+                  <div key={f.key}>
+                    <label className="font-bold text-navy">{f.label}</label>
+                    {f.type === 'textarea' ? (
+                      <textarea
+                        value={settingValues[f.key] ?? ''}
+                        onChange={(e) => setValue(f.key, e.target.value)}
+                        rows={3}
+                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy outline-none focus:border-purple resize-none"
+                      />
+                    ) : (
+                      <input
+                        type={f.type || 'text'}
+                        value={settingValues[f.key] ?? ''}
+                        onChange={(e) => setValue(f.key, e.target.value)}
+                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy outline-none focus:border-purple"
+                      />
+                    )}
+                    {f.description && <p className="text-[10px] text-slate-400 mt-0.5">{f.description}</p>}
                   </div>
-                  <div>
-                    <label className="font-bold text-navy">Support Email</label>
-                    <input
-                      type="text"
-                      value={settings.supportEmail}
-                      onChange={(e) => setSettings({ ...settings, supportEmail: e.target.value })}
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="font-bold text-navy">GSTIN Number</label>
-                  <input
-                    type="text"
-                    value={settings.gstNumber}
-                    onChange={(e) => setSettings({ ...settings, gstNumber: e.target.value })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono outline-none"
-                  />
-                </div>
+                ))}
               </div>
-            </div>
+            )}
 
-            {/* UPI & Payment Settings */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-4">
-              <h3 className="font-black text-sm text-navy uppercase tracking-wider flex items-center space-x-2">
-                <CreditCard className="w-4 h-4 text-purple" />
-                <span>UPI Payment & Gateway Setup</span>
-              </h3>
-
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="font-bold text-navy">Business UPI ID (VPA) *</label>
-                  <input
-                    type="text"
-                    value={settings.upiId}
-                    onChange={(e) => setSettings({ ...settings, upiId: e.target.value })}
-                    placeholder="aadhicrackers@upi"
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono font-bold text-purple outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-bold text-navy">Dynamic QR Code Generation URL</label>
-                  <input
-                    type="text"
-                    value={settings.upiQrCodeUrl}
-                    onChange={(e) => setSettings({ ...settings, upiQrCodeUrl: e.target.value })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono text-[11px] outline-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-bold text-navy">Order Prefix</label>
-                    <input
-                      type="text"
-                      value={settings.orderPrefix}
-                      onChange={(e) => setSettings({ ...settings, orderPrefix: e.target.value })}
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold text-navy">Invoice Prefix</label>
-                    <input
-                      type="text"
-                      value={settings.invoicePrefix}
-                      onChange={(e) => setSettings({ ...settings, invoicePrefix: e.target.value })}
-                      className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2 flex items-center space-x-4">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.allowUpiPayments}
-                      onChange={(e) => setSettings({ ...settings, allowUpiPayments: e.target.checked })}
-                      className="accent-purple w-4 h-4"
-                    />
-                    <span className="font-bold text-navy">Enable UPI Screenshot Mode</span>
-                  </label>
-                </div>
+            {!isLoading && (settingsSection === 'logo' || sectionFields(settingsSection).length > 0) && (
+              <div className="pt-4 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => handleSaveSection(settingsSection)}
+                  disabled={isSaving}
+                  className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+                </button>
               </div>
-            </div>
-
-            {/* Delivery & Shipping Thresholds */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-4">
-              <h3 className="font-black text-sm text-navy uppercase tracking-wider flex items-center space-x-2">
-                <Truck className="w-4 h-4 text-emerald-600" />
-                <span>Shipping & Delivery Rules</span>
-              </h3>
-
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="font-bold text-navy">Minimum Order Value (₹)</label>
-                  <input
-                    type="number"
-                    value={settings.minOrderAmount}
-                    onChange={(e) => setSettings({ ...settings, minOrderAmount: Number(e.target.value) })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-bold text-navy outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-navy">Free Shipping Threshold (₹)</label>
-                  <input
-                    type="number"
-                    value={settings.freeShippingThreshold}
-                    onChange={(e) => setSettings({ ...settings, freeShippingThreshold: Number(e.target.value) })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-bold text-navy outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-navy">Standard Delivery Charge (₹)</label>
-                  <input
-                    type="number"
-                    value={settings.standardShippingFee}
-                    onChange={(e) => setSettings({ ...settings, standardShippingFee: Number(e.target.value) })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-bold text-navy outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-navy">Cancellation Window (Hours)</label>
-                  <input
-                    type="number"
-                    value={settings.cancellationWindowHours}
-                    onChange={(e) => setSettings({ ...settings, cancellationWindowHours: Number(e.target.value) })}
-                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-bold text-navy outline-none"
-                  />
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}

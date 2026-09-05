@@ -1,29 +1,101 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Truck,
-  Search,
+  AlertCircle,
+  Check,
   CheckCircle2,
-  PackageCheck,
+  Clock,
   MapPin,
-  AlertCircle
+  Phone,
+  Search,
+  Truck
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { triggerFireworksConfetti } from '../../components/common/CommonComponents';
+
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+const fmtOrderDate = (value?: string): string => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+/* ── Desktop design 10: HORIZONTAL 5-node timeline ── */
+const TRACKING_STEPS: Array<{ label: string; statuses: string[] }> = [
+  { label: 'Order Placed', statuses: ['pending', 'placed'] },
+  { label: 'Confirmed', statuses: ['confirmed', 'processing', 'packed'] },
+  { label: 'Shipped', statuses: ['shipped'] },
+  { label: 'Out for Delivery', statuses: ['outfordelivery'] },
+  { label: 'Delivered', statuses: ['delivered'] }
+];
+
+/** Map an order status string to the last completed timeline node index. */
+const statusToStepIndex = (status: string): number => {
+  const s = (status || '').toLowerCase().replace(/\s+/g, '');
+  if (s === 'delivered') return 4;
+  if (s === 'outfordelivery') return 3;
+  if (s === 'shipped') return 2;
+  if (s === 'confirmed' || s === 'processing' || s === 'packed') return 1;
+  return 0; // Pending → Order Placed
+};
+
+/* ── Desktop design 9 handoff: CheckoutPage sets this right before navigating ── */
+interface JustPlacedInfo {
+  orderNumber?: string;
+  grandTotal?: number;
+  paymentMethod?: string;
+}
+
+const readJustPlacedFlag = (): JustPlacedInfo | null => {
+  try {
+    const raw = sessionStorage.getItem('aadhi_just_placed');
+    if (!raw) return null;
+    sessionStorage.removeItem('aadhi_just_placed');
+    try {
+      return JSON.parse(raw) as JustPlacedInfo;
+    } catch {
+      return {};
+    }
+  } catch {
+    return null;
+  }
+};
 
 interface TrackOrderPageProps {
   initialOrderNumber?: string;
   onNavigate: (page: string, params?: any) => void;
 }
 
-export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumber }) => {
+export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumber, onNavigate }) => {
+  const { user } = useAuth();
+  const { showToast } = useToast();
+
   const [query, setQuery] = useState<string>(initialOrderNumber || '');
   const [order, setOrder] = useState<any | null>(null);
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
 
+  // Fresh order + session flag ⇒ show the design-9 success card first.
+  const [justPlaced] = useState<JustPlacedInfo | null>(() =>
+    initialOrderNumber ? readJustPlacedFlag() : null
+  );
+  const [showSuccess, setShowSuccess] = useState<boolean>(Boolean(justPlaced));
+
+  useEffect(() => {
+    if (justPlaced) {
+      triggerFireworksConfetti();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (initialOrderNumber) {
       handleSearch(initialOrderNumber);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOrderNumber]);
 
   const handleSearch = async (searchStr?: string) => {
@@ -41,45 +113,113 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
     }
   };
 
-  const getStepIndex = (status: any) => {
-    const s = String(status || '').toLowerCase();
-    if (s === 'delivered') return 5;
-    if (s === 'outfordelivery') return 4;
-    if (s === 'shipped') return 3;
-    if (s === 'packed' || s === 'processing') return 2;
-    if (s === 'confirmed') return 1;
-    return 0; // Pending
+  /* ── Normalized fields (tolerant to the tracking DTO variants) ── */
+  const status: string = order?.orderStatus ?? order?.status ?? 'Pending';
+  const placedAt: string | undefined = order?.placedAtUtc ?? order?.placedAt ?? order?.createdAt;
+  const historyEntries: any[] = Array.isArray(order?.timeline)
+    ? order.timeline
+    : Array.isArray(order?.statusHistories)
+    ? order.statusHistories
+    : [];
+  const shippingAddress = order?.shippingAddress;
+  const orderItems: any[] = Array.isArray(order?.items) ? order.items : [];
+  const totalAmount = Number(order?.grandTotal ?? order?.totalAmount ?? order?.total) || 0;
+  const isCancelled = ['cancelled', 'returned'].includes((status || '').toLowerCase());
+  const progressIdx = statusToStepIndex(status);
+
+  /** Date a given timeline node was reached, from the status history. */
+  const dateForStep = (stepIdx: number): string => {
+    const step = TRACKING_STEPS[stepIdx];
+    for (const h of historyEntries) {
+      const to = String(h?.toStatus ?? h?.status ?? '').toLowerCase().replace(/\s+/g, '');
+      if (step.statuses.includes(to)) {
+        const dt = fmtOrderDate(h?.changedAtUtc ?? h?.date ?? h?.changedAt);
+        if (dt) return dt;
+      }
+    }
+    if (stepIdx === 0) return fmtOrderDate(placedAt);
+    return '';
   };
 
-  const steps = [
-    { title: 'Order Placed', desc: 'Order received in system' },
-    { title: 'Confirmed', desc: 'Payment verified & approved' },
-    { title: 'Packed at Hub', desc: 'Securely packed in Sivakasi' },
-    { title: 'Shipped', desc: 'Dispatched via Express Dangerous-Goods Transit' },
-    { title: 'Out For Delivery', desc: 'Arrived at your local delivery hub' },
-    { title: 'Delivered', desc: 'Safely handed over to you' }
-  ];
+  const successOrderNumber = justPlaced?.orderNumber || initialOrderNumber || order?.orderNumber || '';
+  const successTotal = justPlaced?.grandTotal || totalAmount;
+  const rewardPoints = Math.floor(successTotal / 100);
 
-  const currentStatus = order?.status || order?.orderStatus || 'Pending';
-  const currentStep = order ? getStepIndex(currentStatus) : 0;
+  /* ═══════════ Desktop design 9: ORDER SUCCESS ═══════════ */
+  if (showSuccess) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-14">
+        <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center shadow-card space-y-6 animate-scale-up">
+          <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+            <Check className="w-10 h-10 stroke-[3]" />
+          </div>
 
-  return (
-    <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
-      {/* Title */}
-      <div className="text-center space-y-2">
-        <div className="inline-flex items-center space-x-1 text-xs font-bold text-orange uppercase tracking-wider">
-          <Truck className="w-4 h-4" />
-          <span>Live Tracking Portal</span>
+          <div className="space-y-1.5">
+            <h1 className="text-3xl font-black text-navy">Thank You!</h1>
+            <p className="text-sm text-slate-500">Your order has been placed successfully.</p>
+          </div>
+
+          <div className="py-3 px-6 rounded-2xl bg-slate-50 border border-slate-200 inline-block">
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Order ID</div>
+            <div className="text-xl sm:text-2xl font-black text-navy mt-0.5">{successOrderNumber}</div>
+          </div>
+
+          <div className="max-w-md mx-auto text-left space-y-2.5">
+            <div className="flex items-start space-x-2 text-xs text-slate-600">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <span>
+                A confirmation has been sent to{' '}
+                <strong className="text-navy">{user?.email || 'your registered contact'}</strong>.
+              </span>
+            </div>
+            {rewardPoints > 0 && (
+              <div className="flex items-start space-x-2 text-xs text-slate-600">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <span>
+                  You will earn <strong className="text-navy">{rewardPoints} reward points</strong> once the order is delivered.
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+            <button
+              onClick={() => setShowSuccess(false)}
+              className="px-8 py-3 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs uppercase tracking-wider shadow-glow-purple transition-colors flex items-center justify-center space-x-1.5"
+            >
+              <Truck className="w-4 h-4" />
+              <span>Track Order</span>
+            </button>
+            <button
+              onClick={() => onNavigate('shop')}
+              className="px-8 py-3 rounded-xl border border-slate-300 bg-white text-slate-600 hover:text-navy hover:border-navy font-bold text-xs uppercase tracking-wider transition-colors"
+            >
+              Continue Shopping
+            </button>
+          </div>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-navy">
-          Track Your Fireworks Order
-        </h1>
-        <p className="text-xs text-slate-500 max-w-md mx-auto">
-          Enter your Order Number (e.g. <strong>ORD-2026-001248</strong>) or your registered 10-digit mobile number.
-        </p>
       </div>
+    );
+  }
 
-      {/* Search Input Form */}
+  /* ═══════════ Desktop design 10: ORDER TRACKING ═══════════ */
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
+      {/* Title + search prompt (shown until an order is loaded) */}
+      {!order && (
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center space-x-1 text-xs font-bold text-orange uppercase tracking-wider">
+            <Truck className="w-4 h-4" />
+            <span>Live Tracking Portal</span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-navy">Track Your Order</h1>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Enter your Order Number (e.g. <strong>ORD-2026-001248</strong>) or your registered 10-digit mobile number.
+          </p>
+        </div>
+      )}
+
+      {/* Search input */}
       <div className="max-w-xl mx-auto bg-white rounded-2xl border border-slate-200 p-2.5 shadow-sm">
         <form
           onSubmit={(e) => { e.preventDefault(); handleSearch(); }}
@@ -103,87 +243,180 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
         </form>
       </div>
 
-      {/* Results */}
       {order ? (
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-card space-y-8 animate-fade-in">
-          {/* Header Snapshot */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
-            <div>
-              <div className="text-xs text-slate-400 font-semibold">Order Tracking Details</div>
-              <h2 className="text-xl font-black text-navy">{order.orderNumber}</h2>
-              <div className="text-xs text-slate-500">
-                Placed on {order.placedAtUtc ? new Date(order.placedAtUtc).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'}
+        <div className="space-y-6 animate-fade-in">
+          {/* ── Order header + horizontal timeline ── */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-card space-y-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg sm:text-xl font-black text-navy">
+                  Order ID: {order.orderNumber || query.trim()}
+                </h2>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Placed on {fmtOrderDate(placedAt) || 'Recently'}
+                </div>
               </div>
-            </div>
-
-            <div className="text-right">
-              <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Status: {currentStatus}
+              <span
+                className={`inline-block px-3 py-1 rounded-full text-xs font-bold border self-start sm:self-auto ${
+                  isCancelled
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}
+              >
+                {status}
               </span>
-              <div className="text-xs text-slate-500 mt-1 font-medium">
-                Grand Total: <strong className="text-navy">₹{(order.grandTotal || 0).toLocaleString('en-IN')}</strong> ({order.paymentMethod || 'UPI'})
+            </div>
+
+            {isCancelled && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center space-x-1.5">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>This order was {status.toLowerCase()}.</span>
+              </div>
+            )}
+
+            {/* Horizontal 5-node timeline: green completed nodes + connectors, gray pending */}
+            <div className="overflow-x-auto pb-1">
+              <div className="flex items-start min-w-[560px]">
+                {TRACKING_STEPS.map((stepDef, idx) => {
+                  const completed = !isCancelled && idx <= progressIdx;
+                  const prevCompleted = !isCancelled && idx - 1 <= progressIdx && idx > 0;
+                  const stepDate = dateForStep(idx);
+
+                  return (
+                    <React.Fragment key={stepDef.label}>
+                      {idx > 0 && (
+                        <div
+                          className={`flex-1 h-1 rounded mt-[14px] ${
+                            completed && prevCompleted ? 'bg-emerald-500' : 'bg-slate-200'
+                          }`}
+                        />
+                      )}
+                      <div className="flex flex-col items-center w-24 flex-shrink-0">
+                        <div
+                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                            completed
+                              ? 'bg-emerald-500 text-white ring-4 ring-emerald-100'
+                              : 'bg-white border-2 border-slate-300 text-slate-300'
+                          }`}
+                        >
+                          {completed ? (
+                            <Check className="w-4 h-4 stroke-[3]" />
+                          ) : (
+                            <div className="w-2 h-2 rounded-full bg-slate-300" />
+                          )}
+                        </div>
+                        <div
+                          className={`text-[11px] font-bold mt-2 text-center leading-tight ${
+                            completed ? 'text-navy' : 'text-slate-400'
+                          }`}
+                        >
+                          {stepDef.label}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5 text-center min-h-[14px]">
+                          {stepDate}
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
               </div>
             </div>
           </div>
 
-          {/* Stepper Timeline */}
-          <div className="space-y-6">
-            <h3 className="font-bold text-sm text-navy">Order Progress Timeline</h3>
-            <div className="relative pl-6 sm:pl-8 border-l-2 border-slate-200 space-y-8 ml-3">
-              {steps.map((step, idx) => {
-                const isPassed = idx <= currentStep;
-                const isCurrent = idx === currentStep;
-
-                return (
-                  <div key={idx} className="relative">
-                    {/* Step Circle */}
-                    <div
-                      className={`absolute -left-[31px] sm:-left-[39px] top-0 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                        isPassed
-                          ? 'bg-emerald-600 text-white ring-4 ring-emerald-100'
-                          : 'bg-white border-2 border-slate-300 text-slate-400'
-                      }`}
-                    >
-                      {isPassed ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
-                    </div>
-
-                    <div>
-                      <h4 className={`text-xs sm:text-sm font-bold ${isCurrent ? 'text-orange font-black' : isPassed ? 'text-navy' : 'text-slate-400'}`}>
-                        {step.title}
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">{step.desc}</p>
-                    </div>
+          {/* ── Delivery Address + Need Help ── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <div className="font-black text-navy text-sm flex items-center space-x-1.5">
+                  <MapPin className="w-4 h-4 text-orange" />
+                  <span>Delivery Address</span>
+                </div>
+                <button
+                  onClick={() => showToast('Map view coming soon', 'info')}
+                  className="text-xs font-bold text-purple hover:text-purple-dark"
+                >
+                  View on Map
+                </button>
+              </div>
+              {shippingAddress ? (
+                <div className="text-slate-600 leading-relaxed">
+                  <div className="font-bold text-slate-800">{shippingAddress.fullName}</div>
+                  <div>
+                    {[shippingAddress.addressLine1, shippingAddress.addressLine2].filter(Boolean).join(', ')}
                   </div>
-                );
-              })}
+                  <div>
+                    {[shippingAddress.city, shippingAddress.state].filter(Boolean).join(', ')}
+                    {shippingAddress.postalCode ? ` - ${shippingAddress.postalCode}` : ''}
+                  </div>
+                  {shippingAddress.phone && <div className="mt-1">Ph: {shippingAddress.phone}</div>}
+                </div>
+              ) : (
+                <div className="text-slate-600 leading-relaxed">
+                  {order.deliveryAddressSummary || 'Delivery to your registered address'}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3 text-xs">
+              <div className="font-black text-navy text-sm">Need Help?</div>
+              <p className="text-slate-500 leading-relaxed">
+                Questions about your order, delivery, or payment? Our support team is happy to help.
+              </p>
+              <button
+                onClick={() => onNavigate('contact')}
+                className="px-5 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs flex items-center space-x-1.5 shadow-glow-purple transition-colors"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Contact Support</span>
+              </button>
             </div>
           </div>
 
-          {/* Delivery Address & Items Snapshot */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-slate-100">
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-              <div className="font-bold text-slate-800 flex items-center space-x-1.5">
-                <MapPin className="w-4 h-4 text-orange" />
-                <span>Delivery Address</span>
-              </div>
-              <div className="text-slate-600">
-                {order.deliveryAddressSummary || (order.shippingAddress ? `${order.shippingAddress.fullName || ''}, ${order.shippingAddress.addressLine1 || ''}, ${order.shippingAddress.city || ''} - ${order.shippingAddress.postalCode || ''}` : 'Delivery to customer address')}
-              </div>
+          {/* ── Items in this order ── */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-black text-navy text-sm">Items in this order</h3>
             </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-              <div className="font-bold text-slate-800 flex items-center space-x-1.5">
-                <PackageCheck className="w-4 h-4 text-purple" />
-                <span>Package Summary</span>
-              </div>
-              <div className="text-slate-600">
-                {order.items && order.items.length > 0 ? (
-                  order.items.map((i: any) => `${i.productName || i.productNameSnapshot || 'Item'} (x${i.quantity})`).join(', ')
-                ) : (
-                  'Festive Assorted Fireworks Gift Pack'
-                )}
-              </div>
+            <div className="divide-y divide-slate-100">
+              {orderItems.length > 0 ? (
+                orderItems.map((i: any, idx: number) => {
+                  const name = i.productName || i.productNameSnapshot || i.name || 'Item';
+                  const qty = Number(i.quantity) || 1;
+                  const unit = Number(i.unitPrice ?? i.price) || 0;
+                  const line = Number(i.lineTotal) || unit * qty;
+                  return (
+                    <div key={i.id || i.productId || idx} className="px-5 py-3 flex items-center justify-between text-xs">
+                      <div className="flex items-center space-x-3 min-w-0">
+                        {i.imageUrl && (
+                          <img
+                            src={i.imageUrl}
+                            alt={name}
+                            className="w-10 h-10 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-bold text-navy truncate">{name}</div>
+                          <div className="text-[10px] text-slate-400">
+                            Qty: {qty}{unit > 0 ? ` × ${inr(unit)}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      {line > 0 && <div className="font-bold text-navy flex-shrink-0 ml-3">{inr(line)}</div>}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-5 py-4 text-xs text-slate-500">
+                  Festive assorted fireworks pack
+                </div>
+              )}
             </div>
+            {totalAmount > 0 && (
+              <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-sm font-black text-navy">Total Amount</span>
+                <span className="text-base font-black text-navy">{inr(totalAmount)}</span>
+              </div>
+            )}
           </div>
         </div>
       ) : hasSearched && !loading ? (
@@ -193,6 +426,11 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
             Please verify your Order Number (e.g. ORD-2026-001248) or phone number and try again.
           </p>
+        </div>
+      ) : loading ? (
+        <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center space-y-3">
+          <Clock className="w-6 h-6 text-purple animate-spin mx-auto" />
+          <p className="text-xs text-slate-500">Fetching your order status...</p>
         </div>
       ) : null}
     </div>
