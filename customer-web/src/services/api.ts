@@ -10,6 +10,20 @@ import {
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5050/api/v1';
 
+/** Converts Google Drive share links into direct-image URLs usable in <img> tags.
+ *  Any other URL passes through unchanged. Mirrors the backend ImageUrlNormalizer. */
+export const normalizeImageUrl = (url?: string | null): string | undefined => {
+  if (!url || !url.trim()) return undefined;
+  const trimmed = url.trim();
+  if (!/drive\.google\.com/i.test(trimmed)) return trimmed;
+  if (/drive\.google\.com\/thumbnail/i.test(trimmed)) return trimmed;
+  const match =
+    trimmed.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,})/i) ||
+    trimmed.match(/[?&]id=([A-Za-z0-9_-]{10,})/i);
+  if (!match) return trimmed;
+  return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+};
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -132,8 +146,10 @@ export const api = {
           isFeatured: p.isFeatured,
           isBestSeller: p.isBestSeller,
           isNewArrival: p.isNewArrival,
-          primaryImageUrl: p.primaryImageUrl || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
-          images: p.images || []
+          primaryImageUrl: normalizeImageUrl(p.primaryImageUrl) || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
+          images: (p.images || []).map((img: any) =>
+            typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
+          )
         }));
       }
       return [];
@@ -175,8 +191,10 @@ export const api = {
           isFeatured: p.isFeatured,
           isBestSeller: p.isBestSeller,
           isNewArrival: p.isNewArrival,
-          primaryImageUrl: p.primaryImageUrl,
-          images: p.images || []
+          primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
+          images: (p.images || []).map((img: any) =>
+            typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
+          )
         };
       }
       return null;
@@ -241,7 +259,7 @@ export const api = {
           name: c.name,
           slug: c.slug,
           description: c.description,
-          imageUrl: c.imageUrl,
+          imageUrl: normalizeImageUrl(c.imageUrl),
           displayOrder: c.displayOrder || 1,
           isActive: c.isActive ?? true,
           productCount: c.productCount || 0

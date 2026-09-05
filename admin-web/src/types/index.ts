@@ -114,7 +114,8 @@ export interface Product {
   isFeatured: boolean;
   isBestSeller: boolean;
   isNewArrival: boolean;
-  productType?: 'Standard' | 'GiftBox' | 'Combo' | 'VariantProduct' | 'Accessory';
+  // Must match the backend ProductType enum (Simple = 1, Variant = 2, Bundle = 3).
+  productType?: 'Simple' | 'Variant' | 'Bundle';
   primaryImageUrl?: string;
   images?: ProductImage[];
   variants?: ProductVariant[];

@@ -86,7 +86,10 @@ const MOBILE_TITLES: Record<string, string | undefined> = {
 };
 
 // Screens that need an authenticated customer — unauthenticated users see Login first.
+// 'checkout' is gated so every order is tied to an account (guests kept losing
+// their order reference after refresh; logged-in orders appear under My Orders).
 const AUTH_REQUIRED_PAGES = new Set([
+  'checkout',
   'my-orders',
   'order-details',
   'addresses',

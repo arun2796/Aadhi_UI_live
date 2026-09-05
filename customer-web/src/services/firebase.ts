@@ -1,92 +1,111 @@
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  Auth,
-  UserCredential
-} from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import type { FirebaseApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import type { Auth } from 'firebase/auth';
 
-const metaEnv = (import.meta as any).env || {};
-
-// Firebase configuration with environment variable fallbacks
+// Firebase web config for project "aadhi-crackers".
+// NOTE: the Google provider must be enabled under
+// Firebase Console → Authentication → Sign-in method, and the app's domain
+// (localhost during development) must be listed in Authorized domains.
 const firebaseConfig = {
-  apiKey: metaEnv.VITE_FIREBASE_API_KEY || 'AIzaSyAadhiCrackersProductionKeyMock99',
-  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || 'aadhi-crackers.firebaseapp.com',
-  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || 'aadhi-crackers',
-  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || 'aadhi-crackers.appspot.com',
-  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || '102938475612',
-  appId: metaEnv.VITE_FIREBASE_APP_ID || '1:102938475612:web:aadhi9900aabbccddeeff'
+  apiKey: 'AIzaSyCO9QlHgVyFpDS0EkR-ZjsByIUlZX6A1hg',
+  authDomain: 'aadhi-crackers.firebaseapp.com',
+  projectId: 'aadhi-crackers',
+  storageBucket: 'aadhi-crackers.firebasestorage.app',
+  messagingSenderId: '455828664357',
+  appId: '1:455828664357:web:993137cee2c276f63e4fcc',
+  measurementId: 'G-NQH4FV7C97'
 };
 
-let app: FirebaseApp;
-let auth: Auth;
-let googleProvider: GoogleAuthProvider;
+const app: FirebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const auth: Auth = getAuth(app);
 
-try {
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  googleProvider = new GoogleAuthProvider();
-  googleProvider.setCustomParameters({
-    prompt: 'select_account'
-  });
-} catch (error) {
-  console.warn('Firebase initialization warning:', error);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Analytics is strictly optional — load it dynamically, only where supported,
+// and never let it break the app (e.g. unsupported browsers, blocked scripts).
+if (typeof window !== 'undefined') {
+  import('firebase/analytics')
+    .then(({ isSupported, getAnalytics }) =>
+      isSupported().then((supported) => {
+        if (supported) getAnalytics(app);
+      })
+    )
+    .catch(() => {
+      /* analytics unavailable — ignore */
+    });
 }
 
-export interface FirebaseSignInResult {
+export interface GoogleSignInResult {
   idToken: string;
-  email: string;
-  displayName: string;
+  email?: string;
+  displayName?: string;
   photoUrl?: string;
   phoneNumber?: string;
-  userCredential?: UserCredential;
 }
 
-/**
- * Triggers Firebase Google Sign-In popup and extracts the Firebase ID Token
- */
-export const signInWithGooglePopup = async (): Promise<FirebaseSignInResult> => {
-  if (!auth || !googleProvider) {
-    throw new Error('Firebase Auth is not initialized');
+/** Error code carried on friendly sign-in errors so callers can tell a user
+ *  cancellation apart from a real failure. */
+const CANCELLED_CODES = ['auth/popup-closed-by-user', 'auth/cancelled-popup-request'];
+
+/** True when the user simply closed/dismissed the Google popup. */
+export const isSignInCancelled = (error: unknown): boolean =>
+  Boolean(error && typeof error === 'object' && (error as any).cancelled === true);
+
+const toFriendlyError = (error: any): Error => {
+  const code: string = error?.code || '';
+  let message = 'Google sign-in failed. Please try again.';
+  let cancelled = false;
+
+  if (CANCELLED_CODES.includes(code)) {
+    message = 'Sign-in was cancelled';
+    cancelled = true;
+  } else if (code === 'auth/popup-blocked') {
+    message = 'Popup was blocked — allow popups and try again';
+  } else if (code === 'auth/unauthorized-domain') {
+    message = 'This domain is not authorized in Firebase';
   }
 
-  try {
-    const userCredential = await signInWithPopup(auth, googleProvider);
-    const idToken = await userCredential.user.getIdToken(true);
+  const friendly = new Error(message) as Error & { code?: string; cancelled?: boolean };
+  friendly.code = code;
+  friendly.cancelled = cancelled;
+  return friendly;
+};
 
+/**
+ * Opens the Google sign-in popup and returns the Firebase ID token plus
+ * basic profile fields, shaped for AuthContext.loginWithFirebase().
+ * Throws an Error with a friendly message on failure; use isSignInCancelled()
+ * to detect the user closing the popup.
+ */
+export const signInWithGoogle = async (): Promise<GoogleSignInResult> => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const idToken = await result.user.getIdToken();
     return {
       idToken,
-      email: userCredential.user.email || '',
-      displayName: userCredential.user.displayName || '',
-      photoUrl: userCredential.user.photoURL || undefined,
-      phoneNumber: userCredential.user.phoneNumber || undefined,
-      userCredential
+      email: result.user.email || undefined,
+      displayName: result.user.displayName || undefined,
+      photoUrl: result.user.photoURL || undefined,
+      phoneNumber: result.user.phoneNumber || undefined
     };
   } catch (error: any) {
-    // Check for popup closed by user or cancelled
-    if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
-      throw new Error('Sign-in popup was closed before completing authentication.');
-    }
-    if (error.code === 'auth/popup-blocked') {
-      throw new Error('Sign-in popup was blocked by your browser. Please allow popups for this site.');
-    }
-    if (error.code === 'auth/unauthorized-domain') {
-      throw new Error('This domain is not authorized in Firebase Console. Please add localhost to Authorized Domains.');
-    }
-    throw error;
+    console.error('Google sign-in error:', error?.code || error);
+    throw toFriendlyError(error);
   }
 };
 
+/** Back-compat alias (older components import this name). */
+export const signInWithGooglePopup = signInWithGoogle;
+
+/** Signs out of Firebase (non-blocking; app auth state lives in AuthContext). */
 export const signOutFirebase = async (): Promise<void> => {
-  if (auth) {
-    try {
-      await firebaseSignOut(auth);
-    } catch {
-      // non-blocking
-    }
+  try {
+    await firebaseSignOut(auth);
+  } catch {
+    // non-blocking
   }
 };
 
-export { auth, googleProvider };
+export { app, auth, googleProvider };

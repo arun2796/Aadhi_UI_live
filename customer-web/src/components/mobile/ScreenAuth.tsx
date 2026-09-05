@@ -3,7 +3,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../services/api';
-import { FirebaseGoogleButton } from '../customer/FirebaseGoogleButton';
+import { signInWithGoogle, isSignInCancelled } from '../../services/firebase';
 
 export interface AuthNavProps {
   onNavigate: (page: string, params?: any) => void;
@@ -107,10 +107,11 @@ export const ScreenAuth: React.FC<AuthNavProps & { initialTab?: 'login' | 'regis
   redirectTo,
   redirectParams
 }) => {
-  const { login, register } = useAuth();
+  const { login, register, loginWithFirebase } = useAuth();
   const { showToast } = useToast();
   const [tab, setTab] = useState<'login' | 'register'>(initialTab);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
 
   // Login fields
@@ -186,6 +187,29 @@ export const ScreenAuth: React.FC<AuthNavProps & { initialTab?: 'login' | 'regis
 
   const socialClick = () => showToast('Social login coming soon', 'info');
 
+  const handleGoogleSignIn = async () => {
+    if (googleLoading) return;
+    setGoogleLoading(true);
+    try {
+      const googleUser = await signInWithGoogle();
+      const ok = await loginWithFirebase(googleUser);
+      if (ok) {
+        showToast('Logged in successfully', 'success');
+        goAfterAuth();
+      } else {
+        fail('Google sign-in failed. Please try again.');
+      }
+    } catch (error: any) {
+      if (isSignInCancelled(error)) {
+        showToast('Sign-in was cancelled', 'info');
+      } else {
+        fail(getErrorMessage(error, 'Google sign-in failed. Please try again.'));
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <div className="p-4 pb-8 font-sans bg-[#fbfbfb] animate-fade-in">
       <div key={shakeKey} className={`rounded-3xl bg-white border border-slate-100 shadow-card overflow-hidden ${shakeKey ? 'animate-shake' : ''}`}>
@@ -247,7 +271,15 @@ export const ScreenAuth: React.FC<AuthNavProps & { initialTab?: 'login' | 'regis
               </div>
 
               <div className="grid grid-cols-3 gap-3">
-                <FirebaseGoogleButton variant="icon" onSuccess={goAfterAuth} label="Login with Google" />
+                <button
+                  type="button"
+                  aria-label="Login with Google"
+                  onClick={handleGoogleSignIn}
+                  disabled={googleLoading}
+                  className="h-14 rounded-2xl border border-slate-100 bg-white shadow-xs flex items-center justify-center hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-60"
+                >
+                  {googleLoading ? <Loader2 className="w-5 h-5 animate-spin text-purple" /> : <GoogleIcon />}
+                </button>
                 <button
                   type="button"
                   aria-label="Login with Facebook"
@@ -346,7 +378,15 @@ export const ScreenAuth: React.FC<AuthNavProps & { initialTab?: 'login' | 'regis
                 <div className="flex-1 h-px bg-slate-100" />
               </div>
 
-              <FirebaseGoogleButton onSuccess={goAfterAuth} label="Register with Google" />
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={googleLoading}
+                className="w-full py-3 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:scale-[0.99] text-navy font-bold text-sm shadow-xs transition-all flex items-center justify-center space-x-3 disabled:opacity-60"
+              >
+                {googleLoading ? <Loader2 className="w-5 h-5 animate-spin text-purple" /> : <GoogleIcon />}
+                <span>{googleLoading ? 'Connecting to Google…' : 'Register with Google'}</span>
+              </button>
 
               <p className="text-center text-xs text-slate-500 pt-3 border-t border-slate-50">
                 Already have an account?{' '}

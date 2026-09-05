@@ -13,6 +13,7 @@ import { Product, Category, Brand } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
 import { flattenCategories } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
+import { normalizeImageUrl } from '../../utils/imageUrl';
 import { ErpLoadingState } from '../../components/common/ErpLoadingState';
 
 interface ErpProductFormPageProps {
@@ -83,7 +84,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     unit: 'Box',
     isActive: true,
     isFeatured: false,
-    productType: 'Standard'
+    productType: 'Simple'
   });
   const [topCategoryId, setTopCategoryId] = useState('');
   const [subCategoryId, setSubCategoryId] = useState('');
@@ -163,15 +164,18 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
   // ---- Image helpers ----------------------------------------------------
 
-  /** Sets / replaces the primary product image (from upload or pasted URL). */
-  const setPrimaryImageUrl = (url: string) => {
+  /** Sets / replaces the primary product image (from upload or pasted URL).
+   *  Google Drive share links are converted to direct-image URLs. */
+  const setPrimaryImageUrl = (rawUrl: string) => {
+    const url = normalizeImageUrl(rawUrl) ?? rawUrl;
     setGallery((prev) => {
       const others = prev.filter((g) => !g.isPrimary).map((g) => ({ ...g, isPrimary: false }));
       return [{ url, isPrimary: true }, ...others];
     });
   };
 
-  const addGalleryImage = (url: string) => {
+  const addGalleryImage = (rawUrl: string) => {
+    const url = normalizeImageUrl(rawUrl) ?? rawUrl;
     setGallery((prev) => {
       if (prev.some((g) => g.url === url)) return prev;
       return [...prev, { url, isPrimary: prev.length === 0 }];
