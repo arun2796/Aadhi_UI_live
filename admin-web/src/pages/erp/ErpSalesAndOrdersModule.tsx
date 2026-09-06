@@ -2,11 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ShoppingBag,
-  Users,
-  FileText,
-  Receipt,
   CreditCard,
-  RotateCcw,
   Search,
   CheckCircle,
   XCircle,
@@ -32,11 +28,26 @@ import { Pagination } from '../../components/common/Pagination';
 import { StatusBadge } from '../../components/common/CommonComponents';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
 
+type SalesSubTab = 'orders' | 'customers' | 'quotes' | 'invoices' | 'payments' | 'returns';
+
 interface ErpSalesAndOrdersModuleProps {
-  initialSubTab?: 'orders' | 'customers' | 'quotes' | 'invoices' | 'payments' | 'returns';
+  initialSubTab?: SalesSubTab;
   initialSelectedOrderId?: string;
   initialSelectedCustomerId?: string;
 }
+
+/** Each sidebar item is its own screen — per-screen page title/subtitle shown instead of the old
+    shared "Sales & Order Fulfillment" header + cross-screen pill tab bar. The header follows the
+    currently shown section, so programmatic cross-navigation (e.g. a return opening its source
+    order) updates it too. */
+const SCREEN_HEADERS: Record<SalesSubTab, { title: string; subtitle: string }> = {
+  orders: { title: 'Orders', subtitle: 'Manage and fulfil customer orders.' },
+  customers: { title: 'Customers', subtitle: 'Customer directory and purchase history.' },
+  quotes: { title: 'Wholesale Quotes (B2B)', subtitle: 'Wholesale quote requests and conversion to orders.' },
+  invoices: { title: 'Tax Invoices', subtitle: 'GST tax invoices issued for customer orders.' },
+  payments: { title: 'Payments', subtitle: 'Payment records, verification and refunds.' },
+  returns: { title: 'Returns', subtitle: 'Return requests, approvals and refunds.' }
+};
 
 const PAGE_SIZE = 10;
 
@@ -394,7 +405,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const routeParams = useParams<{ id?: string }>();
   const [searchParams] = useSearchParams();
 
-  const [subTab, setSubTab] = useState<'orders' | 'customers' | 'quotes' | 'invoices' | 'payments' | 'returns'>(initialSubTab);
+  const [subTab, setSubTab] = useState<SalesSubTab>(initialSubTab);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -476,6 +487,20 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   useEffect(() => {
     loadData();
   }, []);
+
+  // Each sidebar item is its own screen: when the route swaps the initialSubTab prop on this
+  // already-mounted component, follow it and land on that screen's list view (clearing detail
+  // views that belong to OTHER screens — deep-linked details of the target screen are opened
+  // by their own effects below).
+  useEffect(() => {
+    setSubTab(initialSubTab);
+    if (initialSubTab !== 'orders') setSelectedOrder(null);
+    if (initialSubTab !== 'customers') {
+      setSelectedCustomer(null);
+      setCustomerOrders([]);
+    }
+    if (initialSubTab !== 'returns') setSelectedReturn(null);
+  }, [initialSubTab]);
 
   // ?tab=confirm deep link (sidebar "Order Confirm") — reacts to in-app navigation too
   useEffect(() => {
@@ -1011,18 +1036,26 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Top Header */}
+      {/* Per-screen header — each sidebar item is its own standalone screen (no cross-screen
+          tab bar); the title follows the currently shown section during cross-navigation. */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Sales & Order Fulfillment</span>
+            <span>{SCREEN_HEADERS[subTab].title}</span>
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Process orders through packing and shipping, verify UPI payments, manage customer CRM, and issue invoices.
-          </p>
+          <p className="text-xs text-slate-500 mt-0.5">{SCREEN_HEADERS[subTab].subtitle}</p>
         </div>
 
         <div className="flex items-center space-x-2">
+          {subTab === 'customers' && !selectedCustomer && (
+            <button
+              onClick={() => setShowAddCustomer(true)}
+              className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Customer</span>
+            </button>
+          )}
           <button
             onClick={() => loadData()}
             className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-2xs"
@@ -1033,41 +1066,10 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         </div>
       </div>
 
-      {/* Sub-tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
-        {[
-          { id: 'orders', label: `Orders (${orders.length})`, icon: ShoppingBag },
-          { id: 'customers', label: `Customers CRM (${customers.length})`, icon: Users },
-          { id: 'quotes', label: `Wholesale Quotes (${quotes.length})`, icon: FileText },
-          { id: 'invoices', label: `Tax Invoices (${invoices.length})`, icon: Receipt },
-          { id: 'payments', label: `Payments (${payments.length})`, icon: CreditCard },
-          { id: 'returns', label: `Returns (${returns.length})`, icon: RotateCcw }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setSubTab(tab.id as any)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-navy text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
       {/* ============ 1. ORDERS TAB ============ */}
       {subTab === 'orders' && !selectedOrder && (
         <div className="space-y-4">
-          <h2 className="text-lg font-black text-navy">Orders</h2>
-
-          {/* Status Tab Bar (design 02) */}
+          {/* Status Tab Bar (design 02) — internal to the Orders screen */}
           <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
             {orderTabs.map((t) => {
               const isActive = orderStatusTab === t.id;
@@ -1703,17 +1705,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       {/* ============ 2. CUSTOMERS CRM TAB (design 11) ============ */}
       {subTab === 'customers' && !selectedCustomer && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black text-navy">Customers</h2>
-            <button
-              onClick={() => setShowAddCustomer(true)}
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Customer</span>
-            </button>
-          </div>
-
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
             <div className="flex items-center space-x-2 w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs">
               <Search className="w-4 h-4 text-slate-400" />
@@ -2059,9 +2050,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       {/* ============ 5. PAYMENTS TAB (design 15) ============ */}
       {subTab === 'payments' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-black text-navy">Payments</h2>
-
-          {/* Status tab bar: All | Received | Pending | Refunds */}
+          {/* Status tab bar: All | Received | Pending | Refunds — internal to the Payments screen */}
           <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
             {paymentTabs.map((t) => {
               const isActive = paymentTab === t.id;
@@ -2200,9 +2189,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       {/* ============ 6. RETURNS TAB (design 14) ============ */}
       {subTab === 'returns' && !selectedReturn && (
         <div className="space-y-4">
-          <h2 className="text-lg font-black text-navy">Returns Management</h2>
-
-          {/* Status tab bar */}
+          {/* Status tab bar — internal to the Returns screen */}
           <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
             {returnTabs.map((t) => {
               const isActive = returnTab === t.id;

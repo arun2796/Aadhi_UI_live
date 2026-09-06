@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { WishlistProvider } from './context/WishlistContext';
 import { ToastProvider } from './context/ToastContext';
+import { SettingsProvider, useSettings } from './context/SettingsContext';
 
 // Desktop / Responsive Shell Components
 import { CustomerHeader } from './components/customer/CustomerHeader';
@@ -98,7 +99,26 @@ const AUTH_REQUIRED_PAGES = new Set([
   'refund-status'
 ]);
 
+/** Full-page notice shown to customers while the storefront is switched OFF. */
+function MaintenanceNotice() {
+  return (
+    <div className="min-h-screen bg-navy flex flex-col items-center justify-center px-6 text-center font-sans antialiased">
+      <img
+        src="/logo.png"
+        alt="Aadhi Crackers"
+        className="w-24 h-24 object-contain mb-6"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+      <h1 className="text-2xl sm:text-3xl font-black text-white">We'll be right back</h1>
+      <p className="text-sm text-slate-300 mt-3 max-w-md leading-relaxed">
+        The store is temporarily unavailable. Please check back soon.
+      </p>
+    </div>
+  );
+}
+
 function CustomerAppRoot() {
+  const { websiteStatus } = useSettings();
   const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<string>('home');
   const [pageParams, setPageParams] = useState<any>({});
@@ -146,6 +166,12 @@ function CustomerAppRoot() {
   const effectiveParams = requiresAuth
     ? { initialTab: 'login', redirectTo: currentPage, redirectParams: pageParams }
     : pageParams;
+
+  // MAINTENANCE MODE: storefront switched OFF → replace the whole customer UI
+  // (both the mobile and desktop trees) with a full-page notice.
+  if (websiteStatus === 'OFF') {
+    return <MaintenanceNotice />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 antialiased">
@@ -531,14 +557,16 @@ function CustomerAppRoot() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CartProvider>
-        <WishlistProvider>
-          <ToastProvider>
-            <CustomerAppRoot />
-          </ToastProvider>
-        </WishlistProvider>
-      </CartProvider>
-    </AuthProvider>
+    <SettingsProvider>
+      <AuthProvider>
+        <CartProvider>
+          <WishlistProvider>
+            <ToastProvider>
+              <CustomerAppRoot />
+            </ToastProvider>
+          </WishlistProvider>
+        </CartProvider>
+      </AuthProvider>
+    </SettingsProvider>
   );
 }

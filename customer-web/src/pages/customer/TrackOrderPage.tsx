@@ -12,6 +12,7 @@ import {
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../context/SettingsContext';
 import { triggerFireworksConfetti } from '../../components/common/CommonComponents';
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -72,6 +73,7 @@ interface TrackOrderPageProps {
 export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumber, onNavigate }) => {
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { thankYouMessage } = useSettings();
 
   const [query, setQuery] = useState<string>(initialOrderNumber || '');
   const [order, setOrder] = useState<any | null>(null);
@@ -156,7 +158,9 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
 
           <div className="space-y-1.5">
             <h1 className="text-3xl font-black text-navy">Thank You!</h1>
-            <p className="text-sm text-slate-500">Your order has been placed successfully.</p>
+            <p className="text-sm text-slate-500">
+              {thankYouMessage || 'Your order has been placed successfully.'}
+            </p>
           </div>
 
           <div className="py-3 px-6 rounded-2xl bg-slate-50 border border-slate-200 inline-block">

@@ -58,6 +58,9 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
 }) => {
   const { showToast } = useToast();
   const [subTab, setSubTab] = useState<'audit' | 'users' | 'rate-limits' | 'sessions'>(initialSubTab);
+  // The client-facing "User" sidebar item shows ONLY Users & Roles — the audit /
+  // rate-limit / login-history tabs are developer views reached by their own routes.
+  const usersOnly = initialSubTab === 'users';
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -195,10 +198,12 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Security, Role Permissions, Audit Logs & Rate Limiting</span>
+            <span>{usersOnly ? 'Users & Roles' : 'Security, Role Permissions, Audit Logs & Rate Limiting'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Immutable append-only audit trail with JSON before/after diffs, role access policies, login history, and API rate-limiter logs.
+            {usersOnly
+              ? 'Manage staff accounts, assign roles, and control access to the ERP.'
+              : 'Immutable append-only audit trail with JSON before/after diffs, role access policies, login history, and API rate-limiter logs.'}
           </p>
         </div>
 
@@ -213,7 +218,8 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
         </div>
       </div>
 
-      {/* Sub-tabs Navigation */}
+      {/* Sub-tabs Navigation (hidden on the client-facing Users screen) */}
+      {!usersOnly && (
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
           { id: 'audit', label: `Audit Logs (${auditLogs.length})`, icon: ShieldAlert },
@@ -239,6 +245,7 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
           );
         })}
       </div>
+      )}
 
       {/* 1. AUDIT LOGS TAB WITH JSON DIFF DRAWER */}
       {subTab === 'audit' && (

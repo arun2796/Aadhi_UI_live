@@ -136,21 +136,24 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'om-order', label: 'Order', icon: ShoppingBag, to: 'orders' },
       { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm', match: null, badge: 'NEW' },
-      { key: 'om-returns', label: 'Returns', icon: RotateCcw, to: 'returns' }
+      // Hidden per client menu — reachable at /admin/returns
+      // { key: 'om-returns', label: 'Returns', icon: RotateCcw, to: 'returns' }
     ]
   },
   {
     label: 'Inventory',
     items: [
       { key: 'inv-inventory', label: 'Inventory', icon: Boxes, to: 'inventory' },
-      { key: 'inv-low-stock', label: 'Low Stock', icon: AlertTriangle, to: 'low-stock' }
+      // Hidden per client menu — Low Stock is a tab inside the Inventory screen
+      // { key: 'inv-low-stock', label: 'Low Stock', icon: AlertTriangle, to: 'low-stock' }
     ]
   },
   {
     label: 'Purchase',
     items: [
       { key: 'pur-purchase', label: 'Purchase', icon: Truck, to: 'purchases' },
-      { key: 'pur-suppliers', label: 'Suppliers', icon: Store, to: 'suppliers' }
+      // Hidden per client menu — Suppliers is a tab inside the Purchase screen
+      // { key: 'pur-suppliers', label: 'Suppliers', icon: Store, to: 'suppliers' }
     ]
   },
   {
@@ -172,7 +175,11 @@ const NAV_GROUPS: NavGroup[] = [
   }
 ];
 
-// Remaining existing routes stay reachable under a collapsed "Developer" section
+// Remaining existing routes stay reachable under a collapsed "Developer" section.
+// Hidden from the client-facing sidebar — flip to true to bring the menu back
+// (the routes themselves remain reachable by direct URL either way).
+const SHOW_DEVELOPER_NAV = false;
+
 const DEVELOPER_NAV: NavLeaf[] = [
   { key: 'dev-quotes', label: 'Quotes (B2B)', icon: FileText, to: 'quotes' },
   { key: 'dev-combos', label: 'Gift Boxes / Combos', icon: Gift, to: 'combos' },
@@ -339,7 +346,8 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
               </div>
             ))}
 
-            {/* Collapsed "Developer" section — everything else stays reachable */}
+            {/* Collapsed "Developer" section — hidden via SHOW_DEVELOPER_NAV */}
+            {SHOW_DEVELOPER_NAV && (
             <div className="pt-4 mt-3 border-t border-[#1d1e4e]">
               <button
                 onClick={() => setIsDeveloperOpen((v) => !v)}
@@ -356,6 +364,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
                 </div>
               )}
             </div>
+            )}
           </nav>
 
           {/* User Profile & Logout Bottom Card */}

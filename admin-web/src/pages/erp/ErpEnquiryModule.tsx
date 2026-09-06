@@ -1,9 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  MessageSquare,
-  FilePlus2,
-  Users,
   Search,
   RefreshCw,
   ChevronRight,
@@ -41,6 +38,13 @@ interface ErpEnquiryModuleProps {
 
 type SubTab = 'enquiries' | 'direct' | 'customers';
 type StatusTab = 'all' | EnquiryStatus;
+
+/** Each sidebar item is its own screen — the header follows the content being shown. */
+const SCREEN_HEADERS: Record<SubTab, { title: string; subtitle: string }> = {
+  enquiries: { title: 'Enquiry', subtitle: 'All customer enquiries and quotations.' },
+  direct: { title: 'Direct Enquiry', subtitle: 'Record a walk-in or phone enquiry.' },
+  customers: { title: 'Enquiry Customers', subtitle: 'Everyone who has enquired.' }
+};
 
 const PAGE_SIZE = 10;
 
@@ -411,13 +415,6 @@ export const ErpEnquiryModule: React.FC<ErpEnquiryModuleProps> = ({ initialSubTa
     }
   };
 
-  const handleSubTabClick = (id: SubTab) => {
-    setSubTab(id);
-    if (id === 'enquiries' && selectedEnquiry) {
-      closeDetail();
-    }
-  };
-
   /** Builds the full PUT payload for the selected enquiry (contract: PUT replaces the enquiry). */
   const buildUpdatePayload = (e: Enquiry, items: EnquiryPayload['items']): EnquiryPayload => ({
     customerName: e.customerName,
@@ -616,22 +613,19 @@ export const ErpEnquiryModule: React.FC<ErpEnquiryModuleProps> = ({ initialSubTa
     setStatusTab('all');
     setSearchQuery(c.phone);
     setSubTab('enquiries');
-    if (routeId) {
-      navigate('/admin/enquiries');
-    }
+    // Each screen is its own route now — land on the Enquiry screen with the filter applied.
+    navigate('/admin/enquiries');
   };
 
   // ===================== Render =====================
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Top Header */}
+      {/* Top Header — per-screen title (each sidebar item is its own screen) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-navy tracking-tight">Enquiries</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Track walk-in, phone and website product enquiries, prepare quotations, and convert leads into orders.
-          </p>
+          <h1 className="text-2xl font-black text-navy tracking-tight">{SCREEN_HEADERS[subTab].title}</h1>
+          <p className="text-xs text-slate-500 mt-0.5">{SCREEN_HEADERS[subTab].subtitle}</p>
         </div>
         <div className="flex items-center space-x-2">
           <button
@@ -644,37 +638,9 @@ export const ErpEnquiryModule: React.FC<ErpEnquiryModuleProps> = ({ initialSubTa
         </div>
       </div>
 
-      {/* Sub-tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
-        {[
-          { id: 'enquiries' as SubTab, label: `Enquiry (${enquiries.length})`, icon: MessageSquare },
-          { id: 'direct' as SubTab, label: 'Direct Enquiry', icon: FilePlus2 },
-          { id: 'customers' as SubTab, label: `Enquiry Customers (${enquiryCustomers.length})`, icon: Users }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => handleSubTabClick(tab.id)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-navy text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
       {/* ============ 1. ENQUIRY LIST ============ */}
       {subTab === 'enquiries' && !selectedEnquiry && (
         <div className="space-y-4">
-          <h2 className="text-lg font-black text-navy">Enquiries</h2>
-
           {/* Status Tab Bar */}
           <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
             {statusTabs.map((t) => {
@@ -946,13 +912,6 @@ export const ErpEnquiryModule: React.FC<ErpEnquiryModuleProps> = ({ initialSubTa
       {/* ============ 3. DIRECT ENQUIRY (manual entry form) ============ */}
       {subTab === 'direct' && (
         <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-black text-navy">Direct Enquiry</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Record a walk-in, phone or WhatsApp lead manually and capture the products they asked about.
-            </p>
-          </div>
-
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
@@ -1127,13 +1086,6 @@ export const ErpEnquiryModule: React.FC<ErpEnquiryModuleProps> = ({ initialSubTa
       {/* ============ 4. ENQUIRY CUSTOMERS ============ */}
       {subTab === 'customers' && (
         <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-black text-navy">Enquiry Customers</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Everyone who has enquired at least once — click a row to see their enquiries.
-            </p>
-          </div>
-
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs">
             <div className="flex items-center space-x-2 w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs">
               <Search className="w-4 h-4 text-slate-400" />

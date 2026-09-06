@@ -20,6 +20,7 @@ import { Product } from '../../types';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../context/SettingsContext';
 import { api } from '../../services/api';
 
 /* ────────────────────────────── shared helpers ────────────────────────────── */
@@ -438,6 +439,7 @@ export const Screen4Cart: React.FC<{
     grandTotal
   } = useCart();
   const { showToast } = useToast();
+  const { promotionCodeEnabled } = useSettings();
 
   const [code, setCode] = useState('');
   const [applying, setApplying] = useState(false);
@@ -556,7 +558,9 @@ export const Screen4Cart: React.FC<{
           })}
         </div>
 
-        {/* Coupon code */}
+        {/* Coupon code (hidden when promotions are disabled from the storefront,
+            unless a coupon is already applied so it can still be removed) */}
+        {(promotionCodeEnabled || couponCode) && (
         <div className="p-3.5 rounded-2xl bg-white border border-slate-100 shadow-xs space-y-2.5">
           <div className="flex items-center gap-1.5 text-xs font-black text-navy">
             <BadgePercent className="w-4 h-4 text-orange" />
@@ -600,6 +604,7 @@ export const Screen4Cart: React.FC<{
             </div>
           )}
         </div>
+        )}
 
         {/* Order summary */}
         <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs space-y-2.5 text-xs">

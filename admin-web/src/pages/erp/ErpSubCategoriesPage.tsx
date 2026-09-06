@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Edit2, Trash2, RefreshCw, XCircle, Power, Layers } from 'lucide-react';
 import { Category } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
-import { flattenCategories } from '../../services/categoryApi';
+import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
@@ -13,6 +13,20 @@ const PAGE_SIZE = 8;
 
 const inputCls =
   'w-full mt-1 p-2.5 rounded-xl border border-slate-200 bg-white text-xs text-navy outline-none focus:border-purple transition-colors';
+
+/**
+ * Friendly server error text: the backend returns ProblemDetails for business-rule 400s
+ * (e.g. { title: "Business Rule Violation", detail: "A category named 'test' already exists..." }).
+ * Prefer `detail`, then `message`, then whatever getApiErrorDetails extracts, then the fallback.
+ */
+const getServerErrorMessage = (error: unknown, fallback: string): string => {
+  const data = (error as { response?: { data?: { detail?: unknown; message?: unknown } } } | null)
+    ?.response?.data;
+  if (typeof data?.detail === 'string' && data.detail.trim()) return data.detail;
+  if (typeof data?.message === 'string' && data.message.trim()) return data.message;
+  const { message } = getApiErrorDetails(error);
+  return message || fallback;
+};
 
 /** Sub Categories management screen (design 05): list with parent category, CRUD + activate/deactivate. */
 export const ErpSubCategoriesPage: React.FC = () => {
@@ -123,7 +137,9 @@ export const ErpSubCategoriesPage: React.FC = () => {
     try {
       const payload: Partial<Category> = {
         name: formData.name,
-        slug: formData.slug || formData.name.toLowerCase().replace(/\s+/g, '-'),
+        // Backend accepts an optional slug: keep the existing/suggested one when present,
+        // otherwise omit it so the backend generates the slug from the name.
+        slug: formData.slug?.trim() || undefined,
         description: formData.description,
         imageUrl: formData.imageUrl,
         parentCategoryId: formData.parentCategoryId,
@@ -141,8 +157,7 @@ export const ErpSubCategoriesPage: React.FC = () => {
       setFormData({});
       loadData();
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Error saving sub category', 'error');
+      showToast(getServerErrorMessage(error, 'Error saving sub category'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -164,8 +179,7 @@ export const ErpSubCategoriesPage: React.FC = () => {
         prev.map((c) => (c.id === sub.id ? { ...c, isActive: !sub.isActive } : c))
       );
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to update status', 'error');
+      showToast(getServerErrorMessage(error, 'Failed to update status'), 'error');
     }
   };
 
@@ -177,8 +191,7 @@ export const ErpSubCategoriesPage: React.FC = () => {
       setDeleteTarget(null);
       loadData();
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to delete sub category', 'error');
+      showToast(getServerErrorMessage(error, 'Failed to delete sub category'), 'error');
       setDeleteTarget(null);
     }
   };
@@ -358,7 +371,9 @@ export const ErpSubCategoriesPage: React.FC = () => {
                     setFormData({
                       ...formData,
                       name: e.target.value,
-                      slug: e.target.value.toLowerCase().replace(/\s+/g, '-')
+                      // Only auto-suggest a slug for new sub categories; keep the stored
+                      // slug stable when renaming an existing one.
+                      ...(formData.id ? {} : { slug: slugifyCategoryName(e.target.value) })
                     })
                   }
                   placeholder="e.g. Electric Sparklers"

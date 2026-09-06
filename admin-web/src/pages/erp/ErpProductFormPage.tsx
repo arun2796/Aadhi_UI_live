@@ -35,13 +35,44 @@ interface GalleryImage {
 
 type FormTab = 'general' | 'pricing' | 'inventory' | 'images' | 'seo';
 
-const TABS: { id: FormTab; label: string }[] = [
+const ALL_TABS: { id: FormTab; label: string }[] = [
   { id: 'general', label: 'General Information' },
   { id: 'pricing', label: 'Pricing' },
   { id: 'inventory', label: 'Inventory' },
   { id: 'images', label: 'Images' },
   { id: 'seo', label: 'SEO' }
 ];
+
+/**
+ * Inventory and SEO tabs are hidden per owner request — flip SHOW_EXTRA_TABS to true to
+ * restore them (this single flag gates both the tab bar entries and the tab panels below).
+ * While hidden, the required inventory values are still sent on save with sensible defaults
+ * (stock 0, reorder level 10, featured false) and the General tab's Status toggle keeps
+ * controlling isActive.
+ */
+const SHOW_EXTRA_TABS: boolean = false;
+
+const TABS = SHOW_EXTRA_TABS
+  ? ALL_TABS
+  : ALL_TABS.filter((t) => t.id !== 'inventory' && t.id !== 'seo');
+
+/** Fields the form can highlight inline when the server returns field-level validation errors. */
+type ServerFieldKey = 'name' | 'sku' | 'description' | 'price';
+const SERVER_FIELD_KEYS: ServerFieldKey[] = ['name', 'sku', 'description', 'price'];
+
+/**
+ * Friendly server error text: the backend returns ProblemDetails for business-rule 400s
+ * (e.g. { title: "Business Rule Violation", detail: "A product named 'x' already exists..." }).
+ * Prefer `detail`, then `message`, then whatever getApiErrorDetails extracts, then the fallback.
+ */
+const getServerErrorMessage = (error: unknown, fallback: string): string => {
+  const data = (error as { response?: { data?: { detail?: unknown; message?: unknown } } } | null)
+    ?.response?.data;
+  if (typeof data?.detail === 'string' && data.detail.trim()) return data.detail;
+  if (typeof data?.message === 'string' && data.message.trim()) return data.message;
+  const { message } = getApiErrorDetails(error);
+  return message || fallback;
+};
 
 /** URL-slug helper — mirrors the backend's slug generation from the product name. */
 const slugify = (value: string) =>
@@ -97,12 +128,42 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
   const primaryFileRef = useRef<HTMLInputElement>(null);
   const galleryFileRef = useRef<HTMLInputElement>(null);
 
+  // Inline field errors (client-side validation + server validation ProblemDetails `errors`)
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ServerFieldKey, string>>>({});
+  const nameRef = useRef<HTMLInputElement>(null);
+  const skuRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const priceRef = useRef<HTMLInputElement>(null);
+
   const topCategories = allCategories.filter((c) => !c.parentCategoryId);
   const subCategories = allCategories.filter((c) => c.parentCategoryId === topCategoryId);
   const primaryImage = gallery.find((g) => g.isPrimary) || gallery[0];
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    // Editing a highlighted field clears its inline error
+    const errKey = key as string;
+    if ((SERVER_FIELD_KEYS as string[]).includes(errKey)) {
+      setFieldErrors((prev) =>
+        prev[errKey as ServerFieldKey] ? { ...prev, [errKey]: undefined } : prev
+      );
+    }
+  };
+
+  /** Red-border style for a field with an inline error (wins over inputCls border colors). */
+  const fieldCls = (key: ServerFieldKey) =>
+    `${inputCls}${fieldErrors[key] ? ' border-red-400! focus:border-red-400!' : ''}`;
+
+  /** Switches to the tab holding the field, then focuses it once the tab has rendered. */
+  const focusField = (key: ServerFieldKey) => {
+    setActiveTab(key === 'price' ? 'pricing' : 'general');
+    const refs: Record<ServerFieldKey, React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>> = {
+      name: nameRef,
+      sku: skuRef,
+      description: descriptionRef,
+      price: priceRef
+    };
+    window.setTimeout(() => refs[key].current?.focus(), 0);
   };
 
   const loadData = useCallback(async () => {
@@ -214,14 +275,17 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
   // ---- Save -------------------------------------------------------------
 
   const handleSave = async () => {
+    setFieldErrors({});
     if (!form.name?.trim()) {
-      setActiveTab('general');
+      setFieldErrors({ name: 'Product Name is required' });
       showToast('Product Name is required', 'warning');
+      focusField('name');
       return;
     }
     if (!form.sku?.trim()) {
-      setActiveTab('general');
+      setFieldErrors({ sku: 'SKU is required' });
       showToast('SKU is required', 'warning');
+      focusField('sku');
       return;
     }
     if (!topCategoryId) {
@@ -234,9 +298,17 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       showToast('Please select a Sub Category', 'warning');
       return;
     }
+    // Description is required by the backend — catch it client-side before submit
+    if (!form.description?.trim()) {
+      setFieldErrors({ description: 'Description is required' });
+      showToast('Description is required', 'warning');
+      focusField('description');
+      return;
+    }
     if (!form.price || form.price <= 0) {
-      setActiveTab('pricing');
+      setFieldErrors({ price: 'Selling Price is required' });
       showToast('Selling Price is required', 'warning');
+      focusField('price');
       return;
     }
 
@@ -249,6 +321,12 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
     const payload: ProductFormState = {
       ...persistedForm,
+      // The Inventory tab is hidden (see SHOW_EXTRA_TABS) — its required values are still
+      // sent with sensible defaults. The Status toggle on General keeps driving isActive.
+      stockQuantity: persistedForm.stockQuantity ?? 0,
+      reorderLevel: persistedForm.reorderLevel ?? 10,
+      isActive: persistedForm.isActive ?? true,
+      isFeatured: persistedForm.isFeatured ?? false,
       categoryId: finalCategoryId,
       categoryName: finalCategory?.name || form.categoryName,
       primaryImageUrl: primary?.url || form.primaryImageUrl,
@@ -272,8 +350,34 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       }
       navigate('/admin/products');
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Error saving product', 'error');
+      // Validation ProblemDetails carry field-level errors, e.g.
+      // { errors: { "Description": ["'Description' must not be empty."] } }
+      const data = (error as { response?: { data?: { errors?: unknown } } } | null)?.response?.data;
+      const validationErrors =
+        data?.errors && typeof data.errors === 'object' && !Array.isArray(data.errors)
+          ? (data.errors as Record<string, unknown>)
+          : undefined;
+
+      let toastMessage: string | undefined;
+      if (validationErrors) {
+        const [field, messages] = Object.entries(validationErrors)[0] ?? [];
+        const firstMessage = Array.isArray(messages)
+          ? String(messages[0] ?? '')
+          : typeof messages === 'string'
+          ? messages
+          : '';
+        if (field && firstMessage) {
+          toastMessage = firstMessage;
+          const key = field.toLowerCase() as ServerFieldKey;
+          if (SERVER_FIELD_KEYS.includes(key)) {
+            // A field the form knows — highlight it inline and jump to it
+            setFieldErrors((prev) => ({ ...prev, [key]: firstMessage }));
+            focusField(key);
+          }
+        }
+      }
+
+      showToast(toastMessage || getServerErrorMessage(error, 'Error saving product'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -339,12 +443,16 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     <RequiredMark />
                   </label>
                   <input
+                    ref={nameRef}
                     type="text"
                     value={form.name || ''}
                     onChange={(e) => setField('name', e.target.value)}
                     placeholder="e.g. Aadhi Deluxe 30 Shots"
-                    className={inputCls}
+                    className={fieldCls('name')}
                   />
+                  {fieldErrors.name && (
+                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.name}</p>
+                  )}
                 </div>
 
                 <div>
@@ -353,12 +461,16 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     <RequiredMark />
                   </label>
                   <input
+                    ref={skuRef}
                     type="text"
                     value={form.sku || ''}
                     onChange={(e) => setField('sku', e.target.value)}
                     placeholder="e.g. AC-SP-010"
-                    className={`${inputCls} font-mono`}
+                    className={`${fieldCls('sku')} font-mono`}
                   />
+                  {fieldErrors.sku && (
+                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.sku}</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -446,14 +558,21 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                 </div>
 
                 <div>
-                  <label className="font-bold text-navy">Description</label>
+                  <label className="font-bold text-navy">
+                    Description
+                    <RequiredMark />
+                  </label>
                   <textarea
+                    ref={descriptionRef}
                     rows={5}
                     value={form.description || ''}
                     onChange={(e) => setField('description', e.target.value)}
                     placeholder="Describe the firecracker effect, contents and highlights..."
-                    className={inputCls}
+                    className={fieldCls('description')}
                   />
+                  {fieldErrors.description && (
+                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.description}</p>
+                  )}
                 </div>
 
                 <div>
@@ -623,12 +742,16 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     <RequiredMark />
                   </label>
                   <input
+                    ref={priceRef}
                     type="number"
                     min={0}
                     value={form.price ?? 0}
                     onChange={(e) => setField('price', Number(e.target.value))}
-                    className={`${inputCls} font-bold`}
+                    className={`${fieldCls('price')} font-bold`}
                   />
+                  {fieldErrors.price && (
+                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.price}</p>
+                  )}
                 </div>
                 <div>
                   <label className="font-bold text-navy">MRP / Compare at Price (₹)</label>
@@ -679,8 +802,8 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
             </div>
           )}
 
-          {/* INVENTORY TAB */}
-          {activeTab === 'inventory' && (
+          {/* INVENTORY TAB — hidden while SHOW_EXTRA_TABS is false (defaults sent on save) */}
+          {SHOW_EXTRA_TABS && activeTab === 'inventory' && (
             <div className="max-w-2xl space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -821,8 +944,8 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
             </div>
           )}
 
-          {/* SEO TAB */}
-          {activeTab === 'seo' && (
+          {/* SEO TAB — hidden while SHOW_EXTRA_TABS is false */}
+          {SHOW_EXTRA_TABS && activeTab === 'seo' && (
             <div className="max-w-2xl space-y-4 text-xs">
               <div>
                 <label className="font-bold text-navy">URL Slug</label>

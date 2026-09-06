@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../context/SettingsContext';
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
@@ -29,6 +30,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
     removeFromCart
   } = useCart();
   const { showToast } = useToast();
+  const { promotionCodeEnabled } = useSettings();
 
   const [couponInput, setCouponInput] = useState('');
   const [applyingCoupon, setApplyingCoupon] = useState(false);
@@ -199,7 +201,8 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
               </div>
             )}
 
-            {/* Coupon */}
+            {/* Coupon (hidden when promotions are disabled from the storefront,
+                unless a coupon is already applied so it can still be removed) */}
             {couponCode ? (
               <div className="flex items-center justify-between p-3 rounded-xl bg-purple-soft border border-purple/20">
                 <div className="flex items-center space-x-2 text-xs">
@@ -218,7 +221,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                   <X className="w-4 h-4" />
                 </button>
               </div>
-            ) : (
+            ) : promotionCodeEnabled ? (
               <div className="flex items-stretch space-x-2">
                 <input
                   type="text"
@@ -240,7 +243,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                   {applyingCoupon ? 'Applying...' : 'Apply'}
                 </button>
               </div>
-            )}
+            ) : null}
 
             <button
               onClick={() => onNavigate('checkout')}

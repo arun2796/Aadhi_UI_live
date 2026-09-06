@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Truck,
   Store,
@@ -9,7 +9,6 @@ import {
   RefreshCw,
   XCircle,
   FileCheck,
-  Receipt,
   ArrowLeft,
   Pencil,
   Trash2,
@@ -34,6 +33,15 @@ interface ErpPurchaseOrdersModuleProps {
 }
 
 type PurchaseSubTab = 'purchases' | 'purchase-items' | 'purchase-history' | 'suppliers' | 'grn' | 'bills';
+
+/** Screens that are their own route destination — own header, no Purchase tab bar.
+ *  ('suppliers' is also an internal tab of the client Purchase screen; this map only
+ *  applies when the module is ROUTED with that initialSubTab, e.g. /admin/suppliers.) */
+const STANDALONE_HEADERS: Partial<Record<PurchaseSubTab, { title: string; subtitle: string }>> = {
+  suppliers: { title: 'Suppliers', subtitle: 'Vendor directory, contacts and account balances.' },
+  grn: { title: 'Goods Received Notes', subtitle: 'GRN receipt inspections recorded against purchase orders.' },
+  bills: { title: 'Supplier Bills', subtitle: 'Vendor invoices, payments and outstanding balances.' }
+};
 
 const PO_PAGE_SIZE = 10;
 const SUPPLIER_PAGE_SIZE = 8;
@@ -109,7 +117,11 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
   initialSubTab = 'purchases'
 }) => {
   const { showToast } = useToast();
+  const navigate = useNavigate();
   const routeParams = useParams<{ id?: string }>();
+  // Routed as /admin/suppliers, /admin/goods-received or /admin/supplier-bills → standalone
+  // screen; /admin/purchases is the client Purchase screen with its four internal tabs.
+  const standaloneHeader = STANDALONE_HEADERS[initialSubTab];
   const [subTab, setSubTab] = useState<PurchaseSubTab>(initialSubTab);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -528,14 +540,16 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
+      {/* Header — client Purchase screen or a standalone routed screen */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Purchases, Suppliers & Goods Receiving (GRN)</span>
+            <span>{standaloneHeader ? standaloneHeader.title : 'Purchase'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Manage raw materials & finished goods procurement, vendor accounts, GRN receipt inspections, and supplier bills.
+            {standaloneHeader
+              ? standaloneHeader.subtitle
+              : 'Purchase orders, suppliers and procurement history.'}
           </p>
         </div>
 
@@ -548,28 +562,34 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
 
-          <button
-            onClick={() => setIsSupplierModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Supplier</span>
-          </button>
+          {(!standaloneHeader || initialSubTab === 'suppliers') && (
+            <button
+              onClick={() => setIsSupplierModalOpen(true)}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Supplier</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setIsPoModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create PO</span>
-          </button>
+          {!standaloneHeader && (
+            <button
+              onClick={() => setIsPoModalOpen(true)}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create PO</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Sub-tabs Bar */}
+      {/* Internal tab bar — client Purchase screen only (standalone screens have no tabs) */}
+      {!standaloneHeader && (
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
           { id: 'purchases', label: `Purchase Orders (${poTotal})`, icon: Truck },
+          { id: 'suppliers', label: `Suppliers (${suppliers.length})`, icon: Store },
           {
             id: 'purchase-items',
             label: `Purchase Items${allPosLoaded ? ` (${flatPurchaseItems.length})` : ''}`,
@@ -579,10 +599,7 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
             id: 'purchase-history',
             label: `Purchase History${allPosLoaded ? ` (${historyPos.length})` : ''}`,
             icon: History
-          },
-          { id: 'suppliers', label: `Suppliers Directory (${suppliers.length})`, icon: Store },
-          { id: 'grn', label: `Goods Received Notes (${grns.length})`, icon: FileCheck },
-          { id: 'bills', label: `Supplier Bills (${bills.length})`, icon: Receipt }
+          }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = subTab === tab.id;
@@ -606,6 +623,7 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
           );
         })}
       </div>
+      )}
 
       {/* 1. PURCHASE ORDERS TAB */}
       {subTab === 'purchases' && !selectedPo && (
@@ -757,9 +775,9 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
               {canReceive && (
                 <button
                   onClick={() => {
-                    showToast(`Record a GRN against ${selectedPo.poNumber} below`, 'info');
+                    showToast(`Record a GRN against ${selectedPo.poNumber} on the Goods Received screen`, 'info');
                     setSelectedPo(null);
-                    setSubTab('grn');
+                    navigate('/admin/goods-received');
                   }}
                   className="px-4 py-2 rounded-xl bg-navy hover:bg-navy-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-2xs"
                 >
@@ -1360,8 +1378,14 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={() => {
-                            setSelectedSupplier(null);
-                            openPoDetail(po.id);
+                            if (standaloneHeader) {
+                              // Standalone Suppliers screen has no Purchase Orders tab —
+                              // deep-link into the Purchase screen instead.
+                              navigate(`/admin/purchases/${po.id}`);
+                            } else {
+                              setSelectedSupplier(null);
+                              openPoDetail(po.id);
+                            }
                           }}
                           className="px-3 py-1 rounded-lg bg-navy text-white hover:bg-navy-dark text-xs font-bold shadow-2xs"
                         >

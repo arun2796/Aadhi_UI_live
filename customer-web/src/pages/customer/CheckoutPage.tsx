@@ -24,6 +24,7 @@ import {
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings, findDeliveryZone } from '../../context/SettingsContext';
 import { api } from '../../services/api';
 
 /* ─────────────────────────────────────────────────────────────
@@ -153,6 +154,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const { items, subtotal, discount, couponCode, shippingCharge, clearCart } = useCart();
   const { showToast } = useToast();
+  const { deliveryZones } = useSettings();
 
   const [step, setStep] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -215,6 +217,36 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const selectedAddress = useMemo(
     () => addresses.find(a => a.id === selectedAddressId) || null,
     [addresses, selectedAddressId]
+  );
+
+  /* ── DELIVERY ZONES (storefront-controlled, keyed by the address state) ── */
+  const zone = useMemo(
+    () => findDeliveryZone(deliveryZones, selectedAddress?.state),
+    [deliveryZones, selectedAddress]
+  );
+  const minOrderShortfall = Boolean(zone && zone.minOrder > 0 && subtotal < zone.minOrder);
+  const packingPercent = zone?.packingChargesPercent || 0;
+  const packingCharges = packingPercent > 0 ? (subtotal * packingPercent) / 100 : 0;
+  const cityWarning = useMemo(() => {
+    if (!zone || zone.allCities || zone.cities.length === 0) return null;
+    const typedCity = (selectedAddress?.city || '').trim();
+    if (!typedCity) return null;
+    const known = zone.cities.some(c => c.trim().toLowerCase() === typedCity.toLowerCase());
+    return known ? null : `Delivery to ${typedCity} may not be available — we'll confirm by phone.`;
+  }, [zone, selectedAddress]);
+
+  const minOrderNotice = minOrderShortfall && zone && selectedAddress && (
+    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold flex items-center space-x-1.5">
+      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+      <span>Minimum order for {selectedAddress.state} is {inr(zone.minOrder)}</span>
+    </div>
+  );
+
+  const cityWarningNotice = cityWarning && (
+    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium flex items-center space-x-1.5">
+      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+      <span>{cityWarning}</span>
+    </div>
   );
 
   const validateAddressForm = (): string | null => {
@@ -288,6 +320,13 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     setSelectedAddressId(saved.id || null);
     setShowAddressForm(false);
     setSavingAddress(false);
+
+    // Delivery-zone minimum order gate for the just-saved address.
+    const savedZone = findDeliveryZone(deliveryZones, saved.state);
+    if (savedZone && savedZone.minOrder > 0 && subtotal < savedZone.minOrder) {
+      setErrorMessage(`Minimum order for ${saved.state} is ${inr(savedZone.minOrder)}`);
+      return;
+    }
     goToStep(2);
   };
 
@@ -304,6 +343,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     }
     if (!selectedAddress) {
       setErrorMessage('Please select or add a delivery address.');
+      return;
+    }
+    if (minOrderShortfall && zone) {
+      setErrorMessage(`Minimum order for ${selectedAddress.state} is ${inr(zone.minOrder)}`);
       return;
     }
     goToStep(2);
@@ -381,7 +424,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   };
 
   /* ── STEP 4: Totals & Place Order ── */
-  const orderTotal = Math.max(0, subtotal - discount) + deliveryCharge;
+  // NOTE: packingCharges is included in the DISPLAYED total only — the backend
+  // order total does not include it yet; it is flagged to staff via the order notes.
+  const orderTotal = Math.max(0, subtotal - discount) + deliveryCharge + packingCharges;
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -399,9 +444,18 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
       setErrorMessage('Please agree to the Terms & Conditions and Privacy Policy to place the order.');
       return;
     }
+    if (minOrderShortfall && zone) {
+      setErrorMessage(`Minimum order for ${selectedAddress.state} is ${inr(zone.minOrder)}`);
+      goToStep(1);
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMessage(null);
+
+    const packingNote = packingCharges > 0
+      ? ` Packing charges ${packingPercent}% = ₹${Math.round(packingCharges)} (collect on delivery).`
+      : '';
 
     try {
       const order = await api.createOrder({
@@ -448,12 +502,14 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
         utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
         paymentScreenshotBase64: paymentMethod === 'UPI' ? (screenshotPreview || undefined) : undefined,
         notes:
-          paymentMethod === 'UPI'
+          (paymentMethod === 'UPI'
             ? `UPI Payment Proof Uploaded. UTR: ${utrNumber.trim()}`
-            : 'Cash on Delivery order.'
+            : 'Cash on Delivery order.') + packingNote
       });
 
-      const finalTotal = order.grandTotal || orderTotal;
+      // Backend grandTotal excludes packing charges (deviation, see packingNote above),
+      // so add them back for the displayed total on the success screen.
+      const finalTotal = order.grandTotal ? order.grandTotal + packingCharges : orderTotal;
 
       // Flag for the success screen (desktop design 9) rendered by TrackOrderPage.
       try {
@@ -581,6 +637,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                 )}
               </div>
 
+              {minOrderNotice}
+              {cityWarningNotice}
               {errorBanner}
 
               {loadingAddresses ? (
@@ -1175,6 +1233,13 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                 <span className="font-bold text-slate-800">{inr(deliveryCharge)}</span>
               )}
             </div>
+
+            {packingCharges > 0 && (
+              <div className="flex justify-between">
+                <span>Packing Charges ({packingPercent}%)</span>
+                <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
+              </div>
+            )}
 
             <div className="flex justify-between items-center text-sm font-black text-navy pt-3 border-t border-slate-100">
               <span>Total</span>

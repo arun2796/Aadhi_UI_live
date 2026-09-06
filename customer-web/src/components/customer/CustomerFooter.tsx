@@ -9,6 +9,7 @@ import {
   Twitter,
   Youtube
 } from 'lucide-react';
+import { useSettings } from '../../context/SettingsContext';
 
 interface CustomerFooterProps {
   onNavigate: (page: string, params?: any) => void;
@@ -24,6 +25,8 @@ const SOCIAL_LINKS = [
 const PAYMENT_BADGES = ['VISA', 'Mastercard', 'UPI', 'RuPay', 'COD'];
 
 export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) => {
+  const { footerMessage } = useSettings();
+
   const columns: Array<{
     title: string;
     links: Array<{ label: string; page: string; params?: any }>;
@@ -141,6 +144,15 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
           </div>
         ))}
       </div>
+
+      {/* Storefront-controlled footer message (Website.FooterMessage) */}
+      {footerMessage && (
+        <div className="max-w-7xl mx-auto px-4 pb-5">
+          <p className="text-[11px] text-slate-500 leading-relaxed text-center">
+            {footerMessage}
+          </p>
+        </div>
+      )}
 
       {/* Bottom Bar: © line + payment badges */}
       <div className="border-t border-navy-border/40 py-4 px-4 bg-black/40">

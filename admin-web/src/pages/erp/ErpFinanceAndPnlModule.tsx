@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  DollarSign,
-  TrendingUp,
-  CreditCard,
-  Receipt,
   Plus,
   Search,
   Filter,
@@ -25,11 +21,20 @@ interface ErpFinanceAndPnlModuleProps {
   initialSubTab?: 'pnl' | 'expenses' | 'receivables' | 'payables';
 }
 
+/** Each route is its own standalone screen — the sidebar "Sales" item lands on 'pnl'. */
+const SCREEN_HEADERS: Record<'pnl' | 'expenses' | 'receivables' | 'payables', { title: string; subtitle: string }> = {
+  pnl: { title: 'Sales', subtitle: 'Revenue, profit & loss overview.' },
+  expenses: { title: 'Expenses', subtitle: 'Operating expenses ledger.' },
+  receivables: { title: 'Receivables', subtitle: 'Outstanding customer invoice balances.' },
+  payables: { title: 'Payables', subtitle: 'Outstanding supplier bill balances.' }
+};
+
 export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
   initialSubTab = 'pnl'
 }) => {
   const { showToast } = useToast();
-  const [subTab, setSubTab] = useState<'pnl' | 'expenses' | 'receivables' | 'payables'>(initialSubTab);
+  // No in-module tab switching — the route decides which standalone screen is shown.
+  const subTab = initialSubTab;
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [pnl, setPnl] = useState<ProfitAndLossStatement | null>(null);
@@ -97,15 +102,13 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
+      {/* Header — per-screen title (each sidebar item is its own screen) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Finance, Expenses & Profit / Loss Statement</span>
+            <span>{SCREEN_HEADERS[subTab].title}</span>
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Audit operating margins, COGS deduction, operating expenses breakdown, customer receivables, and vendor payables.
-          </p>
+          <p className="text-xs text-slate-500 mt-0.5">{SCREEN_HEADERS[subTab].subtitle}</p>
         </div>
 
         <div className="flex items-center space-x-2">
@@ -117,44 +120,19 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
 
-          <button
-            onClick={() => setIsExpenseModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Operating Expense</span>
-          </button>
+          {subTab === 'expenses' && (
+            <button
+              onClick={() => setIsExpenseModalOpen(true)}
+              className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Operating Expense</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Sub-tabs Navigation */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
-        {[
-          { id: 'pnl', label: 'Profit & Loss (P&L)', icon: TrendingUp },
-          { id: 'expenses', label: `Operating Expenses (${expenses.length})`, icon: DollarSign },
-          { id: 'receivables', label: `Accounts Receivables (${receivables.length})`, icon: Receipt },
-          { id: 'payables', label: `Accounts Payables (${payables.length})`, icon: CreditCard }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setSubTab(tab.id as any)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-navy text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 1. PROFIT & LOSS STATEMENT TAB */}
+      {/* 1. SALES SCREEN — profit & loss statement */}
       {subTab === 'pnl' && pnl && (
         <div className="space-y-6">
           {/* Top KPI Summary Cards */}
@@ -259,7 +237,7 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
         </div>
       )}
 
-      {/* 2. OPERATING EXPENSES TAB */}
+      {/* 2. EXPENSES SCREEN */}
       {subTab === 'expenses' && (
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -299,7 +277,7 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
         </div>
       )}
 
-      {/* 3. ACCOUNTS RECEIVABLES TAB */}
+      {/* 3. RECEIVABLES SCREEN */}
       {subTab === 'receivables' && (
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -344,7 +322,7 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
         </div>
       )}
 
-      {/* 4. ACCOUNTS PAYABLES TAB */}
+      {/* 4. PAYABLES SCREEN */}
       {subTab === 'payables' && (
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">

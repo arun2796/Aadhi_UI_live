@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Search, Filter, RefreshCw, Trash2, XCircle, Percent, Ticket } from 'lucide-react';
+import { Plus, Search, Filter, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { api, apiClient, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
@@ -10,7 +10,7 @@ const PAGE_SIZE = 10;
 type OfferTab = 'all' | 'Active' | 'Scheduled' | 'Expired';
 type OfferStatus = 'Active' | 'Scheduled' | 'Expired';
 
-/** Inner split (?tab=discounts|codes): same /promotions data, two presentations. */
+/** Two standalone screens (?tab=discounts|codes): same /promotions data, two presentations. */
 type MarketingViewTab = 'discounts' | 'codes';
 
 /** Normalized view over the backend PromotionDto (/promotions). */
@@ -47,21 +47,21 @@ const formatDate = (iso?: string) =>
 
 export const ErpMarketingModule: React.FC = () => {
   const { showToast } = useToast();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [offerTab, setOfferTab] = useState<OfferTab>('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
-  // Inner split driven by ?tab=discounts|codes (sidebar deep links) — default Discounts
+  // Each sidebar item is its own screen, decided solely by ?tab=discounts|codes
+  // (Discount → ?tab=discounts / default; Promotion Code → ?tab=codes).
   const viewTab: MarketingViewTab = searchParams.get('tab') === 'codes' ? 'codes' : 'discounts';
-  const setViewTab = (tab: MarketingViewTab) => {
-    const next = new URLSearchParams(searchParams);
-    next.set('tab', tab);
-    setSearchParams(next, { replace: true });
+
+  // Reset pagination when the sidebar switches between the two screens
+  useEffect(() => {
     setPage(1);
-  };
+  }, [viewTab]);
 
   // Create Offer modal state
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
@@ -181,12 +181,12 @@ export const ErpMarketingModule: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>{viewTab === 'codes' ? 'Promotion Codes' : 'Offers / Discounts'}</span>
+            <span>{viewTab === 'codes' ? 'Promotion Codes' : 'Discounts'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             {viewTab === 'codes'
-              ? 'Customer-entered promotion codes — track redemptions, validity windows and live status.'
-              : 'Create percentage or flat discount offers with validity windows and monitor their live status.'}
+              ? 'Coupon codes customers can apply at checkout.'
+              : 'Percentage and flat-amount offers.'}
           </p>
         </div>
 
@@ -210,31 +210,6 @@ export const ErpMarketingModule: React.FC = () => {
             <span>Create Offer</span>
           </button>
         </div>
-      </div>
-
-      {/* Discounts | Promotion Codes split (?tab=discounts|codes) */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
-        {[
-          { id: 'discounts' as MarketingViewTab, label: 'Discounts', icon: Percent },
-          { id: 'codes' as MarketingViewTab, label: 'Promotion Codes', icon: Ticket }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = viewTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setViewTab(tab.id)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-navy text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
       </div>
 
       {/* Status tab bar (spec 13: All Offers | Active | Scheduled | Expired) */}

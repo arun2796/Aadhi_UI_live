@@ -7,15 +7,10 @@ import {
   Search,
   Filter,
   RefreshCw,
-  Store,
-  CheckCircle2,
   XCircle,
-  Truck,
   ArrowDownRight,
   ArrowUpRight,
   Sliders,
-  History,
-  Building2,
   Download
 } from 'lucide-react';
 import { Product, Warehouse, StockMovement, StockTransfer, StockItem, LowStockAlert, Supplier, PurchaseOrder } from '../../types';
@@ -60,16 +55,31 @@ interface ErpInventoryLedgerModuleProps {
   initialSubTab?: 'overview' | 'movements' | 'transfers' | 'low-stock' | 'warehouses';
 }
 
+/** Internal views. The client-facing Inventory screen owns the first five as its tab bar;
+ *  Warehouses, Stock Transfers and the low-stock route render standalone with their own headers. */
+type InventoryView = 'overview' | 'stock-in' | 'stock-out' | 'low-stock' | 'adjustments' | 'transfers' | 'warehouses';
+
+/** Screens that are their own sidebar/route destination — own header, no Inventory tab bar. */
+const STANDALONE_HEADERS: Partial<Record<InventoryView, { title: string; subtitle: string }>> = {
+  warehouses: { title: 'Warehouses', subtitle: 'Depots, storage locations and their stock capacity.' },
+  transfers: { title: 'Stock Transfers', subtitle: 'Inter-warehouse stock transfer requests and movements.' },
+  'low-stock': { title: 'Low Stock Alert', subtitle: 'Products at or below their reorder level.' }
+};
+
 export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> = ({
   initialSubTab = 'overview'
 }) => {
   const { showToast } = useToast();
-  const [subTab, setSubTab] = useState<'overview' | 'movements' | 'transfers' | 'low-stock' | 'warehouses'>(initialSubTab);
+  // Legacy 'movements' route value opens the client Inventory screen on Stock In.
+  const initialView: InventoryView = initialSubTab === 'movements' ? 'stock-in' : initialSubTab;
+  // Routed as Warehouses / Stock Transfers / Low Stock Alert → standalone screen;
+  // otherwise this is the client Inventory screen with its five internal tabs.
+  const standaloneHeader = STANDALONE_HEADERS[initialView];
+  const [view, setView] = useState<InventoryView>(initialView);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
-  const [movementFilter, setMovementFilter] = useState<'all' | 'in' | 'out'>('all');
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
 
   // Server-paged stock ledger (design 09)
@@ -183,9 +193,17 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
       ? stockItems.filter((si) => si.quantityAvailable <= 0)
       : stockItems;
 
-  // Movements sub-filter (All | Stock In | Stock Out) applied client-side over the loaded ledger
-  const displayedMovements =
-    movementFilter === 'all' ? movements : movements.filter((m) => movementDirection(m) === movementFilter);
+  // Stock In / Stock Out tabs pre-filter the movement ledger by direction
+  const movementDirectionFilter: 'in' | 'out' | null =
+    view === 'stock-in' ? 'in' : view === 'stock-out' ? 'out' : null;
+  const displayedMovements = movementDirectionFilter
+    ? movements.filter((m) => movementDirection(m) === movementDirectionFilter)
+    : movements;
+
+  // Stock Adjustment tab: Adjustment-type entries from the movement ledger
+  const adjustmentMovements = movements.filter((m) =>
+    (m.movementType || '').toLowerCase().includes('adjust')
+  );
 
   const alertCounts = lowStockAlerts.reduce(
     (acc, a) => {
@@ -317,14 +335,14 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Top Header */}
+      {/* Top Header — client Inventory screen or a standalone routed screen */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Inventory, Warehouses & Stock Ledger</span>
+            <span>{standaloneHeader ? standaloneHeader.title : 'Inventory'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time stock ledger, inter-warehouse movements, damage adjustments, and low stock threshold alerts.
+            {standaloneHeader ? standaloneHeader.subtitle : 'Stock levels, movements and adjustments.'}
           </p>
         </div>
 
@@ -337,45 +355,50 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
 
-          <button
-            onClick={() => {
-              setAdjustProductId(products[0]?.id || '');
-              setIsAdjustModalOpen(true);
-            }}
-            className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all"
-          >
-            <Sliders className="w-4 h-4" />
-            <span>Adjust Stock</span>
-          </button>
+          {!standaloneHeader && (
+            <button
+              onClick={() => {
+                setAdjustProductId(products[0]?.id || '');
+                setIsAdjustModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all"
+            >
+              <Sliders className="w-4 h-4" />
+              <span>Adjust Stock</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              setTransferProductId(products[0]?.id || '');
-              setIsTransferModalOpen(true);
-            }}
-            className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
-          >
-            <ArrowLeftRight className="w-4 h-4" />
-            <span>Transfer Stock</span>
-          </button>
+          {initialView === 'transfers' && (
+            <button
+              onClick={() => {
+                setTransferProductId(products[0]?.id || '');
+                setIsTransferModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
+            >
+              <ArrowLeftRight className="w-4 h-4" />
+              <span>Transfer Stock</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Sub-tabs Navigation */}
+      {/* Internal tab bar — client Inventory screen only (standalone screens have no tabs) */}
+      {!standaloneHeader && (
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
           { id: 'overview', label: `Stock Overview (${stockTotal})`, icon: Layers },
-          { id: 'movements', label: `Stock Movements (${movements.length})`, icon: History },
-          { id: 'transfers', label: `Warehouse Transfers (${transfers.length})`, icon: ArrowLeftRight },
-          { id: 'low-stock', label: `Low Stock Alerts (${lowStockAlerts.length})`, icon: AlertTriangle, badge: lowStockAlerts.length > 0 ? String(lowStockAlerts.length) : undefined },
-          { id: 'warehouses', label: `Warehouses (${warehouses.length})`, icon: Building2 }
+          { id: 'stock-in', label: `Stock In (${movements.filter((m) => movementDirection(m) === 'in').length})`, icon: ArrowUpRight },
+          { id: 'stock-out', label: `Stock Out (${movements.filter((m) => movementDirection(m) === 'out').length})`, icon: ArrowDownRight },
+          { id: 'low-stock', label: `Low Stock (${lowStockAlerts.length})`, icon: AlertTriangle, badge: lowStockAlerts.length > 0 ? String(lowStockAlerts.length) : undefined },
+          { id: 'adjustments', label: `Stock Adjustment (${adjustmentMovements.length})`, icon: Sliders }
         ].map((tab) => {
           const Icon = tab.icon;
-          const isActive = subTab === tab.id;
+          const isActive = view === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => setSubTab(tab.id as any)}
+              onClick={() => setView(tab.id as InventoryView)}
               className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
                 isActive
                   ? 'bg-navy text-white shadow-sm'
@@ -393,9 +416,10 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
           );
         })}
       </div>
+      )}
 
       {/* 1. STOCK OVERVIEW TAB (design 09) */}
-      {subTab === 'overview' && (
+      {view === 'overview' && (
         <div className="space-y-4">
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center space-x-2 w-full sm:w-80 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
@@ -562,60 +586,9 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
         </div>
       )}
 
-      {/* 2. STOCK MOVEMENTS TAB */}
-      {subTab === 'movements' && (
+      {/* 2. STOCK IN / STOCK OUT TABS — movement ledger pre-filtered by direction */}
+      {(view === 'stock-in' || view === 'stock-out') && (
         <div className="space-y-4">
-          {/* Direction sub-filter chips + Stock Adjustment shortcut */}
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              {(
-                [
-                  { id: 'all', label: 'All', count: movements.length },
-                  {
-                    id: 'in',
-                    label: 'Stock In',
-                    count: movements.filter((m) => movementDirection(m) === 'in').length
-                  },
-                  {
-                    id: 'out',
-                    label: 'Stock Out',
-                    count: movements.filter((m) => movementDirection(m) === 'out').length
-                  }
-                ] as { id: 'all' | 'in' | 'out'; label: string; count: number }[]
-              ).map((chip) => {
-                const isActive = movementFilter === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    onClick={() => setMovementFilter(chip.id)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center space-x-1.5 transition-all ${
-                      isActive
-                        ? 'bg-navy text-white shadow-sm'
-                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                    }`}
-                  >
-                    {chip.id === 'in' && <ArrowUpRight className="w-3.5 h-3.5" />}
-                    {chip.id === 'out' && <ArrowDownRight className="w-3.5 h-3.5" />}
-                    <span>
-                      {chip.label} <span className={isActive ? 'text-white/70' : 'text-slate-400'}>({chip.count})</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => {
-                setAdjustProductId((prev) => prev || products[0]?.id || '');
-                setIsAdjustModalOpen(true);
-              }}
-              className="px-3.5 py-1.5 rounded-full bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all shrink-0"
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>Stock Adjustment</span>
-            </button>
-          </div>
-
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
@@ -635,11 +608,9 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
                     <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
                       {isLoading
                         ? 'Loading stock movements...'
-                        : movementFilter === 'in'
+                        : movementDirectionFilter === 'in'
                         ? 'No inbound stock movements recorded yet.'
-                        : movementFilter === 'out'
-                        ? 'No outbound stock movements recorded yet.'
-                        : 'No stock movements recorded yet.'}
+                        : 'No outbound stock movements recorded yet.'}
                     </td>
                   </tr>
                 )}
@@ -675,8 +646,8 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
         </div>
       )}
 
-      {/* 3. WAREHOUSE TRANSFERS TAB */}
-      {subTab === 'transfers' && (
+      {/* 3. STOCK TRANSFERS — standalone screen (/admin/stock-transfers) */}
+      {view === 'transfers' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {transfers.map((tr) => (
@@ -715,8 +686,8 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
         </div>
       )}
 
-      {/* 4. LOW STOCK ALERTS TAB (design 13) */}
-      {subTab === 'low-stock' && (
+      {/* 4. LOW STOCK — client Inventory tab, and standalone screen (/admin/inventory/low-stock) */}
+      {view === 'low-stock' && (
         <div className="space-y-4">
           {/* Severity tiles */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -816,8 +787,8 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
         </div>
       )}
 
-      {/* 5. WAREHOUSES TAB */}
-      {subTab === 'warehouses' && (
+      {/* 5. WAREHOUSES — standalone screen (/admin/warehouses) */}
+      {view === 'warehouses' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {warehouses.map((wh) => (
             <div key={wh.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-3">
@@ -848,6 +819,73 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 6. STOCK ADJUSTMENT TAB — recent Adjustment-type ledger entries + New Adjustment */}
+      {view === 'adjustments' && (
+        <div className="space-y-4">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="text-xs font-bold text-slate-500">
+              {adjustmentMovements.length} adjustment{adjustmentMovements.length === 1 ? '' : 's'} recorded in the
+              movement ledger
+            </div>
+            <button
+              onClick={() => {
+                setAdjustProductId((prev) => prev || products[0]?.id || '');
+                setIsAdjustModalOpen(true);
+              }}
+              className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Adjustment</span>
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Date & Time</th>
+                  <th className="py-3 px-3">Product Name</th>
+                  <th className="py-3 px-3">Depot / Warehouse</th>
+                  <th className="py-3 px-3">Quantity Delta</th>
+                  <th className="py-3 px-3">Balance After</th>
+                  <th className="py-3 px-4">Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {adjustmentMovements.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-8 px-4 text-center text-slate-400">
+                      {isLoading ? 'Loading stock adjustments...' : 'No stock adjustments recorded yet.'}
+                    </td>
+                  </tr>
+                )}
+                {adjustmentMovements.map((m, idx) => (
+                  <tr key={m.id || idx} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
+                      {new Date(m.createdAtUtc || Date.now()).toLocaleString('en-IN')}
+                    </td>
+                    <td className="py-3 px-3 font-bold text-navy">{m.productName || 'Aadhi Crackers Item'}</td>
+                    <td className="py-3 px-3 text-slate-600">{m.warehouseName || 'Sivakasi Central Depot'}</td>
+                    <td className="py-3 px-3">
+                      <span
+                        className={`font-black flex items-center space-x-1 ${
+                          m.quantityChange > 0 ? 'text-emerald-600' : 'text-red-600'
+                        }`}
+                      >
+                        {m.quantityChange > 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+                        <span>{m.quantityChange > 0 ? `+${m.quantityChange}` : m.quantityChange}</span>
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 font-bold text-navy">{m.quantityAfter || 150}</td>
+                    <td className="py-3 px-4 text-slate-500 text-[11px]">{m.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

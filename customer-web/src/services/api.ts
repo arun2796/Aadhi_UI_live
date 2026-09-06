@@ -55,7 +55,38 @@ apiClient.interceptors.response.use(
   }
 );
 
+/* ── Public storefront settings: small in-memory cache (fetched once per session) ── */
+let publicSettingsCache: Record<string, string> | null = null;
+let publicSettingsPromise: Promise<Record<string, string>> | null = null;
+
 export const api = {
+  // PUBLIC STOREFRONT SETTINGS (anonymous; tolerant to the endpoint being absent)
+  async getPublicSettings(): Promise<Record<string, string>> {
+    if (publicSettingsCache) return publicSettingsCache;
+    if (!publicSettingsPromise) {
+      publicSettingsPromise = apiClient
+        .get('/settings/public')
+        .then(res => {
+          const raw = res.data?.data ?? res.data;
+          const map: Record<string, string> = {};
+          if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            for (const [key, value] of Object.entries(raw)) {
+              if (value !== null && value !== undefined) map[key] = String(value);
+            }
+          }
+          publicSettingsCache = map;
+          return map;
+        })
+        .catch(() => {
+          // 404 / network error → empty map (callers fall back to defaults);
+          // clear the promise so a later call can retry.
+          publicSettingsPromise = null;
+          return {};
+        });
+    }
+    return publicSettingsPromise;
+  },
+
   // AUTH
   async login(email: string, password: string): Promise<{ user: any; token: string }> {
     const res = await apiClient.post('/auth/login', { email, password });

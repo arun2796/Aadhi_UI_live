@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Package,
   Layers,
   Plus,
   Search,
@@ -9,7 +8,6 @@ import {
   Trash2,
   Image as ImageIcon,
   Sparkles,
-  Star,
   XCircle,
   RefreshCw,
   Gift,
@@ -18,13 +16,27 @@ import {
 } from 'lucide-react';
 import { Product, Category, GiftBox, ComboOffer, ProductReview, HomepageBanner } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
-import { flattenCategories } from '../../services/categoryApi';
+import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
 
 const PRODUCTS_PAGE_SIZE = 10;
 const CATEGORIES_PAGE_SIZE = 8;
+
+/**
+ * Friendly server error text: the backend returns ProblemDetails for business-rule 400s
+ * (e.g. { title: "Business Rule Violation", detail: "A category named 'test' already exists..." }).
+ * Prefer `detail`, then `message`, then whatever getApiErrorDetails extracts, then the fallback.
+ */
+const getServerErrorMessage = (error: unknown, fallback: string): string => {
+  const data = (error as { response?: { data?: { detail?: unknown; message?: unknown } } } | null)
+    ?.response?.data;
+  if (typeof data?.detail === 'string' && data.detail.trim()) return data.detail;
+  if (typeof data?.message === 'string' && data.message.trim()) return data.message;
+  const { message } = getApiErrorDetails(error);
+  return message || fallback;
+};
 
 // ---------- Banner placements (?placement=home|mobile; backend `placement` field in flight) ----------
 
@@ -48,8 +60,19 @@ const EMPTY_BANNER_FORM: Partial<BannerRow> = {
   placement: 'Home'
 };
 
+type CatalogSubTab = 'products' | 'categories' | 'combos' | 'reviews' | 'banners';
+
+/** Every sidebar item is its own standalone screen — per-screen header copy. */
+const SCREEN_HEADERS: Record<CatalogSubTab, { title: string; subtitle: string }> = {
+  products: { title: 'Products', subtitle: 'Manage the live product catalog.' },
+  categories: { title: 'Categories', subtitle: 'Top-level catalog categories.' },
+  combos: { title: 'Gift Boxes & Combos', subtitle: 'Pre-packed gift boxes and special combo deals.' },
+  reviews: { title: 'Reviews & Moderation', subtitle: 'Approve, reject or hide customer product reviews.' },
+  banners: { title: 'Banners', subtitle: 'Homepage and mobile app banners.' }
+};
+
 interface ErpCatalogModuleProps {
-  initialSubTab?: 'products' | 'categories' | 'combos' | 'reviews' | 'banners';
+  initialSubTab?: CatalogSubTab;
   initialSelectedProductId?: string;
   initialSelectedCategoryId?: string;
 }
@@ -62,7 +85,9 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [subTab, setSubTab] = useState<'products' | 'categories' | 'combos' | 'reviews' | 'banners'>(initialSubTab);
+  // Each routed entry (/admin/products, /admin/categories, ...) is its own standalone
+  // screen — the route fixes the view, there is no module-level tab bar anymore.
+  const subTab: CatalogSubTab = initialSubTab;
 
   // Banner placement split driven by ?placement=home|mobile (sidebar deep links) — default Home
   const bannerPlacement: BannerPlacement = searchParams.get('placement') === 'mobile' ? 'Mobile' : 'Home';
@@ -105,6 +130,9 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
 
   // Category Modal state
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  // True once the admin typed in the Slug field (or is editing an existing category):
+  // the slug is then sent verbatim instead of being auto-suggested from the name.
+  const [isSlugTouched, setIsSlugTouched] = useState(false);
   const [categoryFormData, setCategoryFormData] = useState<Partial<Category>>({
     name: '',
     slug: '',
@@ -187,25 +215,21 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   }, [initialSelectedProductId]);
 
   // Deep link: /admin/categories/:id → open the category editor once categories are loaded
+  // (the route already renders this component with initialSubTab="categories")
   const categoryDeepLinkHandled = useRef(false);
   useEffect(() => {
     if (!initialSelectedCategoryId || categoryDeepLinkHandled.current || categories.length === 0) return;
     categoryDeepLinkHandled.current = true;
     const cat = categories.find((c) => c.id === initialSelectedCategoryId);
     if (cat) {
-      setSubTab('categories');
       setCategoryFormData({ ...cat });
+      setIsSlugTouched(true); // existing slug — keep it unless deliberately edited
       setIsCategoryModalOpen(true);
     } else {
       showToast('Category not found', 'warning');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSelectedCategoryId, categories]);
-
-  // ?placement deep link (sidebar "Home Banners" / "Mobile Banners") — reacts to in-app navigation too
-  useEffect(() => {
-    if (searchParams.get('placement')) setSubTab('banners');
-  }, [searchParams]);
 
   // Category lookups
   const categoryById = useMemo(() => {
@@ -261,7 +285,9 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     try {
       const payload: Partial<Category> = {
         name: categoryFormData.name,
-        slug: categoryFormData.slug || categoryFormData.name.toLowerCase().replace(/\s+/g, '-'),
+        // Backend accepts an optional slug: send whatever the admin sees in the Slug field
+        // (custom or auto-suggested); when blank the backend generates one from the name.
+        slug: categoryFormData.slug?.trim() || undefined,
         description: categoryFormData.description,
         imageUrl: categoryFormData.imageUrl,
         parentCategoryId: categoryFormData.parentCategoryId || undefined,
@@ -277,10 +303,10 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       }
       setIsCategoryModalOpen(false);
       setCategoryFormData({ name: '', slug: '', description: '', imageUrl: '', displayOrder: 1, isActive: true });
+      setIsSlugTouched(false);
       loadAuxData();
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Error saving category', 'error');
+      showToast(getServerErrorMessage(error, 'Error saving category'), 'error');
     }
   };
 
@@ -307,8 +333,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       setDeleteCategoryTarget(null);
       loadAuxData();
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to delete category', 'error');
+      showToast(getServerErrorMessage(error, 'Failed to delete category'), 'error');
       setDeleteCategoryTarget(null);
     }
   };
@@ -390,11 +415,9 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Catalog & Merchandising</span>
+            <span>{SCREEN_HEADERS[subTab].title}</span>
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Manage live products, categories, gift boxes, combo bundles, customer reviews, and promotional banners.
-          </p>
+          <p className="text-xs text-slate-500 mt-0.5">{SCREEN_HEADERS[subTab].subtitle}</p>
         </div>
 
         <div className="flex items-center space-x-2">
@@ -435,6 +458,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     displayOrder: topLevelCategories.length + 1,
                     isActive: true
                   });
+                  setIsSlugTouched(false);
                   setIsCategoryModalOpen(true);
                 }}
                 className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
@@ -460,35 +484,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       </div>
 
-      {/* Sub-tabs Bar */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
-        {[
-          { id: 'products', label: `Products (${productsTotal})`, icon: Package },
-          { id: 'categories', label: `Categories (${topLevelCategories.length})`, icon: Layers },
-          { id: 'combos', label: `Gift Boxes & Combos (${giftBoxes.length + combos.length})`, icon: Gift },
-          { id: 'reviews', label: `Reviews & Moderation (${reviews.length})`, icon: Star },
-          { id: 'banners', label: `Homepage Banners (${banners.length})`, icon: ImageIcon }
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setSubTab(tab.id as any)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-navy text-white shadow-sm'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 1. PRODUCTS TAB (design 07) */}
+      {/* 1. PRODUCTS SCREEN (design 07) */}
       {subTab === 'products' && (
         <div className="space-y-4">
           {/* Filter and Search Bar */}
@@ -703,7 +699,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 2. CATEGORIES TAB (design 04 — top-level categories only) */}
+      {/* 2. CATEGORIES SCREEN (design 04 — top-level categories only) */}
       {subTab === 'categories' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
           {/* Search */}
@@ -773,6 +769,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                         <button
                           onClick={() => {
                             setCategoryFormData({ ...c });
+                            setIsSlugTouched(true); // existing slug — keep it unless deliberately edited
                             setIsCategoryModalOpen(true);
                           }}
                           className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -804,7 +801,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 3. GIFT BOXES & COMBOS TAB */}
+      {/* 3. GIFT BOXES & COMBOS SCREEN */}
       {subTab === 'combos' && (
         <div className="space-y-6">
           {/* Gift Boxes */}
@@ -878,7 +875,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 4. REVIEWS & MODERATION TAB */}
+      {/* 4. REVIEWS & MODERATION SCREEN */}
       {subTab === 'reviews' && (
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs divide-y divide-slate-100 overflow-hidden">
@@ -934,7 +931,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 5. HOMEPAGE BANNERS TAB (placement split: ?placement=home|mobile) */}
+      {/* 5. BANNERS SCREEN — internal Home | Mobile placement tabs (?placement=home|mobile) */}
       {subTab === 'banners' && (
         <div className="space-y-4">
           {/* Placement tab bar */}
@@ -1053,7 +1050,8 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     setCategoryFormData({
                       ...categoryFormData,
                       name: e.target.value,
-                      slug: e.target.value.toLowerCase().replace(/\s+/g, '-')
+                      // Auto-suggest the slug from the name only while the admin hasn't customized it
+                      ...(isSlugTouched ? {} : { slug: slugifyCategoryName(e.target.value) })
                     })
                   }
                   placeholder="e.g. Aerial Repeaters"
@@ -1086,9 +1084,16 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 <input
                   type="text"
                   value={categoryFormData.slug || ''}
-                  onChange={(e) => setCategoryFormData({ ...categoryFormData, slug: e.target.value })}
+                  onChange={(e) => {
+                    // Clearing the field hands slug generation back to the server (from the name)
+                    setIsSlugTouched(e.target.value.trim().length > 0);
+                    setCategoryFormData({ ...categoryFormData, slug: e.target.value });
+                  }}
                   className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono text-purple outline-none"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Saved exactly as shown. Leave empty to auto-generate from the category name.
+                </p>
               </div>
 
               <div>
