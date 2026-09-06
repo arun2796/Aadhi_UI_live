@@ -127,15 +127,16 @@ export const api = {
     const res = await apiClient.delete(`/reviews/${id}`);
     return res.data?.data ?? true;
   },
-  getHomepageBanners: async (activeOnly = false) => {
-    const res = await apiClient.get('/banners', { params: { activeOnly } });
+  // `placement` (Home | Mobile) is being added server-side; omitted → all placements.
+  getHomepageBanners: async (activeOnly = false, placement?: string) => {
+    const res = await apiClient.get('/banners', { params: { activeOnly, placement } });
     return (res.data?.data?.items || res.data?.data || []) as HomepageBanner[];
   },
-  createBanner: async (data: Partial<HomepageBanner>) => {
+  createBanner: async (data: Partial<HomepageBanner> & { placement?: string }) => {
     const res = await apiClient.post('/banners', data);
     return res.data?.data as HomepageBanner;
   },
-  updateBanner: async (id: string, data: Partial<HomepageBanner>) => {
+  updateBanner: async (id: string, data: Partial<HomepageBanner> & { placement?: string }) => {
     const res = await apiClient.put(`/banners/${id}`, data);
     return res.data?.data as HomepageBanner;
   },

@@ -19,7 +19,9 @@ import {
   Building,
   Send,
   CheckCircle2,
-  Ban
+  Ban,
+  Package,
+  History
 } from 'lucide-react';
 import { Supplier, PurchaseOrder, GoodsReceivedNote, SupplierBill, Product, Warehouse } from '../../types';
 import { api, purchaseApi, getApiErrorDetails } from '../../services/api';
@@ -31,8 +33,29 @@ interface ErpPurchaseOrdersModuleProps {
   initialSubTab?: 'purchases' | 'suppliers' | 'grn' | 'bills';
 }
 
+type PurchaseSubTab = 'purchases' | 'purchase-items' | 'purchase-history' | 'suppliers' | 'grn' | 'bills';
+
 const PO_PAGE_SIZE = 10;
 const SUPPLIER_PAGE_SIZE = 8;
+const ITEMS_PAGE_SIZE = 10;
+const HISTORY_PAGE_SIZE = 10;
+/** How many POs (newest first) get lazy detail fetches when the list DTO omits line items. */
+const MAX_PO_DETAIL_FETCHES = 40;
+
+/** One flattened PO line item for the "Purchase Items" tab. */
+interface FlatPurchaseItem {
+  key: string;
+  poId: string;
+  poNumber: string;
+  supplierName: string;
+  orderDateUtc: string;
+  productName: string;
+  sku: string;
+  quantityOrdered: number;
+  quantityReceived: number;
+  unitPrice: number;
+  lineTotal: number;
+}
 
 /** Design tab ids (spec 7): All | Draft | Sent | Partial | Received | Cancelled. */
 type PoStatusTab = 'all' | 'Draft' | 'Sent' | 'Partial' | 'Received' | 'Cancelled';
@@ -87,7 +110,7 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
 }) => {
   const { showToast } = useToast();
   const routeParams = useParams<{ id?: string }>();
-  const [subTab, setSubTab] = useState<'purchases' | 'suppliers' | 'grn' | 'bills'>(initialSubTab);
+  const [subTab, setSubTab] = useState<PurchaseSubTab>(initialSubTab);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchases, setPurchases] = useState<PurchaseOrder[]>([]);
@@ -103,6 +126,14 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
   const [poStatusTab, setPoStatusTab] = useState<PoStatusTab>('all');
   const [supplierSearch, setSupplierSearch] = useState('');
   const [supplierPage, setSupplierPage] = useState(1);
+
+  // Purchase Items / Purchase History tabs — lazily loaded wide PO snapshot (with line items)
+  const [allPos, setAllPos] = useState<PurchaseOrder[]>([]);
+  const [allPosLoaded, setAllPosLoaded] = useState(false);
+  const [isAllPosLoading, setIsAllPosLoading] = useState(false);
+  const [itemsPage, setItemsPage] = useState(1);
+  const [itemsSearch, setItemsSearch] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
 
   // PO detail + workflow state
   const [selectedPo, setSelectedPo] = useState<PurchaseOrder | null>(null);
@@ -194,7 +225,44 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
   };
 
   const loadData = async (page = poPage) => {
+    setAllPosLoaded(false); // stale the items/history snapshot so it refetches on next visit
     await Promise.all([fetchPurchases(page, poStatusTab), loadSupportingData()]);
+  };
+
+  /** Wide PO snapshot for the Purchase Items / Purchase History tabs. The list endpoint may
+   *  omit line items, so details are fetched lazily (newest first, bounded) for empty rows. */
+  const loadAllPos = async () => {
+    setIsAllPosLoading(true);
+    try {
+      const pos = await purchaseApi.getPurchaseOrders(1, 100);
+      const sorted = [...pos].sort(
+        (a, b) => new Date(b.orderDateUtc).getTime() - new Date(a.orderDateUtc).getTime()
+      );
+
+      const missingItems = sorted
+        .filter((po) => !po.items || po.items.length === 0)
+        .slice(0, MAX_PO_DETAIL_FETCHES);
+      if (missingItems.length > 0) {
+        const details = await Promise.allSettled(
+          missingItems.map((po) => purchaseApi.getPurchaseOrderById(po.id))
+        );
+        const detailById = new Map<string, PurchaseOrder>();
+        details.forEach((res) => {
+          if (res.status === 'fulfilled' && res.value) detailById.set(res.value.id, res.value);
+        });
+        for (let i = 0; i < sorted.length; i++) {
+          const detail = detailById.get(sorted[i].id);
+          if (detail) sorted[i] = detail;
+        }
+      }
+
+      setAllPos(sorted);
+      setAllPosLoaded(true);
+    } catch {
+      showToast('Failed to load purchase line items', 'error');
+    } finally {
+      setIsAllPosLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -206,6 +274,14 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
     fetchPurchases(poPage, poStatusTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poPage, poStatusTab]);
+
+  // Lazy-load the wide PO snapshot the first time Purchase Items / Purchase History is opened
+  useEffect(() => {
+    if ((subTab === 'purchase-items' || subTab === 'purchase-history') && !allPosLoaded && !isAllPosLoading) {
+      loadAllPos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTab, allPosLoaded]);
 
   // Deep links: /admin/purchases/:id and /admin/suppliers/:id
   useEffect(() => {
@@ -402,6 +478,47 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
     ? purchases.filter((po) => po.supplierId === selectedSupplier.id)
     : [];
 
+  // Purchase Items: flattened line items across the loaded PO snapshot (newest PO first)
+  const flatPurchaseItems: FlatPurchaseItem[] = allPos.flatMap((po) =>
+    (po.items || []).map((it, idx) => ({
+      key: `${po.id}-${it.id || idx}`,
+      poId: po.id,
+      poNumber: po.poNumber,
+      supplierName: po.supplierName,
+      orderDateUtc: po.orderDateUtc,
+      productName: it.productName,
+      sku: it.sku,
+      quantityOrdered: it.quantityOrdered,
+      quantityReceived: it.quantityReceived,
+      unitPrice: it.unitPrice,
+      lineTotal: it.lineTotal ?? it.unitPrice * it.quantityOrdered
+    }))
+  );
+  const filteredPurchaseItems = flatPurchaseItems.filter((it) => {
+    if (!itemsSearch.trim()) return true;
+    const q = itemsSearch.toLowerCase();
+    return (
+      it.productName?.toLowerCase().includes(q) ||
+      it.sku?.toLowerCase().includes(q) ||
+      it.poNumber?.toLowerCase().includes(q) ||
+      it.supplierName?.toLowerCase().includes(q)
+    );
+  });
+  const pagedPurchaseItems = filteredPurchaseItems.slice(
+    (itemsPage - 1) * ITEMS_PAGE_SIZE,
+    itemsPage * ITEMS_PAGE_SIZE
+  );
+
+  // Purchase History: closed-out POs (Received or Cancelled), newest first
+  const historyPos = allPos
+    .filter((po) => po.status === 'Received' || po.status === 'Cancelled')
+    .sort((a, b) => new Date(b.orderDateUtc).getTime() - new Date(a.orderDateUtc).getTime());
+  const pagedHistoryPos = historyPos.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE);
+  const historyReceivedTotal = historyPos
+    .filter((po) => po.status === 'Received')
+    .reduce((sum, po) => sum + (po.grandTotal || 0), 0);
+  const historyGrandTotal = historyPos.reduce((sum, po) => sum + (po.grandTotal || 0), 0);
+
   const poStatus = (selectedPo?.status as string) || '';
   const canSubmit = poStatus === 'Draft';
   const canApprove = poStatus === 'Submitted';
@@ -453,6 +570,16 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
           { id: 'purchases', label: `Purchase Orders (${poTotal})`, icon: Truck },
+          {
+            id: 'purchase-items',
+            label: `Purchase Items${allPosLoaded ? ` (${flatPurchaseItems.length})` : ''}`,
+            icon: Package
+          },
+          {
+            id: 'purchase-history',
+            label: `Purchase History${allPosLoaded ? ` (${historyPos.length})` : ''}`,
+            icon: History
+          },
           { id: 'suppliers', label: `Suppliers Directory (${suppliers.length})`, icon: Store },
           { id: 'grn', label: `Goods Received Notes (${grns.length})`, icon: FileCheck },
           { id: 'bills', label: `Supplier Bills (${bills.length})`, icon: Receipt }
@@ -806,6 +933,180 @@ export const ErpPurchaseOrdersModule: React.FC<ErpPurchaseOrdersModuleProps> = (
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* 1c. PURCHASE ITEMS TAB — flattened line items across POs */}
+      {subTab === 'purchase-items' && (
+        <div className="space-y-4">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
+            <div className="flex items-center space-x-2 w-full sm:w-96 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
+              <Search className="w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search product, SKU, PO number or supplier..."
+                value={itemsSearch}
+                onChange={(e) => {
+                  setItemsSearch(e.target.value);
+                  setItemsPage(1);
+                }}
+                className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
+              />
+            </div>
+            <div className="text-[11px] font-bold text-slate-400 shrink-0">
+              {filteredPurchaseItems.length} line item{filteredPurchaseItems.length === 1 ? '' : 's'}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3 px-4">Product</th>
+                    <th className="py-3 px-3">PO Number</th>
+                    <th className="py-3 px-3">Supplier</th>
+                    <th className="py-3 px-3">Qty Ordered</th>
+                    <th className="py-3 px-3">Qty Received</th>
+                    <th className="py-3 px-3">Unit Price</th>
+                    <th className="py-3 px-4 text-right">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {pagedPurchaseItems.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
+                        {isAllPosLoading
+                          ? 'Loading purchase line items...'
+                          : 'No purchase line items match your search.'}
+                      </td>
+                    </tr>
+                  )}
+                  {pagedPurchaseItems.map((it) => (
+                    <tr
+                      key={it.key}
+                      onClick={() => openPoDetail(it.poId)}
+                      className="hover:bg-purple/5 cursor-pointer transition-colors"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-navy">{it.productName}</div>
+                        {it.sku && <div className="text-[10px] text-slate-400 font-mono">{it.sku}</div>}
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="font-mono font-bold text-purple">{it.poNumber}</div>
+                        <div className="text-[10px] text-slate-400">
+                          {new Date(it.orderDateUtc).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          })}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 font-bold text-slate-800">{it.supplierName}</td>
+                      <td className="py-3 px-3 font-bold text-navy">{it.quantityOrdered}</td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`font-bold ${
+                            it.quantityReceived >= it.quantityOrdered ? 'text-emerald-600' : 'text-slate-500'
+                          }`}
+                        >
+                          {it.quantityReceived}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">{inr(it.unitPrice)}</td>
+                      <td className="py-3 px-4 text-right font-black text-navy">{inr(it.lineTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-4 pb-4">
+              <Pagination
+                page={itemsPage}
+                pageSize={ITEMS_PAGE_SIZE}
+                total={filteredPurchaseItems.length}
+                onPageChange={setItemsPage}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1d. PURCHASE HISTORY TAB — closed-out POs (Received / Cancelled), newest first */}
+      {subTab === 'purchase-history' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3 px-4">PO Number</th>
+                    <th className="py-3 px-3">Supplier</th>
+                    <th className="py-3 px-3">Warehouse</th>
+                    <th className="py-3 px-3">Items</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3">Date</th>
+                    <th className="py-3 px-4 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {pagedHistoryPos.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
+                        {isAllPosLoading
+                          ? 'Loading purchase history...'
+                          : 'No received or cancelled purchase orders yet.'}
+                      </td>
+                    </tr>
+                  )}
+                  {pagedHistoryPos.map((po) => (
+                    <tr
+                      key={po.id}
+                      onClick={() => openPoDetail(po.id)}
+                      className="hover:bg-purple/5 cursor-pointer transition-colors"
+                    >
+                      <td className="py-3 px-4 font-mono font-bold text-navy">{po.poNumber}</td>
+                      <td className="py-3 px-3 font-bold text-slate-800">{po.supplierName}</td>
+                      <td className="py-3 px-3 text-slate-600">{po.warehouseName}</td>
+                      <td className="py-3 px-3 font-bold text-navy">{po.items?.length || 0}</td>
+                      <td className="py-3 px-3">
+                        <PoStatusPill status={po.status as string} />
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">
+                        {new Date(po.orderDateUtc).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </td>
+                      <td className="py-3 px-4 text-right font-black text-navy">{inr(po.grandTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {historyPos.length > 0 && (
+                  <tfoot className="bg-slate-50 border-t border-slate-200 font-black text-navy">
+                    <tr>
+                      <td colSpan={6} className="py-3 px-4">
+                        Total — {historyPos.length} PO{historyPos.length === 1 ? '' : 's'}{' '}
+                        <span className="text-[10px] text-slate-400 font-bold">
+                          (Received value {inr(historyReceivedTotal)})
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right text-orange">{inr(historyGrandTotal)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            <div className="px-4 pb-4">
+              <Pagination
+                page={historyPage}
+                pageSize={HISTORY_PAGE_SIZE}
+                total={historyPos.length}
+                onPageChange={setHistoryPage}
+              />
+            </div>
+          </div>
         </div>
       )}
 

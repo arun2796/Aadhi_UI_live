@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Plus, Search, Filter, RefreshCw, Trash2, XCircle, Percent, Ticket } from 'lucide-react';
 import { api, apiClient, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
@@ -8,6 +9,9 @@ const PAGE_SIZE = 10;
 
 type OfferTab = 'all' | 'Active' | 'Scheduled' | 'Expired';
 type OfferStatus = 'Active' | 'Scheduled' | 'Expired';
+
+/** Inner split (?tab=discounts|codes): same /promotions data, two presentations. */
+type MarketingViewTab = 'discounts' | 'codes';
 
 /** Normalized view over the backend PromotionDto (/promotions). */
 interface OfferRow {
@@ -19,6 +23,8 @@ interface OfferRow {
   validFrom?: string;
   validTo?: string;
   isActive: boolean;
+  usageCount?: number;
+  usageLimit?: number;
 }
 
 /** Spec 13 derivation: Scheduled = validFrom in future; Expired = validTo past (or switched off);
@@ -41,15 +47,27 @@ const formatDate = (iso?: string) =>
 
 export const ErpMarketingModule: React.FC = () => {
   const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [offerTab, setOfferTab] = useState<OfferTab>('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
+  // Inner split driven by ?tab=discounts|codes (sidebar deep links) — default Discounts
+  const viewTab: MarketingViewTab = searchParams.get('tab') === 'codes' ? 'codes' : 'discounts';
+  const setViewTab = (tab: MarketingViewTab) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+    setPage(1);
+  };
+
   // Create Offer modal state
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
   const [isSavingOffer, setIsSavingOffer] = useState(false);
+  // "Show as" is a presentation hint only — the offer is always saved to /promotions unchanged.
+  const [offerShowAs, setOfferShowAs] = useState<MarketingViewTab>('discounts');
   const [offerForm, setOfferForm] = useState({
     name: '',
     code: '',
@@ -72,7 +90,9 @@ export const ErpMarketingModule: React.FC = () => {
         discountValue: Number(p.discountValue ?? p.value ?? 0),
         validFrom: p.startDateUtc,
         validTo: p.endDateUtc,
-        isActive: p.isActive !== false
+        isActive: p.isActive !== false,
+        usageCount: typeof p.usageCount === 'number' ? p.usageCount : undefined,
+        usageLimit: typeof p.usageLimit === 'number' ? p.usageLimit : undefined
       }));
       setOffers(rows);
     } catch {
@@ -161,10 +181,12 @@ export const ErpMarketingModule: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>Offers / Discounts</span>
+            <span>{viewTab === 'codes' ? 'Promotion Codes' : 'Offers / Discounts'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Create percentage or flat discount offers with validity windows and monitor their live status.
+            {viewTab === 'codes'
+              ? 'Customer-entered promotion codes — track redemptions, validity windows and live status.'
+              : 'Create percentage or flat discount offers with validity windows and monitor their live status.'}
           </p>
         </div>
 
@@ -178,13 +200,41 @@ export const ErpMarketingModule: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setIsOfferModalOpen(true)}
+            onClick={() => {
+              setOfferShowAs(viewTab);
+              setIsOfferModalOpen(true);
+            }}
             className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
           >
             <Plus className="w-4 h-4" />
             <span>Create Offer</span>
           </button>
         </div>
+      </div>
+
+      {/* Discounts | Promotion Codes split (?tab=discounts|codes) */}
+      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto">
+        {[
+          { id: 'discounts' as MarketingViewTab, label: 'Discounts', icon: Percent },
+          { id: 'codes' as MarketingViewTab, label: 'Promotion Codes', icon: Ticket }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = viewTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setViewTab(tab.id)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 whitespace-nowrap transition-all ${
+                isActive
+                  ? 'bg-navy text-white shadow-sm'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Status tab bar (spec 13: All Offers | Active | Scheduled | Expired) */}
@@ -230,66 +280,134 @@ export const ErpMarketingModule: React.FC = () => {
         </button>
       </div>
 
-      {/* Offers table (spec 13) */}
+      {/* Offers table (spec 13) — Discounts view (name-first) or Promotion Codes view (code-first) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-              <tr>
-                <th className="py-3 px-4">Offer Name</th>
-                <th className="py-3 px-3">Type</th>
-                <th className="py-3 px-3">Discount</th>
-                <th className="py-3 px-3">Valid From</th>
-                <th className="py-3 px-3">Valid To</th>
-                <th className="py-3 px-3">Status</th>
-                <th className="py-3 px-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-              {pagedOffers.length === 0 && (
+          {viewTab === 'discounts' ? (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                 <tr>
-                  <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
-                    {isLoading ? 'Loading offers...' : 'No offers match your filters.'}
-                  </td>
+                  <th className="py-3 px-4">Offer Name</th>
+                  <th className="py-3 px-3">Type</th>
+                  <th className="py-3 px-3">Discount</th>
+                  <th className="py-3 px-3">Valid From</th>
+                  <th className="py-3 px-3">Valid To</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
                 </tr>
-              )}
-              {pagedOffers.map((o) => {
-                const status = deriveOfferStatus(o);
-                return (
-                  <tr key={o.id} className="hover:bg-purple/5 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-navy">{o.name}</div>
-                      {o.code && <div className="text-[10px] text-slate-400 font-mono">{o.code}</div>}
-                    </td>
-                    <td className="py-3 px-3 text-slate-600">
-                      {o.discountType === 'Percentage' ? '% Discount' : 'Flat Discount'}
-                    </td>
-                    <td className="py-3 px-3 font-black text-navy">
-                      {o.discountType === 'Percentage'
-                        ? `${o.discountValue}%`
-                        : `₹${Math.round(o.discountValue).toLocaleString('en-IN')}`}
-                    </td>
-                    <td className="py-3 px-3 text-slate-500">{formatDate(o.validFrom)}</td>
-                    <td className="py-3 px-3 text-slate-500">{formatDate(o.validTo)}</td>
-                    <td className="py-3 px-3">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${OFFER_STATUS_STYLES[status]}`}>
-                        {status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleDeleteOffer(o)}
-                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 shadow-2xs transition-all"
-                        title="Delete offer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {pagedOffers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
+                      {isLoading ? 'Loading offers...' : 'No offers match your filters.'}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                )}
+                {pagedOffers.map((o) => {
+                  const status = deriveOfferStatus(o);
+                  return (
+                    <tr key={o.id} className="hover:bg-purple/5 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-navy">{o.name}</div>
+                        {o.code && <div className="text-[10px] text-slate-400 font-mono">{o.code}</div>}
+                      </td>
+                      <td className="py-3 px-3 text-slate-600">
+                        {o.discountType === 'Percentage' ? '% Discount' : 'Flat Discount'}
+                      </td>
+                      <td className="py-3 px-3 font-black text-navy">
+                        {o.discountType === 'Percentage'
+                          ? `${o.discountValue}%`
+                          : `₹${Math.round(o.discountValue).toLocaleString('en-IN')}`}
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">{formatDate(o.validFrom)}</td>
+                      <td className="py-3 px-3 text-slate-500">{formatDate(o.validTo)}</td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${OFFER_STATUS_STYLES[status]}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => handleDeleteOffer(o)}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 shadow-2xs transition-all"
+                          title="Delete offer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Code</th>
+                  <th className="py-3 px-3">Offer Name</th>
+                  <th className="py-3 px-3">Discount</th>
+                  <th className="py-3 px-3">Validity</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3">Usage</th>
+                  <th className="py-3 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {pagedOffers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
+                      {isLoading ? 'Loading promotion codes...' : 'No promotion codes match your filters.'}
+                    </td>
+                  </tr>
+                )}
+                {pagedOffers.map((o) => {
+                  const status = deriveOfferStatus(o);
+                  return (
+                    <tr key={o.id} className="hover:bg-purple/5 transition-colors">
+                      <td className="py-3 px-4">
+                        <span className="font-mono font-black text-purple">{o.code || '—'}</span>
+                      </td>
+                      <td className="py-3 px-3 font-bold text-navy">{o.name}</td>
+                      <td className="py-3 px-3 font-black text-navy">
+                        {o.discountType === 'Percentage'
+                          ? `${o.discountValue}% OFF`
+                          : `₹${Math.round(o.discountValue).toLocaleString('en-IN')} OFF`}
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">
+                        {formatDate(o.validFrom)} — {formatDate(o.validTo)}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${OFFER_STATUS_STYLES[status]}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        {o.usageCount !== undefined ? (
+                          <span className="font-bold text-slate-600">
+                            {o.usageCount}
+                            {o.usageLimit ? ` / ${o.usageLimit}` : ' used'}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => handleDeleteOffer(o)}
+                          className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 shadow-2xs transition-all"
+                          title="Delete promotion code"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
         <div className="px-4 pb-4">
           <Pagination page={page} pageSize={PAGE_SIZE} total={filteredOffers.length} onPageChange={setPage} />
@@ -328,6 +446,21 @@ export const ErpMarketingModule: React.FC = () => {
                   placeholder="e.g. DIWALI20"
                   className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono font-bold text-purple outline-none focus:border-purple uppercase"
                 />
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Show as</label>
+                <select
+                  value={offerShowAs}
+                  onChange={(e) => setOfferShowAs(e.target.value as MarketingViewTab)}
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
+                >
+                  <option value="discounts">Discount offer</option>
+                  <option value="codes">Promotion code</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Display hint only — every offer stays redeemable by its code and appears in both views.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

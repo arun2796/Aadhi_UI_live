@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Package,
   Layers,
@@ -26,6 +26,28 @@ import { ErpConfirmDialog } from './ErpConfirmDialog';
 const PRODUCTS_PAGE_SIZE = 10;
 const CATEGORIES_PAGE_SIZE = 8;
 
+// ---------- Banner placements (?placement=home|mobile; backend `placement` field in flight) ----------
+
+type BannerPlacement = 'Home' | 'Mobile';
+
+/** HomepageBanner + the placement field being added server-side (old rows have none → Home). */
+type BannerRow = HomepageBanner & { placement?: string };
+
+/** Old rows carry no placement — treat them as Home banners. */
+const bannerPlacementOf = (b: BannerRow): BannerPlacement =>
+  String(b.placement || 'Home').toLowerCase() === 'mobile' ? 'Mobile' : 'Home';
+
+const EMPTY_BANNER_FORM: Partial<BannerRow> = {
+  title: '',
+  subtitle: '',
+  imageUrl: '',
+  targetUrl: '/',
+  ctaText: 'Shop Now',
+  displayOrder: 1,
+  isActive: true,
+  placement: 'Home'
+};
+
 interface ErpCatalogModuleProps {
   initialSubTab?: 'products' | 'categories' | 'combos' | 'reviews' | 'banners';
   initialSelectedProductId?: string;
@@ -39,7 +61,16 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
 }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [subTab, setSubTab] = useState<'products' | 'categories' | 'combos' | 'reviews' | 'banners'>(initialSubTab);
+
+  // Banner placement split driven by ?placement=home|mobile (sidebar deep links) — default Home
+  const bannerPlacement: BannerPlacement = searchParams.get('placement') === 'mobile' ? 'Mobile' : 'Home';
+  const setBannerPlacement = (p: BannerPlacement) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('placement', p.toLowerCase());
+    setSearchParams(next, { replace: true });
+  };
 
   // Products state (server-side paged)
   const [products, setProducts] = useState<Product[]>([]);
@@ -63,8 +94,14 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   const [giftBoxes, setGiftBoxes] = useState<GiftBox[]>([]);
   const [combos, setCombos] = useState<ComboOffer[]>([]);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
-  const [banners, setBanners] = useState<HomepageBanner[]>([]);
+  const [banners, setBanners] = useState<BannerRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Banner create/edit modal + delete confirmation
+  const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
+  const [bannerFormData, setBannerFormData] = useState<Partial<BannerRow>>(EMPTY_BANNER_FORM);
+  const [isSavingBanner, setIsSavingBanner] = useState(false);
+  const [deleteBannerTarget, setDeleteBannerTarget] = useState<BannerRow | null>(null);
 
   // Category Modal state
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -164,6 +201,11 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSelectedCategoryId, categories]);
+
+  // ?placement deep link (sidebar "Home Banners" / "Mobile Banners") — reacts to in-app navigation too
+  useEffect(() => {
+    if (searchParams.get('placement')) setSubTab('banners');
+  }, [searchParams]);
 
   // Category lookups
   const categoryById = useMemo(() => {
@@ -271,6 +313,66 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     }
   };
 
+  // ---------- Banner CRUD (placement-aware; backend placement support in flight) ----------
+
+  const reloadBanners = async () => {
+    try {
+      const bans = await api.getHomepageBanners();
+      setBanners(bans);
+    } catch {
+      showToast('Failed to reload banners', 'error');
+    }
+  };
+
+  const handleSaveBanner = async () => {
+    if (!bannerFormData.title?.trim() || !bannerFormData.imageUrl?.trim()) {
+      showToast('Banner title and image URL are required', 'warning');
+      return;
+    }
+    setIsSavingBanner(true);
+    try {
+      const payload = {
+        title: bannerFormData.title.trim(),
+        subtitle: bannerFormData.subtitle || '',
+        imageUrl: bannerFormData.imageUrl.trim(),
+        targetUrl: bannerFormData.targetUrl || '/',
+        ctaText: bannerFormData.ctaText || 'Shop Now',
+        displayOrder: bannerFormData.displayOrder ?? 1,
+        isActive: bannerFormData.isActive ?? true,
+        placement: bannerFormData.placement || 'Home'
+      };
+      if (bannerFormData.id) {
+        await api.updateBanner(bannerFormData.id, payload);
+        showToast('Banner updated successfully!', 'success');
+      } else {
+        await api.createBanner(payload);
+        showToast('Banner created successfully!', 'success');
+      }
+      setIsBannerModalOpen(false);
+      setBannerFormData(EMPTY_BANNER_FORM);
+      reloadBanners();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Error saving banner', 'error');
+    } finally {
+      setIsSavingBanner(false);
+    }
+  };
+
+  const handleDeleteBanner = async () => {
+    if (!deleteBannerTarget) return;
+    try {
+      await api.deleteBanner(deleteBannerTarget.id);
+      showToast(`Banner "${deleteBannerTarget.title}" removed`, 'info');
+      setDeleteBannerTarget(null);
+      reloadBanners();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to delete banner', 'error');
+      setDeleteBannerTarget(null);
+    }
+  };
+
   // Handle Review Moderation
   const handleReviewAction = async (id: string, newStatus: 'Approved' | 'Rejected' | 'Hidden') => {
     try {
@@ -341,6 +443,19 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 <span>Add Category</span>
               </button>
             </>
+          )}
+
+          {subTab === 'banners' && (
+            <button
+              onClick={() => {
+                setBannerFormData({ ...EMPTY_BANNER_FORM, placement: bannerPlacement });
+                setIsBannerModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Banner</span>
+            </button>
           )}
         </div>
       </div>
@@ -819,29 +934,99 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 5. HOMEPAGE BANNERS TAB */}
+      {/* 5. HOMEPAGE BANNERS TAB (placement split: ?placement=home|mobile) */}
       {subTab === 'banners' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {banners.map((b) => (
-              <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-                <img src={b.imageUrl} alt={b.title} className="w-full h-36 object-cover" />
-                <div className="p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-xs text-navy">{b.title}</h3>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                      Live
-                    </span>
-                  </div>
-                  {b.subtitle && <p className="text-xs text-slate-500">{b.subtitle}</p>}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-100">
-                    <span>Target: {b.targetUrl}</span>
-                    <span className="font-bold text-orange">CTA: {b.ctaText}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+          {/* Placement tab bar */}
+          <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
+            {(['Home', 'Mobile'] as BannerPlacement[]).map((p) => {
+              const count = banners.filter((b) => bannerPlacementOf(b) === p).length;
+              const isActive = bannerPlacement === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setBannerPlacement(p)}
+                  className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                    isActive ? 'border-purple text-purple' : 'border-transparent text-slate-500 hover:text-navy'
+                  }`}
+                >
+                  {p} Banners{' '}
+                  {count > 0 && <span className={isActive ? 'text-purple' : 'text-slate-400'}>({count})</span>}
+                </button>
+              );
+            })}
           </div>
+
+          {(() => {
+            const placementBanners = banners.filter((b) => bannerPlacementOf(b) === bannerPlacement);
+            if (placementBanners.length === 0) {
+              return (
+                <div className="bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs p-10 text-center">
+                  <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <div className="font-black text-sm text-navy">
+                    No {bannerPlacement.toLowerCase()} banners yet
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {isLoading
+                      ? 'Loading banners...'
+                      : `Use "Add Banner" to create the first ${bannerPlacement.toLowerCase()} placement banner.`}
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {placementBanners.map((b) => (
+                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                    <img src={b.imageUrl} alt={b.title} className="w-full h-36 object-cover" />
+                    <div className="p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="font-bold text-xs text-navy">{b.title}</h3>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="px-2 py-0.5 rounded-full bg-purple/10 text-purple text-[10px] font-bold">
+                            {bannerPlacementOf(b)}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              b.isActive !== false
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {b.isActive !== false ? 'Live' : 'Inactive'}
+                          </span>
+                        </div>
+                      </div>
+                      {b.subtitle && <p className="text-xs text-slate-500">{b.subtitle}</p>}
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-100">
+                        <span>Target: {b.targetUrl}</span>
+                        <span className="font-bold text-orange">CTA: {b.ctaText}</span>
+                      </div>
+                      <div className="flex items-center justify-end space-x-1.5 pt-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setBannerFormData({ ...b, placement: bannerPlacementOf(b) });
+                            setIsBannerModalOpen(true);
+                          }}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          title="Edit Banner"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteBannerTarget(b)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                          title="Delete Banner"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -976,6 +1161,145 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         confirmLabel="Delete"
         onConfirm={handleDeleteProduct}
         onCancel={() => setDeleteProductTarget(null)}
+      />
+
+      {/* BANNER MODAL (create / edit — with Home/Mobile placement selector) */}
+      {isBannerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-black text-sm text-navy uppercase tracking-wider">
+                {bannerFormData.id ? 'Edit Banner' : 'Create New Banner'}
+              </h3>
+              <button onClick={() => setIsBannerModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-navy">Banner Title *</label>
+                <input
+                  type="text"
+                  value={bannerFormData.title || ''}
+                  onChange={(e) => setBannerFormData({ ...bannerFormData, title: e.target.value })}
+                  placeholder="e.g. Diwali Mega Sale"
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Subtitle</label>
+                <input
+                  type="text"
+                  value={bannerFormData.subtitle || ''}
+                  onChange={(e) => setBannerFormData({ ...bannerFormData, subtitle: e.target.value })}
+                  placeholder="e.g. Up to 60% off on gift boxes"
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-navy">Image URL *</label>
+                <input
+                  type="text"
+                  value={bannerFormData.imageUrl || ''}
+                  onChange={(e) => setBannerFormData({ ...bannerFormData, imageUrl: e.target.value })}
+                  placeholder="https://..."
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-navy">Placement *</label>
+                  <select
+                    value={String(bannerFormData.placement || 'Home').toLowerCase() === 'mobile' ? 'Mobile' : 'Home'}
+                    onChange={(e) => setBannerFormData({ ...bannerFormData, placement: e.target.value })}
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
+                  >
+                    <option value="Home">Home</option>
+                    <option value="Mobile">Mobile</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-bold text-navy">Display Order</label>
+                  <input
+                    type="number"
+                    value={bannerFormData.displayOrder ?? 1}
+                    onChange={(e) => setBannerFormData({ ...bannerFormData, displayOrder: Number(e.target.value) })}
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-navy">Target URL</label>
+                  <input
+                    type="text"
+                    value={bannerFormData.targetUrl || ''}
+                    onChange={(e) => setBannerFormData({ ...bannerFormData, targetUrl: e.target.value })}
+                    placeholder="/products"
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 font-mono outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-navy">CTA Text</label>
+                  <input
+                    type="text"
+                    value={bannerFormData.ctaText || ''}
+                    onChange={(e) => setBannerFormData({ ...bannerFormData, ctaText: e.target.value })}
+                    placeholder="Shop Now"
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <input
+                  type="checkbox"
+                  checked={bannerFormData.isActive ?? true}
+                  onChange={(e) => setBannerFormData({ ...bannerFormData, isActive: e.target.checked })}
+                  className="accent-purple w-4 h-4"
+                />
+                <span className="font-bold text-navy">Banner Live</span>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+              <button
+                onClick={() => setIsBannerModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBanner}
+                disabled={isSavingBanner}
+                className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 disabled:opacity-50"
+              >
+                {isSavingBanner ? 'Saving...' : 'Save Banner'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE BANNER CONFIRMATION */}
+      <ErpConfirmDialog
+        open={Boolean(deleteBannerTarget)}
+        title="Delete Banner?"
+        message={
+          <>
+            Are you sure you want to delete banner{' '}
+            <span className="font-bold text-navy">"{deleteBannerTarget?.title}"</span>? It will disappear from the
+            storefront immediately. This action cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={handleDeleteBanner}
+        onCancel={() => setDeleteBannerTarget(null)}
       />
 
       {/* DELETE CATEGORY CONFIRMATION */}

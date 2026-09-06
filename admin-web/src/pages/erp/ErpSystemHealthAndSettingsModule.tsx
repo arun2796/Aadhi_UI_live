@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Settings,
   ShieldCheck,
@@ -16,7 +17,8 @@ import {
   Mail,
   MessageSquare,
   Image as ImageIcon,
-  Upload
+  Upload,
+  Building2
 } from 'lucide-react';
 import { SystemSetting, SystemHealthReport } from '../../types';
 import { api, settingsApi } from '../../services/api';
@@ -28,12 +30,15 @@ interface ErpSystemHealthAndSettingsModuleProps {
 
 // ---------- Spec 16: left sub-nav sections over SystemSettings keys ----------
 
-type SettingsSectionId = 'store' | 'payment' | 'shipping' | 'email' | 'sms' | 'general' | 'logo';
+type SettingsSectionId = 'store' | 'company' | 'payment' | 'shipping' | 'email' | 'sms' | 'general' | 'logo';
 
 const LOGO_KEY = 'Store.LogoUrl';
+/** Fallback GSTIN key when the backend has no existing GSTIN-like setting (PUT upserts it). */
+const COMPANY_GSTIN_FALLBACK_KEY = 'Company.Gstin';
 
 const SETTINGS_NAV: { id: SettingsSectionId; label: string; icon: React.ElementType }[] = [
   { id: 'store', label: 'Store Settings', icon: Store },
+  { id: 'company', label: 'Company', icon: Building2 },
   { id: 'payment', label: 'Payment Settings', icon: CreditCard },
   { id: 'shipping', label: 'Shipping Settings', icon: Truck },
   { id: 'email', label: 'Email Settings', icon: Mail },
@@ -67,6 +72,7 @@ const PINNED_FIELDS: Partial<Record<SettingsSectionId, SettingsField[]>> = {
 
 const SECTION_HINTS: Record<SettingsSectionId, string> = {
   store: 'Business identity shown on the storefront, invoices and customer emails.',
+  company: 'Company profile — legal name, GSTIN, contact details, registered address and brand logo used on invoices.',
   payment: 'UPI VPA and payment gateway configuration.',
   shipping: 'Delivery charges and the free-shipping threshold applied at checkout.',
   email: 'Outbound email / SMTP configuration.',
@@ -80,6 +86,7 @@ const sectionForSetting = (s: SystemSetting): SettingsSectionId => {
   const key = (s.key || '').toLowerCase();
   const group = (s.group || '').toLowerCase();
   if (key === LOGO_KEY.toLowerCase()) return 'logo';
+  if (group === 'company' || key.startsWith('company.')) return 'company';
   if (group === 'store' || key.startsWith('store.')) return 'store';
   if (group === 'payment' || key.startsWith('payment.') || key.startsWith('upi.')) return 'payment';
   if (group === 'shipping' || key.startsWith('shipping.') || key.startsWith('delivery.')) return 'shipping';
@@ -92,6 +99,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
   initialSubTab = 'settings'
 }) => {
   const { showToast } = useToast();
+  const [searchParams] = useSearchParams();
   const [subTab, setSubTab] = useState<'settings' | 'health' | 'backup'>(initialSubTab);
 
   const [systemSettings, setSystemSettings] = useState<SystemSetting[]>([]);
@@ -129,9 +137,38 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ?section=company (etc.) deep link into the settings left sub-nav — reacts to in-app navigation too
+  useEffect(() => {
+    const section = searchParams.get('section');
+    if (section && SETTINGS_NAV.some((s) => s.id === section)) {
+      setSubTab('settings');
+      setSettingsSection(section as SettingsSectionId);
+    }
+  }, [searchParams]);
+
+  /** GSTIN lives under an existing GSTIN-like backend key when one exists, else Company.Gstin. */
+  const companyGstinKey =
+    systemSettings.find((s) => /gstin|gst.?number/i.test(s.key || ''))?.key || COMPANY_GSTIN_FALLBACK_KEY;
+
+  /** Company section reuses the Store.* identity keys + GSTIN (spec: Company sub-view). */
+  const companyPinnedFields: SettingsField[] = [
+    { key: 'Store.BusinessName', label: 'Company / Store Name' },
+    {
+      key: companyGstinKey,
+      label: 'GSTIN',
+      description:
+        companyGstinKey === COMPANY_GSTIN_FALLBACK_KEY
+          ? `Saved to the "${COMPANY_GSTIN_FALLBACK_KEY}" settings key.`
+          : undefined
+    },
+    { key: 'Store.Email', label: 'Email', type: 'email' },
+    { key: 'Store.Phone', label: 'Phone' },
+    { key: 'Store.Address', label: 'Address', type: 'textarea' }
+  ];
+
   /** Pinned fields for a section plus any other backend keys bucketed into it. */
   const sectionFields = (id: SettingsSectionId): SettingsField[] => {
-    const pinned = PINNED_FIELDS[id] || [];
+    const pinned = id === 'company' ? companyPinnedFields : PINNED_FIELDS[id] || [];
     const pinnedKeys = new Set(pinned.map((f) => f.key));
     const extras: SettingsField[] = systemSettings
       .filter((s) => sectionForSetting(s) === id && !pinnedKeys.has(s.key))
@@ -143,7 +180,13 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
     setSettingValues((prev) => ({ ...prev, [key]: value }));
 
   const handleSaveSection = async (id: SettingsSectionId) => {
-    const fields: SettingsField[] = id === 'logo' ? [{ key: LOGO_KEY, label: 'Logo' }] : sectionFields(id);
+    // Company also owns the logo uploader, so its save sweep includes the logo key.
+    const fields: SettingsField[] =
+      id === 'logo'
+        ? [{ key: LOGO_KEY, label: 'Logo' }]
+        : id === 'company'
+        ? [...sectionFields(id), { key: LOGO_KEY, label: 'Logo' }]
+        : sectionFields(id);
     const dirty = fields.filter((f) => (settingValues[f.key] ?? '') !== (originalValues[f.key] ?? ''));
     if (dirty.length === 0) {
       showToast('No changes to save in this section', 'info');
@@ -320,6 +363,36 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                     {f.description && <p className="text-[10px] text-slate-400 mt-0.5">{f.description}</p>}
                   </div>
                 ))}
+
+                {/* Company section also carries the brand logo (same Store.LogoUrl key as the Logo section) */}
+                {settingsSection === 'company' && (
+                  <div className="pt-3 border-t border-slate-100">
+                    <label className="font-bold text-navy">Logo</label>
+                    <div className="mt-2 flex items-start space-x-4">
+                      <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                        {settingValues[LOGO_KEY] ? (
+                          <img
+                            src={settingValues[LOGO_KEY]}
+                            alt="Company logo"
+                            className="max-w-full max-h-full object-contain"
+                          />
+                        ) : (
+                          <ImageIcon className="w-7 h-7 text-slate-300" />
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <label className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold shadow-2xs cursor-pointer">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Choose File</span>
+                          <input type="file" accept="image/*" onChange={handleLogoFile} className="hidden" />
+                        </label>
+                        <p className="text-[10px] text-slate-400">
+                          PNG / JPG / SVG up to 500 KB. Stored in the "{LOGO_KEY}" setting.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

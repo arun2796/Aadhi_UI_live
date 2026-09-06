@@ -20,6 +20,7 @@ const ErpInventoryLedgerModule = lazy(() => import('./pages/erp/ErpInventoryLedg
 const ErpPurchaseOrdersModule = lazy(() => import('./pages/erp/ErpPurchaseOrdersModule').then(m => ({ default: m.ErpPurchaseOrdersModule })));
 const ErpFinanceAndPnlModule = lazy(() => import('./pages/erp/ErpFinanceAndPnlModule').then(m => ({ default: m.ErpFinanceAndPnlModule })));
 const ErpMarketingModule = lazy(() => import('./pages/erp/ErpMarketingModule').then(m => ({ default: m.ErpMarketingModule })));
+const ErpEnquiryModule = lazy(() => import('./pages/erp/ErpEnquiryModule').then(m => ({ default: m.ErpEnquiryModule })));
 const ErpReportsCenterModule = lazy(() => import('./pages/erp/ErpReportsCenterModule').then(m => ({ default: m.ErpReportsCenterModule })));
 const ErpSecurityAndAuditModule = lazy(() => import('./pages/erp/ErpSecurityAndAuditModule').then(m => ({ default: m.ErpSecurityAndAuditModule })));
 const ErpSystemHealthAndSettingsModule = lazy(() => import('./pages/erp/ErpSystemHealthAndSettingsModule').then(m => ({ default: m.ErpSystemHealthAndSettingsModule })));
@@ -203,6 +204,12 @@ function AdminAppRoutes() {
 
       {/* Marketing (§5) */}
       <Route path="/admin/marketing/coupons" element={<ProtectedAdminShell currentTab="coupons"><ErpMarketingModule /></ProtectedAdminShell>} />
+
+      {/* Enquiries */}
+      <Route path="/admin/enquiries" element={<ProtectedAdminShell currentTab="enquiries"><ErpEnquiryModule initialSubTab="enquiries" /></ProtectedAdminShell>} />
+      <Route path="/admin/enquiries/direct" element={<ProtectedAdminShell currentTab="enquiries-direct"><ErpEnquiryModule initialSubTab="direct" /></ProtectedAdminShell>} />
+      <Route path="/admin/enquiries/customers" element={<ProtectedAdminShell currentTab="enquiries-customers"><ErpEnquiryModule initialSubTab="customers" /></ProtectedAdminShell>} />
+      <Route path="/admin/enquiries/:id" element={<ProtectedAdminShell currentTab="enquiries"><ErpEnquiryModule initialSubTab="enquiries" /></ProtectedAdminShell>} />
 
       {/* Reports (§5) */}
       <Route path="/admin/reports" element={<ProtectedAdminShell currentTab="reports"><ErpReportsCenterModule /></ProtectedAdminShell>} />

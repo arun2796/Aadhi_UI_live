@@ -36,6 +36,15 @@ import {
   Settings,
   ShieldCheck,
   Database,
+  Building2,
+  UserCheck,
+  Ticket,
+  UserPlus,
+  MessageSquare,
+  MessageCircle,
+  FileDown,
+  ShoppingCart,
+  Smartphone,
   Search,
   Bell,
   LogOut,
@@ -57,54 +66,129 @@ interface ErpLayoutProps {
   children: React.ReactNode;
 }
 
-interface NavItem {
-  id: string;
+interface NavLeaf {
+  /** Unique React key — several items may navigate to the same target. */
+  key: string;
   label: string;
   icon: React.ElementType;
+  /** Tab id / path fragment handed to onNavigateTab (may carry a query string). */
+  to: string;
+  /**
+   * currentTab value that marks this item active.
+   * Omitted → defaults to `to`; explicit null → never rendered active
+   * (used when another item already owns the highlight for that route).
+   */
+  match?: string | null;
   badge?: string;
+  /** Renders as an indented second-level link (e.g. Sub Categories). */
+  indent?: boolean;
 }
 
-// Flat primary navigation — order matches the ERP design (01_dashboard.png)
-const MAIN_NAV: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'orders', label: 'Orders', icon: ShoppingBag },
-  { id: 'orders?tab=confirm', label: 'Order Confirm', icon: ClipboardCheck, badge: 'NEW' },
-  { id: 'categories', label: 'Categories', icon: Layers },
-  { id: 'sub-categories', label: 'Sub Categories', icon: FolderTree },
-  { id: 'products', label: 'Products', icon: Package },
-  { id: 'inventory', label: 'Inventory', icon: Boxes },
-  { id: 'purchases', label: 'Purchase', icon: Truck },
-  { id: 'finance', label: 'Sales', icon: TrendingUp },
-  { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'suppliers', label: 'Suppliers', icon: Store },
-  { id: 'returns', label: 'Returns', icon: RotateCcw },
-  { id: 'payments', label: 'Payments', icon: CreditCard },
-  { id: 'coupons', label: 'Offers / Discounts', icon: Tag },
-  { id: 'reports', label: 'Reports', icon: BarChart3 }
+interface NavGroup {
+  label: string;
+  items: NavLeaf[];
+}
+
+const navMatchId = (item: NavLeaf): string | null =>
+  item.match === undefined ? item.to : item.match;
+
+// Standalone Dashboard link shown above the groups
+const DASHBOARD_ITEM: NavLeaf = {
+  key: 'dashboard',
+  label: 'Dashboard',
+  icon: LayoutDashboard,
+  to: 'dashboard'
+};
+
+// Client-facing grouped navigation
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Master',
+    items: [
+      { key: 'master-user', label: 'User', icon: UserCog, to: 'users' },
+      { key: 'master-company', label: 'Company', icon: Building2, to: 'settings?section=company', match: null },
+      { key: 'master-staff', label: 'Staff', icon: UserCheck, to: 'users', match: null },
+      { key: 'master-settings', label: 'Settings', icon: Settings, to: 'settings' }
+    ]
+  },
+  {
+    label: 'Catalog',
+    items: [
+      { key: 'catalog-category', label: 'Category', icon: Layers, to: 'categories' },
+      { key: 'catalog-sub-categories', label: 'Sub Categories', icon: FolderTree, to: 'sub-categories', indent: true },
+      { key: 'catalog-product', label: 'Product', icon: Package, to: 'products' },
+      { key: 'catalog-discount', label: 'Discount', icon: Tag, to: 'marketing/coupons?tab=discounts', match: 'coupons' },
+      { key: 'catalog-promo-code', label: 'Promotion Code', icon: Ticket, to: 'marketing/coupons?tab=codes', match: null }
+    ]
+  },
+  {
+    label: 'Customer & Enquiry',
+    items: [
+      { key: 'ce-customer', label: 'Customer', icon: Users, to: 'customers' },
+      { key: 'ce-enquiry-customer', label: 'Enquiry Customer', icon: UserPlus, to: 'enquiries/customers', match: 'enquiries-customers' },
+      { key: 'ce-direct-enquiry', label: 'Direct Enquiry', icon: MessageCircle, to: 'enquiries/direct', match: 'enquiries-direct' },
+      { key: 'ce-enquiry', label: 'Enquiry', icon: MessageSquare, to: 'enquiries' },
+      { key: 'ce-enquiry-pdf', label: 'Enquiry To PDF', icon: FileDown, to: 'enquiries?pdf=1', match: null }
+    ]
+  },
+  {
+    label: 'Order Management',
+    items: [
+      { key: 'om-order', label: 'Order', icon: ShoppingBag, to: 'orders' },
+      { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm', match: null, badge: 'NEW' },
+      { key: 'om-returns', label: 'Returns', icon: RotateCcw, to: 'returns' }
+    ]
+  },
+  {
+    label: 'Inventory',
+    items: [
+      { key: 'inv-inventory', label: 'Inventory', icon: Boxes, to: 'inventory' },
+      { key: 'inv-low-stock', label: 'Low Stock', icon: AlertTriangle, to: 'low-stock' }
+    ]
+  },
+  {
+    label: 'Purchase',
+    items: [
+      { key: 'pur-purchase', label: 'Purchase', icon: Truck, to: 'purchases' },
+      { key: 'pur-suppliers', label: 'Suppliers', icon: Store, to: 'suppliers' }
+    ]
+  },
+  {
+    label: 'Sales',
+    items: [
+      { key: 'sales-sales', label: 'Sales', icon: TrendingUp, to: 'finance' },
+      { key: 'sales-orders', label: 'Sales Orders', icon: ShoppingCart, to: 'orders', match: null },
+      { key: 'sales-invoices', label: 'Invoices', icon: Receipt, to: 'invoices' },
+      { key: 'sales-payments', label: 'Payments', icon: CreditCard, to: 'payments' },
+      { key: 'sales-history', label: 'Sales History', icon: BarChart3, to: 'reports' }
+    ]
+  },
+  {
+    label: 'Content',
+    items: [
+      { key: 'content-home-banner', label: 'Home Banner', icon: ImageIcon, to: 'banners?placement=home', match: 'banners' },
+      { key: 'content-mobile-banner', label: 'Mobile Banner', icon: Smartphone, to: 'banners?placement=mobile', match: null }
+    ]
+  }
 ];
 
-// Everything else stays reachable under a collapsible "More" section
-const MORE_NAV: NavItem[] = [
-  { id: 'quotes', label: 'Quotes (B2B)', icon: FileText },
-  { id: 'invoices', label: 'Invoices', icon: Receipt },
-  { id: 'combos', label: 'Gift Boxes / Combos', icon: Gift },
-  { id: 'reviews', label: 'Reviews', icon: Star },
-  { id: 'banners', label: 'Banners', icon: ImageIcon },
-  { id: 'warehouses', label: 'Warehouses', icon: Warehouse },
-  { id: 'transfers', label: 'Stock Transfers', icon: ArrowLeftRight },
-  { id: 'low-stock', label: 'Low Stock Alerts', icon: AlertTriangle },
-  { id: 'grn', label: 'Goods Received', icon: PackageCheck },
-  { id: 'bills', label: 'Supplier Bills', icon: DollarSign },
-  { id: 'expenses', label: 'Expenses', icon: Wallet },
-  { id: 'receivables', label: 'Receivables', icon: Clock },
-  { id: 'payables', label: 'Payables', icon: Banknote },
-  { id: 'audit-logs', label: 'Audit Logs', icon: ShieldAlert },
-  { id: 'sessions', label: 'Login History', icon: History },
-  { id: 'rate-limit-logs', label: 'Rate Limits', icon: Activity },
-  { id: 'users', label: 'Users & Roles', icon: UserCog },
-  { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'system-health', label: 'System Health', icon: ShieldCheck },
-  { id: 'backup', label: 'Backup', icon: Database }
+// Remaining existing routes stay reachable under a collapsed "Developer" section
+const DEVELOPER_NAV: NavLeaf[] = [
+  { key: 'dev-quotes', label: 'Quotes (B2B)', icon: FileText, to: 'quotes' },
+  { key: 'dev-combos', label: 'Gift Boxes / Combos', icon: Gift, to: 'combos' },
+  { key: 'dev-reviews', label: 'Reviews', icon: Star, to: 'reviews' },
+  { key: 'dev-warehouses', label: 'Warehouses', icon: Warehouse, to: 'warehouses' },
+  { key: 'dev-transfers', label: 'Stock Transfers', icon: ArrowLeftRight, to: 'transfers' },
+  { key: 'dev-grn', label: 'Goods Received', icon: PackageCheck, to: 'grn' },
+  { key: 'dev-bills', label: 'Supplier Bills', icon: DollarSign, to: 'bills' },
+  { key: 'dev-expenses', label: 'Expenses', icon: Wallet, to: 'expenses' },
+  { key: 'dev-receivables', label: 'Receivables', icon: Clock, to: 'receivables' },
+  { key: 'dev-payables', label: 'Payables', icon: Banknote, to: 'payables' },
+  { key: 'dev-audit-logs', label: 'Audit Logs', icon: ShieldAlert, to: 'audit-logs' },
+  { key: 'dev-sessions', label: 'Login History', icon: History, to: 'sessions' },
+  { key: 'dev-rate-limits', label: 'Rate Limits', icon: Activity, to: 'rate-limit-logs' },
+  { key: 'dev-system-health', label: 'System Health', icon: ShieldCheck, to: 'system-health' },
+  { key: 'dev-backup', label: 'Backup', icon: Database, to: 'backup' }
 ];
 
 const STOREFRONT_URL: string = import.meta.env.VITE_STOREFRONT_URL ?? 'http://localhost:5173';
@@ -118,7 +202,9 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
-  const [isMoreOpen, setIsMoreOpen] = useState(() => MORE_NAV.some((i) => i.id === currentTab));
+  const [isDeveloperOpen, setIsDeveloperOpen] = useState(() =>
+    DEVELOPER_NAV.some((i) => navMatchId(i) === currentTab)
+  );
 
   // Real notification data — fetched on demand when the bell drawer opens (no polling)
   const [notifLowStock, setNotifLowStock] = useState<StockItem[]>([]);
@@ -138,10 +224,10 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Keep the "More" section expanded whenever the active route lives inside it
+  // Keep the "Developer" section expanded whenever the active route lives inside it
   useEffect(() => {
-    if (MORE_NAV.some((i) => i.id === currentTab)) {
-      setIsMoreOpen(true);
+    if (DEVELOPER_NAV.some((i) => navMatchId(i) === currentTab)) {
+      setIsDeveloperOpen(true);
     }
   }, [currentTab]);
 
@@ -168,20 +254,25 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
 
   const notifCount = notifLowStock.length + notifPendingOrders.length;
 
-  const renderNavItem = (item: NavItem) => {
+  const renderNavItem = (item: NavLeaf, subtle = false) => {
     const Icon = item.icon;
-    const isActive = currentTab === item.id;
+    const matchId = navMatchId(item);
+    const isActive = matchId !== null && currentTab === matchId;
     return (
       <button
-        key={item.id}
+        key={item.key}
         onClick={() => {
-          onNavigateTab(item.id);
+          onNavigateTab(item.to);
           setIsSidebarOpen(false);
         }}
-        className={`w-full px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between border transition-all ${
+        className={`w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-between border transition-all ${
+          item.indent ? 'pl-7 pr-3' : 'px-3'
+        } ${
           isActive
             ? 'bg-[#23255b] border-[#34377c] text-white font-bold'
-            : 'border-transparent text-slate-300 hover:bg-[#1a1b4b] hover:text-white'
+            : subtle
+              ? 'border-transparent text-slate-400 hover:bg-[#1a1b4b] hover:text-white'
+              : 'border-transparent text-slate-300 hover:bg-[#1a1b4b] hover:text-white'
         }`}
       >
         <div className="flex items-center space-x-2.5">
@@ -235,23 +326,34 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
             </button>
           </div>
 
-          {/* Flat Navigation */}
-          <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-            {MAIN_NAV.map(renderNavItem)}
+          {/* Grouped Navigation */}
+          <nav className="flex-1 overflow-y-auto p-3">
+            {renderNavItem(DASHBOARD_ITEM)}
 
-            {/* Collapsible "More" section */}
-            <div className="pt-3">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.label} className="pt-4">
+                <div className="px-3 pb-1.5 text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
+                  {group.label}
+                </div>
+                <div className="space-y-1">{group.items.map((item) => renderNavItem(item))}</div>
+              </div>
+            ))}
+
+            {/* Collapsed "Developer" section — everything else stays reachable */}
+            <div className="pt-4 mt-3 border-t border-[#1d1e4e]">
               <button
-                onClick={() => setIsMoreOpen((v) => !v)}
-                className="w-full px-3 py-2 rounded-xl flex items-center justify-between text-[10px] font-extrabold text-slate-400 tracking-wider uppercase hover:text-white hover:bg-[#1a1b4b] transition-colors"
+                onClick={() => setIsDeveloperOpen((v) => !v)}
+                className="w-full px-3 py-2 rounded-xl flex items-center justify-between text-[10px] font-extrabold text-slate-500 tracking-wider uppercase hover:text-white hover:bg-[#1a1b4b] transition-colors"
               >
-                <span>More</span>
+                <span>Developer</span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform ${isMoreOpen ? 'rotate-180' : ''}`}
+                  className={`w-3.5 h-3.5 transition-transform ${isDeveloperOpen ? 'rotate-180' : ''}`}
                 />
               </button>
-              {isMoreOpen && (
-                <div className="mt-1 space-y-1">{MORE_NAV.map(renderNavItem)}</div>
+              {isDeveloperOpen && (
+                <div className="mt-1 space-y-1 opacity-90">
+                  {DEVELOPER_NAV.map((item) => renderNavItem(item, true))}
+                </div>
               )}
             </div>
           </nav>

@@ -45,6 +45,17 @@ const ALERT_PILLS: Record<'out' | 'veryLow' | 'low', { label: string; cls: strin
   low: { label: 'Low Stock', cls: 'bg-amber-100 text-amber-700' }
 };
 
+/** Movement types that take stock out even when quantityChange is reported as 0/positive. */
+const OUTBOUND_MOVEMENT_TYPES = ['Sale', 'TransferOut', 'Damage'];
+
+/** Direction of a ledger movement: the signed quantityChange decides; zero-delta rows
+ *  (or unsigned backends) fall back to the movement type (Purchase/GRN/TransferIn etc. = in). */
+const movementDirection = (m: StockMovement): 'in' | 'out' => {
+  if (m.quantityChange > 0) return 'in';
+  if (m.quantityChange < 0) return 'out';
+  return OUTBOUND_MOVEMENT_TYPES.includes(m.movementType) ? 'out' : 'in';
+};
+
 interface ErpInventoryLedgerModuleProps {
   initialSubTab?: 'overview' | 'movements' | 'transfers' | 'low-stock' | 'warehouses';
 }
@@ -58,6 +69,7 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
   const [products, setProducts] = useState<Product[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [movementFilter, setMovementFilter] = useState<'all' | 'in' | 'out'>('all');
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
 
   // Server-paged stock ledger (design 09)
@@ -170,6 +182,10 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
       : stockStatusFilter === 'out'
       ? stockItems.filter((si) => si.quantityAvailable <= 0)
       : stockItems;
+
+  // Movements sub-filter (All | Stock In | Stock Out) applied client-side over the loaded ledger
+  const displayedMovements =
+    movementFilter === 'all' ? movements : movements.filter((m) => movementDirection(m) === movementFilter);
 
   const alertCounts = lowStockAlerts.reduce(
     (acc, a) => {
@@ -549,6 +565,57 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
       {/* 2. STOCK MOVEMENTS TAB */}
       {subTab === 'movements' && (
         <div className="space-y-4">
+          {/* Direction sub-filter chips + Stock Adjustment shortcut */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {(
+                [
+                  { id: 'all', label: 'All', count: movements.length },
+                  {
+                    id: 'in',
+                    label: 'Stock In',
+                    count: movements.filter((m) => movementDirection(m) === 'in').length
+                  },
+                  {
+                    id: 'out',
+                    label: 'Stock Out',
+                    count: movements.filter((m) => movementDirection(m) === 'out').length
+                  }
+                ] as { id: 'all' | 'in' | 'out'; label: string; count: number }[]
+              ).map((chip) => {
+                const isActive = movementFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    onClick={() => setMovementFilter(chip.id)}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center space-x-1.5 transition-all ${
+                      isActive
+                        ? 'bg-navy text-white shadow-sm'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {chip.id === 'in' && <ArrowUpRight className="w-3.5 h-3.5" />}
+                    {chip.id === 'out' && <ArrowDownRight className="w-3.5 h-3.5" />}
+                    <span>
+                      {chip.label} <span className={isActive ? 'text-white/70' : 'text-slate-400'}>({chip.count})</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => {
+                setAdjustProductId((prev) => prev || products[0]?.id || '');
+                setIsAdjustModalOpen(true);
+              }}
+              className="px-3.5 py-1.5 rounded-full bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-orange/20 transition-all shrink-0"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>Stock Adjustment</span>
+            </button>
+          </div>
+
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
@@ -563,7 +630,20 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {movements.map((m, idx) => (
+                {displayedMovements.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 px-4 text-center text-slate-400">
+                      {isLoading
+                        ? 'Loading stock movements...'
+                        : movementFilter === 'in'
+                        ? 'No inbound stock movements recorded yet.'
+                        : movementFilter === 'out'
+                        ? 'No outbound stock movements recorded yet.'
+                        : 'No stock movements recorded yet.'}
+                    </td>
+                  </tr>
+                )}
+                {displayedMovements.map((m, idx) => (
                   <tr key={m.id || idx} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
                       {new Date(m.createdAtUtc || Date.now()).toLocaleString('en-IN')}

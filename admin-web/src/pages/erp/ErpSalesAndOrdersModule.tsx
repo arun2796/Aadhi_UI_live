@@ -416,6 +416,8 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const [orderFilters, setOrderFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
   const [statusDraft, setStatusDraft] = useState<OrderStatus | ''>('');
   const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null);
+  // Order Confirm queue sub-filter chips (design 06 split)
+  const [confirmChip, setConfirmChip] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
 
   // RETURNS — tabs + detail
   const [returnSearch, setReturnSearch] = useState('');
@@ -480,6 +482,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     if (searchParams.get('tab') === 'confirm') {
       setSubTab('orders');
       setOrderStatusTab('confirm');
+      setConfirmChip('pending');
       setSelectedOrder(null);
     } else {
       setOrderStatusTab((prev) => (prev === 'confirm' ? 'all' : prev));
@@ -581,6 +584,35 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     () => orders.filter((o) => o.orderStatus === 'Pending' && o.paymentStatus !== 'Paid' && matchesOrderSearch(o)),
     [orders, searchQuery]
   );
+
+  /** Confirm queue chip: orders whose payment was verified (paymentStatus Paid), most recent first. */
+  const verifiedPaymentOrders = useMemo(
+    () =>
+      orders
+        .filter((o) => o.paymentStatus === 'Paid' && matchesOrderSearch(o))
+        .sort(
+          (a, b) =>
+            new Date(b.paymentVerifiedAtUtc || b.placedAtUtc).getTime() -
+            new Date(a.paymentVerifiedAtUtc || a.placedAtUtc).getTime()
+        ),
+    [orders, searchQuery]
+  );
+
+  /** Confirm queue chip: cancelled orders whose payment was rejected / never verified, most recent first. */
+  const rejectedPaymentOrders = useMemo(
+    () =>
+      orders
+        .filter((o) => o.orderStatus === 'Cancelled' && o.paymentStatus !== 'Paid' && matchesOrderSearch(o))
+        .sort((a, b) => new Date(b.placedAtUtc).getTime() - new Date(a.placedAtUtc).getTime()),
+    [orders, searchQuery]
+  );
+
+  const confirmQueueOrders =
+    confirmChip === 'pending'
+      ? awaitingConfirmation
+      : confirmChip === 'confirmed'
+      ? verifiedPaymentOrders
+      : rejectedPaymentOrders;
 
   const orderTabs: { id: OrderStatusTab; label: string; count: number }[] = [
     { id: 'all', label: 'All Orders', count: orders.length },
@@ -1150,15 +1182,50 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
           ) : (
             /* ORDER CONFIRM QUEUE (design 06) */
             <div className="space-y-3">
-              {awaitingConfirmation.length === 0 && (
+              {/* Sub-filter chips: Pending Confirmation | Confirmed | Rejected */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {(
+                  [
+                    { id: 'pending', label: 'Pending Confirmation', count: awaitingConfirmation.length },
+                    { id: 'confirmed', label: 'Confirmed', count: verifiedPaymentOrders.length },
+                    { id: 'rejected', label: 'Rejected', count: rejectedPaymentOrders.length }
+                  ] as { id: 'pending' | 'confirmed' | 'rejected'; label: string; count: number }[]
+                ).map((chip) => {
+                  const isActive = confirmChip === chip.id;
+                  return (
+                    <button
+                      key={chip.id}
+                      onClick={() => setConfirmChip(chip.id)}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
+                        isActive
+                          ? 'bg-navy text-white shadow-sm'
+                          : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                      }`}
+                    >
+                      {chip.label}{' '}
+                      <span className={isActive ? 'text-white/70' : 'text-slate-400'}>({chip.count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {confirmQueueOrders.length === 0 && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-10 text-center">
                   <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
-                  <div className="font-black text-sm text-navy">All caught up!</div>
-                  <p className="text-xs text-slate-400 mt-1">No orders are awaiting payment verification right now.</p>
+                  <div className="font-black text-sm text-navy">
+                    {confirmChip === 'pending' ? 'All caught up!' : 'Nothing here yet'}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {confirmChip === 'pending'
+                      ? 'No orders are awaiting payment verification right now.'
+                      : confirmChip === 'confirmed'
+                      ? 'No orders with verified payments match your search.'
+                      : 'No cancelled orders with rejected payments match your search.'}
+                  </p>
                 </div>
               )}
 
-              {awaitingConfirmation.map((o) => (
+              {confirmQueueOrders.map((o) => (
                 <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5">
                   <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                     {/* Order summary */}
@@ -1220,30 +1287,57 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                       </div>
                     )}
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 lg:flex-col lg:items-stretch lg:w-44">
-                      <button
-                        onClick={() => handleQueueVerify(o)}
-                        className="flex-1 px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        <span>Verify & Confirm</span>
-                      </button>
-                      <button
-                        onClick={() => setRejectPaymentTarget(o)}
-                        className="flex-1 px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-bold flex items-center justify-center space-x-1.5"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        <span>Reject Payment</span>
-                      </button>
-                    </div>
+                    {/* Actions (verify/reject only for the pending queue) */}
+                    {confirmChip === 'pending' ? (
+                      <div className="flex items-center gap-2 lg:flex-col lg:items-stretch lg:w-44">
+                        <button
+                          onClick={() => handleQueueVerify(o)}
+                          className="flex-1 px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>Verify & Confirm</span>
+                        </button>
+                        <button
+                          onClick={() => setRejectPaymentTarget(o)}
+                          className="flex-1 px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-bold flex items-center justify-center space-x-1.5"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Reject Payment</span>
+                        </button>
+                      </div>
+                    ) : confirmChip === 'confirmed' ? (
+                      <div className="lg:w-44 text-right lg:text-left">
+                        <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>Payment Verified</span>
+                        </span>
+                        {o.paymentVerifiedAtUtc && (
+                          <div className="text-[10px] text-slate-400 mt-1.5">
+                            {formatDateTime(o.paymentVerifiedAtUtc)}
+                            {o.paymentVerifiedBy ? ` by ${o.paymentVerifiedBy}` : ''}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="lg:w-44 text-right lg:text-left">
+                        <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Payment Rejected</span>
+                        </span>
+                        {o.paymentVerificationNotes && (
+                          <div className="text-[10px] text-slate-400 mt-1.5 line-clamp-2">
+                            "{o.paymentVerificationNotes}"
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
 
-              {awaitingConfirmation.length > 0 && (
+              {confirmQueueOrders.length > 0 && (
                 <p className="text-sm text-slate-500">
-                  Showing 1 to {awaitingConfirmation.length} of {awaitingConfirmation.length} entries
+                  Showing 1 to {confirmQueueOrders.length} of {confirmQueueOrders.length} entries
                 </p>
               )}
             </div>
