@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  UploadCloud,
   Star,
   Trash2,
   Plus,
@@ -121,12 +120,10 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
   const [subCategoryId, setSubCategoryId] = useState('');
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
 
-  // Product Image dropzone helpers
-  const [isDragging, setIsDragging] = useState(false);
+  // Product Image Google Drive helpers
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [galleryUrlInput, setGalleryUrlInput] = useState('');
-  const primaryFileRef = useRef<HTMLInputElement>(null);
-  const galleryFileRef = useRef<HTMLInputElement>(null);
+  const [galleryBatchUrls, setGalleryBatchUrls] = useState('');
 
   // Inline field errors (client-side validation + server validation ProblemDetails `errors`)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ServerFieldKey, string>>>({});
@@ -225,37 +222,47 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
   // ---- Image helpers ----------------------------------------------------
 
-  /** Sets / replaces the primary product image (from upload or pasted URL).
+  /** Sets / replaces the primary product image.
    *  Google Drive share links are converted to direct-image URLs. */
   const setPrimaryImageUrl = (rawUrl: string) => {
-    const url = normalizeImageUrl(rawUrl) ?? rawUrl;
+    if (!rawUrl?.trim()) return;
+    const url = normalizeImageUrl(rawUrl.trim()) ?? rawUrl.trim();
     setGallery((prev) => {
       const others = prev.filter((g) => !g.isPrimary).map((g) => ({ ...g, isPrimary: false }));
       return [{ url, isPrimary: true }, ...others];
     });
+    setImageUrlInput('');
+    showToast('Primary product image set', 'success');
   };
 
-  const addGalleryImage = (rawUrl: string) => {
-    const url = normalizeImageUrl(rawUrl) ?? rawUrl;
+  /** Adds one or multiple Google Drive URLs (separated by newlines or commas) to gallery */
+  const addMultipleGalleryUrls = (rawInput: string) => {
+    if (!rawInput?.trim()) return;
+    const tokens = rawInput
+      .split(/[\n,;\r]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (tokens.length === 0) return;
+
+    let addedCount = 0;
     setGallery((prev) => {
-      if (prev.some((g) => g.url === url)) return prev;
-      return [...prev, { url, isPrimary: prev.length === 0 }];
+      const current = [...prev];
+      for (const token of tokens) {
+        const url = normalizeImageUrl(token) ?? token;
+        if (!current.some((g) => g.url === url)) {
+          current.push({ url, isPrimary: current.length === 0 });
+          addedCount++;
+        }
+      }
+      return current;
     });
-  };
 
-  const readImageFile = (file: File, onDone: (dataUrl: string) => void) => {
-    if (!file.type.startsWith('image/')) {
-      showToast('Please choose an image file (JPG / PNG)', 'warning');
-      return;
+    if (addedCount > 0) {
+      showToast(`Added ${addedCount} image${addedCount > 1 ? 's' : ''} to gallery`, 'success');
+    } else {
+      showToast('Image already in gallery', 'info');
     }
-    if (file.size > 2 * 1024 * 1024) {
-      showToast('Image must be 2MB or smaller', 'warning');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => onDone(String(reader.result));
-    reader.onerror = () => showToast('Could not read image file', 'error');
-    reader.readAsDataURL(file);
   };
 
   const markPrimary = (index: number) => {
@@ -626,107 +633,171 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
               </div>
 
               {/* Right: Product Image card */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-black text-navy">Product Image</h3>
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) readImageFile(file, setPrimaryImageUrl);
-                  }}
-                  onClick={() => primaryFileRef.current?.click()}
-                  className={`rounded-2xl border-2 border-dashed cursor-pointer transition-colors flex flex-col items-center justify-center text-center p-6 min-h-56 ${
-                    isDragging ? 'border-purple bg-purple/5' : 'border-slate-200 bg-slate-50/50 hover:border-purple/50'
-                  }`}
-                >
-                  {primaryImage ? (
-                    <div className="space-y-2 w-full">
-                      <img
-                        src={primaryImage.url}
-                        alt="Product preview"
-                        className="w-full h-44 object-cover rounded-xl border border-slate-200"
-                      />
-                      <p className="text-[10px] text-slate-400 font-medium">
-                        Drag &amp; drop or click to replace
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="w-12 h-12 rounded-full border border-slate-200 bg-white flex items-center justify-center mb-3">
-                        <UploadCloud className="w-5 h-5 text-slate-400" />
-                      </div>
-                      <p className="text-xs font-bold text-navy">Drag &amp; drop or click to upload</p>
-                      <p className="text-[10px] text-slate-400 mt-1">JPG, PNG up to 2MB</p>
-                    </>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black text-navy">Product Primary Image</h3>
+                  {gallery.length > 0 && (
+                    <span className="text-[10px] font-bold text-purple bg-purple/10 px-2 py-0.5 rounded-full">
+                      {gallery.length} in Gallery
+                    </span>
                   )}
                 </div>
-                <input
-                  ref={primaryFileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) readImageFile(file, setPrimaryImageUrl);
-                    e.target.value = '';
-                  }}
-                />
 
-                {/* Thumbnail strip + Add More */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  {gallery.map((img, idx) => (
-                    <button
-                      key={`${img.url.slice(0, 64)}-${idx}`}
-                      onClick={() => markPrimary(idx)}
-                      className={`w-12 h-12 rounded-xl overflow-hidden border-2 transition-all ${
-                        img.isPrimary
-                          ? 'border-purple ring-2 ring-purple/20'
-                          : 'border-slate-200 hover:border-purple/40'
-                      }`}
-                      title={img.isPrimary ? 'Primary image' : 'Set as primary'}
-                    >
-                      <img src={img.url} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => galleryFileRef.current?.click()}
-                    className="h-12 px-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-400 hover:border-purple hover:text-purple flex items-center space-x-1 text-[10px] font-bold transition-colors"
-                    title="Add more images"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add More</span>
-                  </button>
+                {/* Primary Preview */}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden relative">
+                  {primaryImage ? (
+                    <div className="relative">
+                      <img
+                        src={primaryImage.url}
+                        alt="Product primary preview"
+                        className="w-full h-48 object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                      <div className="absolute top-2.5 left-2.5 flex items-center space-x-1 px-2.5 py-1 rounded-md bg-purple/90 backdrop-blur-xs text-white text-[10px] font-bold shadow-xs">
+                        <Star className="w-3 h-3 fill-current text-gold" />
+                        <span>Primary Image</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-center p-8 min-h-48 text-slate-400">
+                      <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center mb-2 shadow-2xs">
+                        <ImageIcon className="w-6 h-6 text-slate-400" />
+                      </div>
+                      <p className="text-xs font-bold text-navy">No Primary Image Set</p>
+                      <p className="text-[10px] text-slate-400 mt-1 max-w-[200px]">
+                        Paste a Google Drive image link below to set the primary image
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Paste URL alternative */}
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
-                    <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                    <input
-                      type="text"
-                      value={imageUrlInput}
-                      onChange={(e) => setImageUrlInput(e.target.value)}
-                      placeholder="or paste image URL..."
-                      className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                    />
+                {/* Primary Drive Link Input */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-navy flex items-center justify-between">
+                    <span>Google Drive Image URL</span>
+                    <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl focus-within:border-purple focus-within:bg-white transition-all">
+                      <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={imageUrlInput}
+                        onChange={(e) => setImageUrlInput(e.target.value)}
+                        placeholder="Paste Google Drive share link..."
+                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (imageUrlInput.trim()) {
+                              setPrimaryImageUrl(imageUrlInput.trim());
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (imageUrlInput.trim()) {
+                          setPrimaryImageUrl(imageUrlInput.trim());
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-all flex-shrink-0 shadow-xs"
+                    >
+                      Set Primary
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (imageUrlInput.trim()) {
-                        setPrimaryImageUrl(imageUrlInput.trim());
-                        setImageUrlInput('');
-                      }
-                    }}
-                    className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                  >
-                    Apply
-                  </button>
+                  <p className="text-[10px] text-slate-400">
+                    Supports Google Drive sharing links (e.g. <span className="font-mono text-slate-600">drive.google.com/file/d/...</span>).
+                  </p>
+                </div>
+
+                {/* Gallery Thumbnails + Quick Add More */}
+                <div className="pt-3 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-navy">Gallery Images</span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('images')}
+                      className="text-[10px] font-bold text-purple hover:underline"
+                    >
+                      Manage All ({gallery.length}) &rarr;
+                    </button>
+                  </div>
+
+                  {/* Thumbnail Row */}
+                  {gallery.length > 0 && (
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {gallery.map((img, idx) => (
+                        <div
+                          key={`${img.url.slice(0, 64)}-${idx}`}
+                          className="relative flex-shrink-0 group"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => markPrimary(idx)}
+                            className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all block ${
+                              img.isPrimary
+                                ? 'border-purple ring-2 ring-purple/20'
+                                : 'border-slate-200 hover:border-purple/40 opacity-80 hover:opacity-100'
+                            }`}
+                            title={img.isPrimary ? 'Current primary image' : 'Click to set as primary'}
+                          >
+                            <img src={img.url} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeImage(idx);
+                            }}
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
+                            title="Remove image"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Quick Add Gallery Input (Multiple Drive URLs supported!) */}
+                  <div className="flex items-center space-x-2 pt-1">
+                    <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
+                      <Plus className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={galleryUrlInput}
+                        onChange={(e) => setGalleryUrlInput(e.target.value)}
+                        placeholder="Add Google Drive URL to gallery..."
+                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (galleryUrlInput.trim()) {
+                              addMultipleGalleryUrls(galleryUrlInput.trim());
+                              setGalleryUrlInput('');
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (galleryUrlInput.trim()) {
+                          addMultipleGalleryUrls(galleryUrlInput.trim());
+                          setGalleryUrlInput('');
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 flex-shrink-0"
+                    >
+                      + Add
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -858,13 +929,60 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
           {/* IMAGES TAB */}
           {activeTab === 'images' && (
-            <div className="space-y-4 text-xs">
+            <div className="space-y-5 text-xs">
+              {/* Batch Add Google Drive Links Section */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-black text-navy flex items-center space-x-2">
+                      <LinkIcon className="w-4 h-4 text-purple" />
+                      <span>Add Images via Google Drive URL</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Paste one or multiple Google Drive links below. All links are automatically converted to direct high-resolution images.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-purple bg-purple/10 px-3 py-1 rounded-full self-start sm:self-auto">
+                    {gallery.length} Images in Gallery
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <textarea
+                    rows={3}
+                    value={galleryBatchUrls}
+                    onChange={(e) => setGalleryBatchUrls(e.target.value)}
+                    placeholder={"Paste Google Drive link(s) here...\nSupports multiple links: paste one link per line or separate by commas\nExample:\nhttps://drive.google.com/file/d/1A2B3C4D.../view?usp=sharing"}
+                    className="w-full p-3 rounded-xl border border-slate-200 outline-none text-xs text-navy font-mono placeholder-slate-400 focus:border-purple focus:ring-1 focus:ring-purple/20 transition-all"
+                  />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <p className="text-[11px] text-slate-400">
+                      Supports: <span className="font-mono text-slate-600">drive.google.com/file/d/...</span> or direct web image links.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (galleryBatchUrls.trim()) {
+                          addMultipleGalleryUrls(galleryBatchUrls.trim());
+                          setGalleryBatchUrls('');
+                        }
+                      }}
+                      className="px-5 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 transition-all flex items-center justify-center space-x-1.5"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Image(s) to Gallery</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gallery Grid */}
               {gallery.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-center p-10 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50">
-                  <ImageIcon className="w-8 h-8 text-slate-300 mb-2" />
-                  <p className="font-bold text-navy">No images yet</p>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Upload files or add image URLs below. The first image becomes the primary image.
+                <div className="flex flex-col items-center justify-center text-center p-12 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50">
+                  <ImageIcon className="w-10 h-10 text-slate-300 mb-2" />
+                  <p className="font-bold text-navy text-sm">No Images in Gallery</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                    Paste one or more Google Drive image links in the box above to add them to your product gallery.
                   </p>
                 </div>
               ) : (
@@ -872,33 +990,42 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                   {gallery.map((img, idx) => (
                     <div
                       key={`${img.url.slice(0, 64)}-${idx}`}
-                      className={`rounded-2xl border overflow-hidden bg-white ${
+                      className={`rounded-2xl border overflow-hidden bg-white shadow-2xs flex flex-col transition-all ${
                         img.isPrimary ? 'border-purple ring-2 ring-purple/20' : 'border-slate-200'
                       }`}
                     >
-                      <div className="relative">
-                        <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-32 object-cover" />
-                        {img.isPrimary && (
-                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-purple text-white text-[9px] font-black uppercase tracking-wider flex items-center space-x-1">
-                            <Star className="w-2.5 h-2.5 fill-current" />
+                      <div className="relative aspect-square bg-slate-900 overflow-hidden">
+                        <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-full object-cover" />
+                        {img.isPrimary ? (
+                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-purple text-white text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-xs">
+                            <Star className="w-3 h-3 fill-current text-gold" />
                             <span>Primary</span>
+                          </span>
+                        ) : (
+                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-navy/80 text-white text-[10px] font-bold backdrop-blur-xs">
+                            #{idx + 1}
                           </span>
                         )}
                       </div>
-                      <div className="p-2 flex items-center justify-between">
+                      <div className="p-3 flex items-center justify-between border-t border-slate-100 bg-white">
                         {img.isPrimary ? (
-                          <span className="text-[10px] font-bold text-purple">Primary image</span>
+                          <span className="text-[11px] font-bold text-purple flex items-center space-x-1">
+                            <Star className="w-3 h-3 fill-current text-gold" />
+                            <span>Primary Image</span>
+                          </span>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => markPrimary(idx)}
-                            className="text-[10px] font-bold text-slate-500 hover:text-purple"
+                            className="text-[11px] font-bold text-slate-600 hover:text-purple transition-colors"
                           >
-                            Set Primary
+                            Set as Primary
                           </button>
                         )}
                         <button
+                          type="button"
                           onClick={() => removeImage(idx)}
-                          className="p-1 text-slate-400 hover:text-red-500"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
                           title="Remove image"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -908,39 +1035,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                   ))}
                 </div>
               )}
-
-              {/* Add images row */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t border-slate-100">
-                <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
-                  <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                  <input
-                    type="text"
-                    value={galleryUrlInput}
-                    onChange={(e) => setGalleryUrlInput(e.target.value)}
-                    placeholder="Paste image URL or data-URL..."
-                    className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                  />
-                </div>
-                <button
-                  onClick={() => {
-                    if (galleryUrlInput.trim()) {
-                      addGalleryImage(galleryUrlInput.trim());
-                      setGalleryUrlInput('');
-                    }
-                  }}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center justify-center space-x-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add URL</span>
-                </button>
-                <button
-                  onClick={() => galleryFileRef.current?.click()}
-                  className="px-4 py-2 rounded-xl bg-navy hover:bg-navy-dark text-white text-xs font-bold flex items-center justify-center space-x-1.5"
-                >
-                  <UploadCloud className="w-3.5 h-3.5" />
-                  <span>Upload Files</span>
-                </button>
-              </div>
             </div>
           )}
 
@@ -993,20 +1087,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
           )}
         </div>
 
-        {/* Shared hidden gallery input — used by "+ Add More" (General) and "Upload Files" (Images) */}
-        <input
-          ref={galleryFileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            Array.from(e.target.files || []).forEach((file) =>
-              readImageFile(file, addGalleryImage)
-            );
-            e.target.value = '';
-          }}
-        />
 
         {/* Footer: Cancel + Save Product */}
         <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex items-center justify-end space-x-3">

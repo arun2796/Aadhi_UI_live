@@ -12,12 +12,16 @@ import {
   RefreshCw,
   Gift,
   Filter,
-  ChevronRight
+  ChevronRight,
+  Monitor,
+  Smartphone,
+  ExternalLink
 } from 'lucide-react';
 import { Product, Category, GiftBox, ComboOffer, ProductReview, HomepageBanner } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
 import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
+import { normalizeImageUrl } from '../../utils/imageUrl';
 import { Pagination } from '../../components/common/Pagination';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
 
@@ -68,7 +72,7 @@ const SCREEN_HEADERS: Record<CatalogSubTab, { title: string; subtitle: string }>
   categories: { title: 'Categories', subtitle: 'Top-level catalog categories.' },
   combos: { title: 'Gift Boxes & Combos', subtitle: 'Pre-packed gift boxes and special combo deals.' },
   reviews: { title: 'Reviews & Moderation', subtitle: 'Approve, reject or hide customer product reviews.' },
-  banners: { title: 'Banners', subtitle: 'Homepage and mobile app banners.' }
+  banners: { title: 'Banners', subtitle: 'Manage homepage web and mobile app promotional banners.' }
 };
 
 interface ErpCatalogModuleProps {
@@ -289,7 +293,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         // (custom or auto-suggested); when blank the backend generates one from the name.
         slug: categoryFormData.slug?.trim() || undefined,
         description: categoryFormData.description,
-        imageUrl: categoryFormData.imageUrl,
+        imageUrl: (categoryFormData.imageUrl ? normalizeImageUrl(categoryFormData.imageUrl.trim()) ?? categoryFormData.imageUrl.trim() : undefined),
         parentCategoryId: categoryFormData.parentCategoryId || undefined,
         displayOrder: categoryFormData.displayOrder ?? 1,
         isActive: categoryFormData.isActive ?? true
@@ -359,7 +363,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       const payload = {
         title: bannerFormData.title.trim(),
         subtitle: bannerFormData.subtitle || '',
-        imageUrl: bannerFormData.imageUrl.trim(),
+        imageUrl: (normalizeImageUrl(bannerFormData.imageUrl.trim()) ?? bannerFormData.imageUrl.trim()),
         targetUrl: bannerFormData.targetUrl || '/',
         ctaText: bannerFormData.ctaText || 'Shop Now',
         displayOrder: bannerFormData.displayOrder ?? 1,
@@ -478,7 +482,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
               className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Banner</span>
+              <span>Add {bannerPlacement === 'Home' ? 'Web' : 'Mobile'} Banner</span>
             </button>
           )}
         </div>
@@ -931,75 +935,205 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 5. BANNERS SCREEN — internal Home | Mobile placement tabs (?placement=home|mobile) */}
+      {/* 5. BANNERS SCREEN */}
       {subTab === 'banners' && (
         <div className="space-y-4">
-          {/* Placement tab bar */}
-          <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
-            {(['Home', 'Mobile'] as BannerPlacement[]).map((p) => {
-              const count = banners.filter((b) => bannerPlacementOf(b) === p).length;
-              const isActive = bannerPlacement === p;
-              return (
-                <button
-                  key={p}
-                  onClick={() => setBannerPlacement(p)}
-                  className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                    isActive ? 'border-purple text-purple' : 'border-transparent text-slate-500 hover:text-navy'
-                  }`}
-                >
-                  {p} Banners{' '}
-                  {count > 0 && <span className={isActive ? 'text-purple' : 'text-slate-400'}>({count})</span>}
-                </button>
-              );
-            })}
+          {/* Top Placement Segmented Switch & Size Guidance */}
+          <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center p-1 bg-slate-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setBannerPlacement('Home')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  bannerPlacement === 'Home'
+                    ? 'bg-white text-purple shadow-xs'
+                    : 'text-slate-600 hover:text-navy'
+                }`}
+              >
+                <Monitor className="w-4 h-4" />
+                <span>Web / Desktop</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+                  bannerPlacement === 'Home' ? 'bg-purple/10 text-purple' : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {banners.filter((b) => bannerPlacementOf(b) === 'Home').length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBannerPlacement('Mobile')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  bannerPlacement === 'Mobile'
+                    ? 'bg-white text-purple shadow-xs'
+                    : 'text-slate-600 hover:text-navy'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Mobile App</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+                  bannerPlacement === 'Mobile' ? 'bg-purple/10 text-purple' : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {banners.filter((b) => bannerPlacementOf(b) === 'Mobile').length}
+                </span>
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-xl flex items-center space-x-1.5">
+              <span className="font-semibold text-slate-700">Recommended Size:</span>
+              {bannerPlacement === 'Home' ? (
+                <span className="text-purple font-mono font-bold">1920 × 600 px (Landscape)</span>
+              ) : (
+                <span className="text-purple font-mono font-bold">1080 × 1350 px or 750 × 400 px</span>
+              )}
+            </div>
           </div>
 
           {(() => {
             const placementBanners = banners.filter((b) => bannerPlacementOf(b) === bannerPlacement);
             if (placementBanners.length === 0) {
               return (
-                <div className="bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs p-10 text-center">
-                  <ImageIcon className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <div className="bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs p-12 text-center">
+                  {bannerPlacement === 'Home' ? (
+                    <Monitor className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  ) : (
+                    <Smartphone className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  )}
                   <div className="font-black text-sm text-navy">
-                    No {bannerPlacement.toLowerCase()} banners yet
+                    No {bannerPlacement === 'Home' ? 'Web / Desktop' : 'Mobile App'} Banners Yet
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
                     {isLoading
                       ? 'Loading banners...'
-                      : `Use "Add Banner" to create the first ${bannerPlacement.toLowerCase()} placement banner.`}
+                      : `Add a banner to feature special promotions or announcements on the ${
+                          bannerPlacement === 'Home' ? 'storefront homepage' : 'mobile app'
+                        }.`}
                   </p>
+                  {!isLoading && (
+                    <button
+                      onClick={() => {
+                        setBannerFormData({ ...EMPTY_BANNER_FORM, placement: bannerPlacement });
+                        setIsBannerModalOpen(true);
+                      }}
+                      className="mt-4 px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create First {bannerPlacement === 'Home' ? 'Web' : 'Mobile'} Banner</span>
+                    </button>
+                  )}
                 </div>
               );
             }
-            return (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {placementBanners.map((b) => (
-                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-                    <img src={b.imageUrl} alt={b.title} className="w-full h-36 object-cover" />
-                    <div className="p-4 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="font-bold text-xs text-navy">{b.title}</h3>
-                        <div className="flex items-center space-x-1.5">
-                          <span className="px-2 py-0.5 rounded-full bg-purple/10 text-purple text-[10px] font-bold">
-                            {bannerPlacementOf(b)}
+
+            if (bannerPlacement === 'Home') {
+              return (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                  {placementBanners.map((b) => (
+                    <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                      <div className="relative aspect-[16/6] bg-slate-900 overflow-hidden group">
+                        <img src={b.imageUrl} alt={b.title} className="w-full h-full object-cover" />
+                        <div className="absolute top-2.5 left-2.5 flex items-center space-x-1.5">
+                          <span className="px-2 py-0.5 rounded-md bg-navy/80 backdrop-blur-xs text-white text-[10px] font-bold">
+                            Web Desktop
                           </span>
+                          <span className="px-2 py-0.5 rounded-md bg-white/90 backdrop-blur-xs text-slate-700 text-[10px] font-bold">
+                            Order #{b.displayOrder ?? 1}
+                          </span>
+                        </div>
+                        <div className="absolute top-2.5 right-2.5">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold backdrop-blur-xs ${
                               b.isActive !== false
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-slate-100 text-slate-600'
+                                ? 'bg-emerald-500/90 text-white'
+                                : 'bg-slate-700/90 text-slate-200'
                             }`}
                           >
                             {b.isActive !== false ? 'Live' : 'Inactive'}
                           </span>
                         </div>
                       </div>
-                      {b.subtitle && <p className="text-xs text-slate-500">{b.subtitle}</p>}
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-100">
-                        <span>Target: {b.targetUrl}</span>
-                        <span className="font-bold text-orange">CTA: {b.ctaText}</span>
+                      <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                        <div className="space-y-1">
+                          <h3 className="font-black text-sm text-navy">{b.title}</h3>
+                          {b.subtitle && <p className="text-xs text-slate-500 line-clamp-1">{b.subtitle}</p>}
+                        </div>
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                          <div className="flex items-center space-x-2 text-slate-500 truncate mr-2">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Target:</span>
+                            <span className="font-mono text-[11px] text-purple truncate max-w-[160px]">{b.targetUrl || '/'}</span>
+                          </div>
+                          {b.ctaText && (
+                            <span className="px-2.5 py-1 rounded-lg bg-orange/10 text-orange font-bold text-[11px] flex-shrink-0">
+                              {b.ctaText}
+                            </span>
+                          )}
+                        </div>
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => {
+                              setBannerFormData({ ...b, placement: bannerPlacementOf(b) });
+                              setIsBannerModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold flex items-center space-x-1"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => setDeleteBannerTarget(b)}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 text-red-500 hover:bg-red-50 text-xs font-bold flex items-center space-x-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-end space-x-1.5 pt-2 border-t border-slate-100">
+                    </div>
+                  ))}
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-5">
+                {placementBanners.map((b) => (
+                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                    <div className="relative aspect-[4/5] bg-slate-900 overflow-hidden group">
+                      <img src={b.imageUrl} alt={b.title} className="w-full h-full object-cover" />
+                      <div className="absolute top-2.5 left-2.5 flex items-center space-x-1.5">
+                        <span className="px-2 py-0.5 rounded-md bg-purple/90 backdrop-blur-xs text-white text-[10px] font-bold flex items-center space-x-1">
+                          <Smartphone className="w-3 h-3" />
+                          <span>Mobile View</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-white/90 backdrop-blur-xs text-slate-700 text-[10px] font-bold">
+                          #{b.displayOrder ?? 1}
+                        </span>
+                      </div>
+                      <div className="absolute top-2.5 right-2.5">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold backdrop-blur-xs ${
+                            b.isActive !== false
+                              ? 'bg-emerald-500/90 text-white'
+                              : 'bg-slate-700/90 text-slate-200'
+                          }`}
+                        >
+                          {b.isActive !== false ? 'Live' : 'Inactive'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-4 flex-1 flex flex-col justify-between space-y-2.5">
+                      <div className="space-y-0.5">
+                        <h3 className="font-bold text-xs text-navy truncate">{b.title}</h3>
+                        {b.subtitle && <p className="text-[11px] text-slate-500 truncate">{b.subtitle}</p>}
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400 truncate max-w-[120px] font-mono">{b.targetUrl || '/'}</span>
+                        {b.ctaText && (
+                          <span className="font-bold text-orange text-[10px] bg-orange/10 px-2 py-0.5 rounded">
+                            {b.ctaText}
+                          </span>
+                        )}
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end space-x-1.5">
                         <button
                           onClick={() => {
                             setBannerFormData({ ...b, placement: bannerPlacementOf(b) });
@@ -1108,14 +1242,35 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-navy">Image URL</label>
+                <label className="font-bold text-navy flex items-center justify-between">
+                  <span>Category Image (Google Drive or Web URL)</span>
+                  <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
+                </label>
                 <input
                   type="text"
                   value={categoryFormData.imageUrl || ''}
                   onChange={(e) => setCategoryFormData({ ...categoryFormData, imageUrl: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
+                  placeholder="Paste Google Drive link (e.g. drive.google.com/file/d/...) or web URL..."
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple text-xs"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Supports Google Drive sharing links. They automatically convert to direct high-res images.
+                </p>
+                {categoryFormData.imageUrl && (
+                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preview</div>
+                    <div className="h-28 rounded-lg overflow-hidden bg-slate-200">
+                      <img
+                        src={normalizeImageUrl(categoryFormData.imageUrl) || categoryFormData.imageUrl}
+                        alt="Category Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-2 pt-2">
@@ -1174,7 +1329,9 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="font-black text-sm text-navy uppercase tracking-wider">
-                {bannerFormData.id ? 'Edit Banner' : 'Create New Banner'}
+                {bannerFormData.id
+                  ? 'Edit Banner'
+                  : `Create New ${bannerFormData.placement === 'Mobile' ? 'Mobile App' : 'Web / Desktop'} Banner`}
               </h3>
               <button onClick={() => setIsBannerModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <XCircle className="w-5 h-5" />
@@ -1204,17 +1361,6 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="font-bold text-navy">Image URL *</label>
-                <input
-                  type="text"
-                  value={bannerFormData.imageUrl || ''}
-                  onChange={(e) => setBannerFormData({ ...bannerFormData, imageUrl: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none"
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-navy">Placement *</label>
@@ -1223,8 +1369,8 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     onChange={(e) => setBannerFormData({ ...bannerFormData, placement: e.target.value })}
                     className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
                   >
-                    <option value="Home">Home</option>
-                    <option value="Mobile">Mobile</option>
+                    <option value="Home">Web / Desktop</option>
+                    <option value="Mobile">Mobile App</option>
                   </select>
                 </div>
                 <div>
@@ -1236,6 +1382,49 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-navy flex items-center justify-between">
+                  <span>Banner Image (Google Drive or Web URL) *</span>
+                  <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
+                </label>
+                <input
+                  type="text"
+                  value={bannerFormData.imageUrl || ''}
+                  onChange={(e) => setBannerFormData({ ...bannerFormData, imageUrl: e.target.value })}
+                  placeholder="Paste Google Drive share link (e.g. drive.google.com/file/d/...) or web URL..."
+                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple text-xs"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Recommended size for {bannerFormData.placement === 'Mobile' ? 'Mobile' : 'Web'}:{' '}
+                  <span className="font-mono text-purple font-semibold">
+                    {bannerFormData.placement === 'Mobile' ? '1080 × 1350 px or 750 × 400 px' : '1920 × 600 px'}
+                  </span>
+                </p>
+
+                {/* Live Image Preview */}
+                {bannerFormData.imageUrl && (
+                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Preview</div>
+                    <div
+                      className={`overflow-hidden rounded-lg bg-slate-200 ${
+                        bannerFormData.placement === 'Mobile'
+                          ? 'aspect-[4/5] max-h-44 mx-auto'
+                          : 'aspect-[16/6] max-h-32'
+                      }`}
+                    >
+                      <img
+                        src={normalizeImageUrl(bannerFormData.imageUrl) || bannerFormData.imageUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

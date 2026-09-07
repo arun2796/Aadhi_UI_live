@@ -23,11 +23,13 @@ import {
   MapPin,
   Plus,
   Trash2,
-  X
+  X,
+  Link as LinkIcon
 } from 'lucide-react';
 import { SystemSetting, SystemHealthReport } from '../../types';
 import { api, settingsApi, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { normalizeImageUrl } from '../../utils/imageUrl';
 
 interface ErpSystemHealthAndSettingsModuleProps {
   initialSubTab?: 'settings' | 'health' | 'backup';
@@ -240,6 +242,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
   const [termsList, setTermsList] = useState<string[]>([]);
   const [termsShowErrors, setTermsShowErrors] = useState(false);
   const [zoneRows, setZoneRows] = useState<DeliveryZoneRow[]>([]);
+  const [logoUrlInput, setLogoUrlInput] = useState('');
 
   const loadData = async () => {
     setIsLoading(true);
@@ -399,23 +402,6 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
     }
   };
 
-  /** "Choose File" → base64 data URL held in Store.LogoUrl until Save Changes. */
-  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      showToast('Please choose an image file', 'warning');
-      return;
-    }
-    if (file.size > 500 * 1024) {
-      showToast('Please choose an image under 500 KB', 'warning');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => setValue(LOGO_KEY, String(reader.result || ''));
-    reader.readAsDataURL(file);
-  };
 
   // ---------- Terms & Conditions list editor ----------
   const addTerm = () => setTermsList((prev) => [...prev, '']);
@@ -552,14 +538,50 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                     </div>
                   )}
                 </div>
-                <label className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold shadow-2xs cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>Choose File</span>
-                  <input type="file" accept="image/*" onChange={handleLogoFile} className="hidden" />
-                </label>
-                <p className="text-[10px] text-slate-400">
-                  PNG / JPG / SVG up to 500 KB. Stored as a data URL in the "{LOGO_KEY}" setting.
-                </p>
+                <div className="space-y-1.5 max-w-md">
+                  <label className="text-[11px] font-bold text-navy flex items-center justify-between">
+                    <span>Google Drive Logo URL</span>
+                    <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+                      <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={logoUrlInput}
+                        onChange={(e) => setLogoUrlInput(e.target.value)}
+                        placeholder="Paste Google Drive link or image URL..."
+                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (logoUrlInput.trim()) {
+                              setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
+                              setLogoUrlInput('');
+                              showToast('Logo URL applied (click Save Changes to save)', 'success');
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (logoUrlInput.trim()) {
+                          setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
+                          setLogoUrlInput('');
+                          showToast('Logo URL applied (click Save Changes to save)', 'success');
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-xs flex-shrink-0"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Supports Google Drive sharing links. Automatically converted to high-resolution image.
+                  </p>
+                </div>
               </div>
             ) : settingsSection === 'website' ? (
               <div className="space-y-4 text-xs">
@@ -879,14 +901,57 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                           <ImageIcon className="w-7 h-7 text-slate-300" />
                         )}
                       </div>
-                      <div className="space-y-2">
-                        <label className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold shadow-2xs cursor-pointer">
-                          <Upload className="w-3.5 h-3.5" />
-                          <span>Choose File</span>
-                          <input type="file" accept="image/*" onChange={handleLogoFile} className="hidden" />
+                      <div className="space-y-2 flex-1 max-w-md">
+                        <label className="text-[11px] font-bold text-navy flex items-center justify-between">
+                          <span>Google Drive Logo URL</span>
+                          <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
                         </label>
+                        <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
+                            <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                            <input
+                              type="text"
+                              value={logoUrlInput}
+                              onChange={(e) => setLogoUrlInput(e.target.value)}
+                              placeholder="Paste Google Drive link or image URL..."
+                              className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (logoUrlInput.trim()) {
+                                    setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
+                                    setLogoUrlInput('');
+                                    showToast('Logo URL applied (click Save Changes to save)', 'success');
+                                  }
+                                }
+                              }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (logoUrlInput.trim()) {
+                                setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
+                                setLogoUrlInput('');
+                                showToast('Logo URL applied (click Save Changes to save)', 'success');
+                              }
+                            }}
+                            className="px-3 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-colors shrink-0 shadow-2xs"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                        {settingValues[LOGO_KEY] && (
+                          <button
+                            type="button"
+                            onClick={() => setValue(LOGO_KEY, '')}
+                            className="text-[11px] text-rose-500 hover:text-rose-700 font-semibold"
+                          >
+                            Remove Logo
+                          </button>
+                        )}
                         <p className="text-[10px] text-slate-400">
-                          PNG / JPG / SVG up to 500 KB. Stored in the "{LOGO_KEY}" setting.
+                          Paste a shareable Google Drive link. Stored in the "{LOGO_KEY}" setting.
                         </p>
                       </div>
                     </div>

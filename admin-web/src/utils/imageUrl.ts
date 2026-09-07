@@ -1,14 +1,16 @@
-/** Converts Google Drive share links into direct-image URLs usable in <img> tags.
- *  Any other URL passes through unchanged. Mirrors the backend ImageUrlNormalizer,
- *  so previews in the admin look exactly like what will be stored and served.
- *  Handled forms:
- *    https://drive.google.com/file/d/{id}/view?usp=sharing
- *    https://drive.google.com/open?id={id}
- *    https://drive.google.com/uc?export=view&id={id}
+const API_BASE_URL = ((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) || 'http://localhost:5050/api/v1';
+const API_ORIGIN = API_BASE_URL.replace(/\/api.*$/i, '');
+
+/** Converts Google Drive share links into direct-image URLs usable in <img> tags,
+ *  and resolves server-hosted /storage/... paths to absolute API origin.
+ *  Any other URL passes through unchanged.
  */
 export const normalizeImageUrl = (url?: string | null): string | undefined => {
   if (!url || !url.trim()) return undefined;
   const trimmed = url.trim();
+  if (trimmed.startsWith('/storage/')) {
+    return `${API_ORIGIN}${trimmed}`;
+  }
   if (!/drive\.google\.com/i.test(trimmed)) return trimmed;
   if (/drive\.google\.com\/thumbnail/i.test(trimmed)) return trimmed;
   const match =

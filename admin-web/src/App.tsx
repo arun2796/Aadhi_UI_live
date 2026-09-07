@@ -94,7 +94,16 @@ function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedA
       'system-health': '/admin/system-health',
       backup: '/admin/backup'
     };
-    const targetRoute = routeMap[tab] || `/admin/${tab}`;
+    let targetRoute = routeMap[tab];
+    if (!targetRoute) {
+      if (tab.startsWith('/admin/')) {
+        targetRoute = tab;
+      } else if (tab.startsWith('/')) {
+        targetRoute = `/admin${tab}`;
+      } else {
+        targetRoute = `/admin/${tab}`;
+      }
+    }
     navigate(targetRoute);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

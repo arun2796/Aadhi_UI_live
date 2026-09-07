@@ -56,6 +56,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { GlobalSearchModal } from '../common/GlobalSearchModal';
 import { api } from '../../services/api';
 import { Order, StockItem } from '../../types';
@@ -74,8 +75,7 @@ interface NavLeaf {
   /** Tab id / path fragment handed to onNavigateTab (may carry a query string). */
   to: string;
   /**
-   * currentTab value that marks this item active.
-   * Omitted → defaults to `to`; explicit null → never rendered active
+   * Optional manual override. Explicit null means never rendered active
    * (used when another item already owns the highlight for that route).
    */
   match?: string | null;
@@ -89,8 +89,100 @@ interface NavGroup {
   items: NavLeaf[];
 }
 
-const navMatchId = (item: NavLeaf): string | null =>
-  item.match === undefined ? item.to : item.match;
+/**
+ * Accurately determines if a navigation item is currently active,
+ * distinguishing sub-tab query strings (?tab=codes vs ?tab=discounts, ?tab=confirm, ?section=company, ?pdf=1).
+ */
+const isItemActive = (
+  item: NavLeaf,
+  location: { pathname: string; search: string },
+  currentTab: string
+): boolean => {
+  if (item.match === null) return false;
+
+  const [toPathRaw, toQueryRaw] = item.to.split('?');
+  const targetPath = toPathRaw.startsWith('/') ? toPathRaw : `/admin/${toPathRaw}`;
+  const currentPath = location.pathname;
+  const currentSearch = new URLSearchParams(location.search);
+
+  // 1. Standalone Dashboard match
+  if (targetPath === '/admin/dashboard') {
+    return (
+      currentPath === '/admin/dashboard' ||
+      currentPath === '/admin' ||
+      currentPath === '/admin/' ||
+      currentPath === '/'
+    );
+  }
+
+  // 2. Base path matching
+  let isPathMatch = false;
+  if (currentPath === targetPath) {
+    isPathMatch = true;
+  } else if (
+    currentPath.startsWith(`${targetPath}/`) &&
+    targetPath !== '/admin' &&
+    targetPath !== '/admin/'
+  ) {
+    // Avoid false matches when a sibling route is more specific (e.g. enquiries/customers)
+    if (targetPath === '/admin/enquiries') {
+      const rest = currentPath.slice('/admin/enquiries/'.length);
+      if (rest === 'customers' || rest === 'direct') {
+        isPathMatch = false;
+      } else {
+        isPathMatch = true;
+      }
+    } else {
+      isPathMatch = true;
+    }
+  }
+
+  if (!isPathMatch) {
+    if (item.match && item.match === currentTab) return true;
+    return false;
+  }
+
+  // 3. Query parameter differentiation
+  if (toQueryRaw) {
+    const targetParams = new URLSearchParams(toQueryRaw);
+    let allMatch = true;
+    targetParams.forEach((val, key) => {
+      const currentVal = currentSearch.get(key);
+      if (key === 'tab' && val === 'discounts') {
+        // 'discounts' is the default view in ErpMarketingModule when ?tab is missing or explicitly ?tab=discounts
+        if (currentVal !== null && currentVal !== 'discounts') {
+          allMatch = false;
+        }
+      } else if (currentVal !== val) {
+        allMatch = false;
+      }
+    });
+    return allMatch;
+  }
+
+  // 4. Default routes with no query parameters: ensure they don't stay active when a query-specific sibling is active
+  if (targetPath === '/admin/marketing/coupons') {
+    return currentSearch.get('tab') !== 'codes';
+  }
+
+  if (targetPath === '/admin/orders') {
+    return currentSearch.get('tab') !== 'confirm';
+  }
+
+  if (targetPath === '/admin/settings') {
+    return currentSearch.get('section') !== 'company';
+  }
+
+  if (targetPath === '/admin/enquiries') {
+    return currentSearch.get('pdf') !== '1';
+  }
+
+  if (targetPath === '/admin/users') {
+    return currentSearch.get('tab') !== 'staff';
+  }
+
+  return true;
+};
 
 // Standalone Dashboard link shown above the groups
 const DASHBOARD_ITEM: NavLeaf = {
@@ -106,8 +198,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Master',
     items: [
       { key: 'master-user', label: 'User', icon: UserCog, to: 'users' },
-      { key: 'master-company', label: 'Company', icon: Building2, to: 'settings?section=company', match: null },
-      { key: 'master-staff', label: 'Staff', icon: UserCheck, to: 'users', match: null },
+      { key: 'master-company', label: 'Company', icon: Building2, to: 'settings?section=company' },
+      { key: 'master-staff', label: 'Staff', icon: UserCheck, to: 'users?tab=staff' },
       { key: 'master-settings', label: 'Settings', icon: Settings, to: 'settings' }
     ]
   },
@@ -117,29 +209,28 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'catalog-category', label: 'Category', icon: Layers, to: 'categories' },
       { key: 'catalog-sub-categories', label: 'Sub Categories', icon: FolderTree, to: 'sub-categories', indent: true },
       { key: 'catalog-product', label: 'Product', icon: Package, to: 'products' },
-      { key: 'catalog-discount', label: 'Discount', icon: Tag, to: 'marketing/coupons?tab=discounts', match: 'coupons' },
-      { key: 'catalog-promo-code', label: 'Promotion Code', icon: Ticket, to: 'marketing/coupons?tab=codes', match: null }
+      { key: 'catalog-discount', label: 'Discount', icon: Tag, to: 'marketing/coupons?tab=discounts' },
+      { key: 'catalog-promo-code', label: 'Promotion Code', icon: Ticket, to: 'marketing/coupons?tab=codes' }
     ]
   },
   {
     label: 'Customer & Enquiry',
     items: [
       { key: 'ce-customer', label: 'Customer', icon: Users, to: 'customers' },
-      { key: 'ce-enquiry-customer', label: 'Enquiry Customer', icon: UserPlus, to: 'enquiries/customers', match: 'enquiries-customers' },
-      { key: 'ce-direct-enquiry', label: 'Direct Enquiry', icon: MessageCircle, to: 'enquiries/direct', match: 'enquiries-direct' },
+      { key: 'ce-enquiry-customer', label: 'Enquiry Customer', icon: UserPlus, to: 'enquiries/customers' },
+      { key: 'ce-direct-enquiry', label: 'Direct Enquiry', icon: MessageCircle, to: 'enquiries/direct' },
       { key: 'ce-enquiry', label: 'Enquiry', icon: MessageSquare, to: 'enquiries' },
-      { key: 'ce-enquiry-pdf', label: 'Enquiry To PDF', icon: FileDown, to: 'enquiries?pdf=1', match: null }
+      { key: 'ce-enquiry-pdf', label: 'Enquiry To PDF', icon: FileDown, to: 'enquiries?pdf=1' }
     ]
   },
   {
     label: 'Order Management',
     items: [
       { key: 'om-order', label: 'Order', icon: ShoppingBag, to: 'orders' },
-      { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm', match: null, badge: 'NEW' },
-      // Hidden per client menu — reachable at /admin/returns
-      // { key: 'om-returns', label: 'Returns', icon: RotateCcw, to: 'returns' }
+      { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm', badge: 'NEW' }
     ]
   },
+  /*
   {
     label: 'Inventory',
     items: [
@@ -156,6 +247,7 @@ const NAV_GROUPS: NavGroup[] = [
       // { key: 'pur-suppliers', label: 'Suppliers', icon: Store, to: 'suppliers' }
     ]
   },
+  */
   {
     label: 'Sales',
     items: [
@@ -169,8 +261,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Content',
     items: [
-      { key: 'content-home-banner', label: 'Home Banner', icon: ImageIcon, to: 'banners?placement=home', match: 'banners' },
-      { key: 'content-mobile-banner', label: 'Mobile Banner', icon: Smartphone, to: 'banners?placement=mobile', match: null }
+      { key: 'content-banners', label: 'Banners', icon: ImageIcon, to: 'banners' }
     ]
   }
 ];
@@ -206,11 +297,12 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
   children
 }) => {
   const { user, logout } = useAuth();
+  const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [isDeveloperOpen, setIsDeveloperOpen] = useState(() =>
-    DEVELOPER_NAV.some((i) => navMatchId(i) === currentTab)
+    DEVELOPER_NAV.some((i) => isItemActive(i, location, currentTab))
   );
 
   // Real notification data — fetched on demand when the bell drawer opens (no polling)
@@ -233,10 +325,10 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
 
   // Keep the "Developer" section expanded whenever the active route lives inside it
   useEffect(() => {
-    if (DEVELOPER_NAV.some((i) => navMatchId(i) === currentTab)) {
+    if (DEVELOPER_NAV.some((i) => isItemActive(i, location, currentTab))) {
       setIsDeveloperOpen(true);
     }
-  }, [currentTab]);
+  }, [location, currentTab]);
 
   const toggleNotifications = () => {
     const opening = !isNotificationsOpen;
@@ -263,8 +355,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
 
   const renderNavItem = (item: NavLeaf, subtle = false) => {
     const Icon = item.icon;
-    const matchId = navMatchId(item);
-    const isActive = matchId !== null && currentTab === matchId;
+    const isActive = isItemActive(item, location, currentTab);
     return (
       <button
         key={item.key}
@@ -272,22 +363,25 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
           onNavigateTab(item.to);
           setIsSidebarOpen(false);
         }}
-        className={`w-full py-2 rounded-xl text-xs font-semibold flex items-center justify-between border transition-all ${
-          item.indent ? 'pl-7 pr-3' : 'px-3'
+        className={`w-full py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between border transition-all duration-200 press-scale ${
+          item.indent ? 'pl-7 pr-3' : 'px-3.5'
         } ${
           isActive
-            ? 'bg-[#23255b] border-[#34377c] text-white font-bold'
+            ? 'bg-gradient-to-r from-purple/30 via-purple/15 to-transparent border-purple/40 text-white font-bold shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]'
             : subtle
-              ? 'border-transparent text-slate-400 hover:bg-[#1a1b4b] hover:text-white'
-              : 'border-transparent text-slate-300 hover:bg-[#1a1b4b] hover:text-white'
+              ? 'border-transparent text-slate-400 hover:bg-white/[0.05] hover:text-white'
+              : 'border-transparent text-slate-300/90 hover:bg-white/[0.06] hover:text-white'
         }`}
       >
         <div className="flex items-center space-x-2.5">
-          <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-gold' : 'text-slate-400'}`} />
-          <span className="truncate text-left">{item.label}</span>
+          {isActive && (
+            <span className="w-1 h-3.5 rounded-full bg-gradient-to-b from-gold to-orange -ml-1 mr-0.5 animate-pulse" />
+          )}
+          <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? 'text-gold drop-shadow-[0_0_8px_rgba(255,176,0,0.5)]' : 'text-slate-400'}`} />
+          <span className="truncate text-left tracking-wide">{item.label}</span>
         </div>
         {item.badge && (
-          <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-red-500 text-white tracking-wider flex-shrink-0">
+          <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-red-500 text-white tracking-wider flex-shrink-0 shadow-xs">
             {item.badge}
           </span>
         )}
@@ -296,7 +390,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row text-slate-800 font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row text-slate-800 font-sans">
       {/* Global Search Modal */}
       <GlobalSearchModal
         isOpen={isGlobalSearchOpen}
@@ -304,23 +398,29 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
         onNavigateTab={onNavigateTab}
       />
 
-      {/* Dark Navy Sidebar */}
+      {/* Obsidian Dark Sidebar */}
       <aside
-        className={`fixed md:sticky top-0 z-40 h-screen w-64 bg-[#111238] text-slate-300 flex flex-col justify-between border-r border-[#1d1e4e] transition-transform duration-300 ${
+        className={`fixed md:sticky top-0 z-40 h-screen w-64 bg-[#080918] text-slate-300 flex flex-col justify-between border-r border-[#1a1b38] transition-transform duration-300 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
         <div className="flex flex-col h-full overflow-hidden">
-          {/* Brand Logo Header — gold AADHI CRACKERS wordmark */}
-          <div className="p-4 border-b border-[#1d1e4e] flex items-center justify-between">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple to-navy border border-[#2b2d6b] flex items-center justify-center shadow-glow flex-shrink-0">
-                <Flame className="w-5 h-5 text-orange fill-current" />
+          {/* Brand Logo Header — gold AADHI CRACKERS wordmark + live status */}
+          <div className="p-4 border-b border-[#181938] bg-[#070815] flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="relative">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple via-[#361e8c] to-orange/40 border border-purple/40 flex items-center justify-center shadow-glow flex-shrink-0">
+                  <Flame className="w-5 h-5 text-orange fill-current" />
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-[#080918] rounded-full" />
               </div>
               <div className="leading-tight">
-                <div className="font-black text-gold text-base tracking-wide">AADHI</div>
-                <div className="text-[10px] text-gold font-bold tracking-[0.3em] uppercase -mt-0.5">
-                  Crackers
+                <div className="font-black text-gold text-base tracking-wide flex items-center space-x-1.5">
+                  <span>AADHI</span>
+                  <span className="text-[8px] font-extrabold px-1.5 py-0.5 rounded-md bg-gold/15 text-gold border border-gold/30 tracking-wider">ERP</span>
+                </div>
+                <div className="text-[9px] text-slate-400 font-bold tracking-[0.25em] uppercase">
+                  Crackers Live
                 </div>
               </div>
             </div>
@@ -334,24 +434,24 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
           </div>
 
           {/* Grouped Navigation */}
-          <nav className="flex-1 overflow-y-auto p-3">
+          <nav className="flex-1 overflow-y-auto p-3 space-y-1">
             {renderNavItem(DASHBOARD_ITEM)}
 
             {NAV_GROUPS.map((group) => (
-              <div key={group.label} className="pt-4">
-                <div className="px-3 pb-1.5 text-[10px] font-extrabold text-slate-400 tracking-wider uppercase">
+              <div key={group.label} className="pt-3">
+                <div className="px-3 pb-1 text-[10px] font-extrabold text-slate-400/80 tracking-widest uppercase">
                   {group.label}
                 </div>
-                <div className="space-y-1">{group.items.map((item) => renderNavItem(item))}</div>
+                <div className="space-y-0.5">{group.items.map((item) => renderNavItem(item))}</div>
               </div>
             ))}
 
             {/* Collapsed "Developer" section — hidden via SHOW_DEVELOPER_NAV */}
             {SHOW_DEVELOPER_NAV && (
-            <div className="pt-4 mt-3 border-t border-[#1d1e4e]">
+            <div className="pt-4 mt-3 border-t border-[#181938]">
               <button
                 onClick={() => setIsDeveloperOpen((v) => !v)}
-                className="w-full px-3 py-2 rounded-xl flex items-center justify-between text-[10px] font-extrabold text-slate-500 tracking-wider uppercase hover:text-white hover:bg-[#1a1b4b] transition-colors"
+                className="w-full px-3 py-2 rounded-xl flex items-center justify-between text-[10px] font-extrabold text-slate-500 tracking-wider uppercase hover:text-white hover:bg-white/[0.04] transition-colors"
               >
                 <span>Developer</span>
                 <ChevronDown
@@ -359,7 +459,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
                 />
               </button>
               {isDeveloperOpen && (
-                <div className="mt-1 space-y-1 opacity-90">
+                <div className="mt-1 space-y-0.5 opacity-90">
                   {DEVELOPER_NAV.map((item) => renderNavItem(item, true))}
                 </div>
               )}
@@ -368,17 +468,21 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
           </nav>
 
           {/* User Profile & Logout Bottom Card */}
-          <div className="p-3 border-t border-[#1d1e4e] bg-[#0c0d29] flex items-center justify-between">
+          <div className="p-3 border-t border-[#181938] bg-[#060714] flex items-center justify-between">
             <div className="flex items-center space-x-2.5 overflow-hidden">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple/60 to-gold/40 border border-gold/40 flex items-center justify-center text-xs font-black text-white flex-shrink-0">
-                {(user?.firstName || user?.fullName || 'A').charAt(0)}
+              <div className="relative">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple to-gold/60 border border-gold/40 flex items-center justify-center text-xs font-black text-white flex-shrink-0 shadow-2xs">
+                  {(user?.firstName || user?.fullName || 'A').charAt(0)}
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-400 border border-[#080918] rounded-full" />
               </div>
               <div className="overflow-hidden">
                 <div className="text-xs font-bold text-white truncate">
                   {user?.fullName || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() || user?.email}
                 </div>
-                <div className="text-[10px] text-slate-400 font-semibold truncate">
-                  {user?.role}
+                <div className="text-[10px] text-slate-400 font-semibold truncate flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-light" />
+                  <span>{user?.role || 'Administrator'}</span>
                 </div>
               </div>
             </div>
@@ -386,7 +490,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
             <button
               onClick={() => logout()}
               title="Sign Out"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors flex-shrink-0"
+              className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/5 transition-all press-scale flex-shrink-0"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -397,11 +501,11 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-xs px-4 py-3 flex items-center justify-between">
+        <header className="sticky top-0 z-30 glass-header px-5 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="md:hidden p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+              className="md:hidden p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 press-scale"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -409,14 +513,16 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
             {/* Global Search Button Trigger */}
             <div
               onClick={() => setIsGlobalSearchOpen(true)}
-              className="w-48 sm:w-72 md:w-96 bg-slate-100 hover:bg-slate-200/70 cursor-pointer rounded-xl px-3 py-2 flex items-center justify-between text-xs text-slate-400 transition-colors border border-slate-200"
+              className="w-48 sm:w-72 md:w-96 bg-slate-100/80 hover:bg-slate-100/95 cursor-pointer rounded-xl px-3.5 py-2 flex items-center justify-between text-xs text-slate-400 transition-all border border-slate-200/80 shadow-2xs press-scale"
             >
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2.5">
                 <Search className="w-4 h-4 text-slate-400" />
                 <span className="truncate">Search products, orders, invoices...</span>
               </div>
-              <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-slate-600 border border-slate-300 shadow-2xs">
-                Ctrl+K
+              <span className="hidden sm:inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded-md bg-white text-[10px] font-bold text-slate-600 border border-slate-300 shadow-2xs">
+                <span>Ctrl</span>
+                <span>+</span>
+                <span>K</span>
               </span>
             </div>
           </div>
@@ -427,18 +533,21 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
               href={STOREFRONT_URL}
               target="_blank"
               rel="noreferrer"
-              className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+              className="hidden sm:flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-2xs text-xs font-bold text-slate-700 press-scale"
             >
+              <span className="w-2 h-2 rounded-full bg-orange animate-pulse" />
               <Store className="w-3.5 h-3.5 text-orange" />
               <span>Customer Storefront</span>
-              <ExternalLink className="w-3 h-3 text-slate-400 ml-0.5" />
+              <span className="w-5 h-5 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 ml-0.5">
+                <ExternalLink className="w-2.5 h-2.5" />
+              </span>
             </a>
 
             {/* Notification Bell */}
             <div className="relative">
               <button
                 onClick={toggleNotifications}
-                className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 relative shadow-2xs"
+                className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 relative shadow-2xs press-scale"
               >
                 <Bell className="w-4 h-4" />
                 {hasNotifFetched && notifCount > 0 && (

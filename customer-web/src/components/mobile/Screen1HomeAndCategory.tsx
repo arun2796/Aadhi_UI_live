@@ -127,7 +127,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
   }, []);
 
   return (
-    <div className="space-y-5 pb-6 font-sans bg-[#fbfbfb] animate-fade-in">
+    <div className="space-y-5 pb-10 font-sans bg-[#fbfbfb] animate-fade-in">
       {/* 1. Search bar */}
       <div className="px-4 pt-3">
         <button
@@ -276,9 +276,9 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         </div>
 
         {loadingProducts ? (
-          <div className="flex gap-3 px-4 overflow-hidden">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="w-40 flex-shrink-0 rounded-2xl bg-white border border-slate-100 p-2.5">
+          <div className="grid grid-cols-2 gap-3 px-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl bg-white border border-slate-100 p-2.5">
                 <div className="aspect-square rounded-xl bg-slate-100 animate-pulse mb-2" />
                 <div className="h-3 rounded bg-slate-100 animate-pulse mb-1.5" />
                 <div className="h-3 w-2/3 rounded bg-slate-100 animate-pulse" />
@@ -290,10 +290,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
             Products are loading soon — please check back!
           </div>
         ) : (
-          <div
-            className="flex overflow-x-auto gap-3 px-4 pb-1 snap-x [&::-webkit-scrollbar]:hidden"
-            style={{ scrollbarWidth: 'none' }}
-          >
+          <div className="grid grid-cols-2 gap-3 px-4">
             {bestSellers.map((p) => {
               const { rating, reviews } = ratingOf(p);
               const off = pctOff(p);
@@ -301,40 +298,44 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
                 <button
                   key={p.id}
                   onClick={() => onNavigate('product-detail', { slug: p.slug })}
-                  className="w-40 flex-shrink-0 snap-start bg-white rounded-2xl border border-slate-100 shadow-card p-2.5 text-left active:scale-[0.98] transition-transform"
+                  className="w-full bg-white rounded-2xl border border-slate-100 shadow-card p-2.5 text-left active:scale-[0.98] transition-transform flex flex-col justify-between"
                 >
-                  <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 mb-2">
-                    <img
-                      src={productImage(p)}
-                      alt={p.name}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                    {off > 0 && (
-                      <span className="absolute top-1.5 left-1.5 bg-orange text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs">
-                        {off}% OFF
-                      </span>
-                    )}
+                  <div className="w-full">
+                    <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 mb-2">
+                      <img
+                        src={productImage(p)}
+                        alt={p.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      {off > 0 && (
+                        <span className="absolute top-1.5 left-1.5 bg-orange text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs">
+                          {off}% OFF
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[30px] mb-1">
+                      {p.name}
+                    </h4>
                   </div>
 
-                  <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[28px] mb-1">
-                    {p.name}
-                  </h4>
-
-                  <div className="flex items-center gap-1 mb-1">
-                    <Star className="w-3 h-3 text-gold fill-gold" />
-                    <span className="text-[9px] font-bold text-slate-600">
-                      {rating} ({reviews})
-                    </span>
-                  </div>
-
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-black text-[13px] text-navy">{inr(p.price ?? 0)}</span>
-                    {(p.compareAtPrice ?? 0) > p.price && p.compareAtPrice && (
-                      <span className="text-[10px] text-slate-400 line-through">
-                        {inr(p.compareAtPrice)}
+                  <div className="w-full mt-1">
+                    <div className="flex items-center gap-1 mb-1">
+                      <Star className="w-3 h-3 text-gold fill-gold" />
+                      <span className="text-[9px] font-bold text-slate-600">
+                        {rating} ({reviews})
                       </span>
-                    )}
+                    </div>
+
+                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                      <span className="font-black text-[13px] text-navy">{inr(p.price ?? 0)}</span>
+                      {(p.compareAtPrice ?? 0) > p.price && p.compareAtPrice && (
+                        <span className="text-[10px] text-slate-400 line-through">
+                          {inr(p.compareAtPrice)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               );

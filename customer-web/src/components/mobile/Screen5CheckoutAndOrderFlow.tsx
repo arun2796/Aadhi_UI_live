@@ -29,6 +29,7 @@ import { useToast } from '../../context/ToastContext';
 import { useSettings, findDeliveryZone } from '../../context/SettingsContext';
 import { triggerFireworksConfetti } from '../common/CommonComponents';
 import { api } from '../../services/api';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 /* ─────────────────────────────────────────────────────────────
    Shared helpers
@@ -59,27 +60,9 @@ interface CheckoutAddress {
   isDefault?: boolean;
 }
 
-interface DeliveryOption {
-  code: string;
-  name: string;
-  charge: number;
-  etaMinDays: number;
-  etaMaxDays: number;
-}
-
 const fmtDayMonth = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 const fmtDayMonthYear = (d: Date) =>
   d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-
-/** "03 Sep - 05 Sep 2026" from today + etaMin/etaMax days. */
-const etaRange = (opt?: DeliveryOption | null): string => {
-  if (!opt) return '';
-  const from = new Date();
-  from.setDate(from.getDate() + (opt.etaMinDays || 0));
-  const to = new Date();
-  to.setDate(to.getDate() + (opt.etaMaxDays || 0));
-  return `${fmtDayMonth(from)} - ${fmtDayMonthYear(to)}`;
-};
 
 const addressOneLine = (a: CheckoutAddress): string =>
   [a.addressLine1, a.addressLine2, a.city ? `${a.city} - ${a.pincode}` : a.pincode]
@@ -96,7 +79,7 @@ interface Screen5CheckoutProps {
   onBack: () => void;
 }
 
-const STEP_LABELS = ['Address', 'Delivery', 'Payment', 'Review'];
+const STEP_LABELS = ['Address', 'Review', 'Payment'];
 
 const CheckoutStepper: React.FC<{ step: number; onStepClick: (s: number) => void }> = ({
   step,
@@ -319,32 +302,17 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     setErrorMessage(null);
   };
 
-  /* ── STEP 2: Delivery state ── */
-  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([]);
-  const [deliveryCode, setDeliveryCode] = useState<string>('standard');
+  /* ── Delivery state: Default 1-week transport delivery (To-Pay) ── */
+  const defaultDeliveryEta = useMemo(() => {
+    const from = new Date();
+    from.setDate(from.getDate() + 5);
+    const to = new Date();
+    to.setDate(to.getDate() + 7);
+    return `${fmtDayMonth(from)} - ${fmtDayMonthYear(to)}`;
+  }, []);
+  const deliveryCharge = 0; // Service charges are paid directly at the transport office upon parcel pickup
 
-  useEffect(() => {
-    let mounted = true;
-    api.getDeliveryOptions(subtotal).then(opts => {
-      if (!mounted) return;
-      const list = opts && opts.length > 0 ? opts : [];
-      setDeliveryOptions(list);
-      if (list.length > 0 && !list.some(o => o.code === deliveryCode)) {
-        setDeliveryCode(list[0].code);
-      }
-    });
-    return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subtotal]);
-
-  const selectedDelivery = useMemo(
-    () => deliveryOptions.find(o => o.code === deliveryCode) || deliveryOptions[0] || null,
-    [deliveryOptions, deliveryCode]
-  );
-  const deliveryCharge = selectedDelivery?.charge ?? 0;
-  const expectedRange = etaRange(selectedDelivery);
-
-  /* ── STEP 3: Payment state ── */
+  /* ── Payment state ── */
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'COD'>('UPI');
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
@@ -359,28 +327,26 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     setTimeout(() => setCopiedUpi(false), 2500);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setErrorMessage('Screenshot size must be under 5MB');
+      if (file.size > 15 * 1024 * 1024) {
+        setErrorMessage('Screenshot size must be under 15MB');
         return;
       }
       setScreenshotFileName(file.name);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setScreenshotPreview(reader.result as string);
+      try {
+        const result = await compressImageFile(file);
+        setScreenshotPreview(result.base64);
         setErrorMessage(null);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        setErrorMessage('Failed to process image. Please try another photo.');
+      }
     }
   };
 
-  /* ── STEP 4: Totals & Place Order ── */
-  // NOTE: packingCharges is included in the DISPLAYED total only — the backend
-  // order total does not include it yet; it is flagged to staff via the order notes.
+  /* ── Totals & Place Order ── */
   const orderTotal = Math.max(0, subtotal - discount) + deliveryCharge + packingCharges;
-  const [agreedToTerms, setAgreedToTerms] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const goToStep = (target: number) => {
@@ -405,20 +371,6 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     goToStep(2);
   };
 
-  const handleContinueFromPayment = () => {
-    if (paymentMethod === 'UPI') {
-      if (!utrNumber.trim()) {
-        setErrorMessage('Please enter the 12-digit UPI UTR / Transaction Reference ID');
-        return;
-      }
-      if (!screenshotPreview) {
-        setErrorMessage('Please attach the Payment Screenshot from GPay / PhonePe / Paytm');
-        return;
-      }
-    }
-    goToStep(4);
-  };
-
   const handlePlaceOrder = async () => {
     if (!selectedAddress) {
       setErrorMessage('Delivery address is missing.');
@@ -429,9 +381,15 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
       setErrorMessage('Your cart is empty.');
       return;
     }
-    if (!agreedToTerms) {
-      setErrorMessage('Please agree to the Terms & Conditions to place the order.');
-      return;
+    if (paymentMethod === 'UPI') {
+      if (!utrNumber.trim()) {
+        setErrorMessage('Please enter the 12-digit UPI UTR / Transaction Reference ID');
+        return;
+      }
+      if (!screenshotPreview) {
+        setErrorMessage('Please attach the Payment Screenshot from GPay / PhonePe / Paytm');
+        return;
+      }
     }
     if (minOrderShortfall && zone) {
       setErrorMessage(`Minimum order for ${selectedAddress.state} is ${inr(zone.minOrder)}`);
@@ -445,6 +403,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     const packingNote = packingCharges > 0
       ? ` Packing charges ${packingPercent}% = ₹${Math.round(packingCharges)} (collect on delivery).`
       : '';
+    const transportNote = ' Standard transport delivery (To-Pay service charge at transport office on collection).';
 
     try {
       const order = await api.createOrder({
@@ -485,13 +444,13 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
         })),
         paymentMethod,
         couponCode: couponCode || undefined,
-        deliveryMethod: (deliveryCode === 'express' ? 'express' : 'standard'),
+        deliveryMethod: 'standard',
         utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
         paymentScreenshotBase64: paymentMethod === 'UPI' ? (screenshotPreview || undefined) : undefined,
         notes:
           (paymentMethod === 'UPI'
             ? `UPI Payment Proof Uploaded. UTR: ${utrNumber.trim()}`
-            : 'Cash on Delivery order.') + packingNote
+            : 'Cash on Delivery order.') + packingNote + transportNote
       });
 
       clearCart();
@@ -747,17 +706,17 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               onClick={handleContinueFromAddress}
               className="flex-[2] py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider shadow-glow transition-all flex items-center justify-center space-x-1"
             >
-              <span>Continue to Delivery</span>
+              <span>Continue to Review</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* ═══════════ STEP 2: DELIVERY (design 06) ═══════════ */}
+      {/* ═══════════ STEP 2: REVIEW ═══════════ */}
       {step === 2 && (
         <div className="px-4 space-y-3 animate-fade-in">
-          <h3 className="font-black text-sm text-navy">Delivery Information</h3>
+          <h3 className="font-black text-sm text-navy">Review Your Order</h3>
 
           {/* Deliver to summary */}
           {selectedAddress && (
@@ -769,6 +728,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                 <div className="text-slate-500">Ph: {selectedAddress.phone}</div>
               </div>
               <button
+                type="button"
                 onClick={() => goToStep(1)}
                 className="text-purple font-bold text-[11px] hover:underline flex-shrink-0 ml-2"
               >
@@ -777,50 +737,84 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             </div>
           )}
 
-          {/* Delivery options */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-            <div className="font-bold text-navy text-xs">Delivery Options</div>
-            {deliveryOptions.length === 0 ? (
-              <div className="text-xs text-slate-400 flex items-center space-x-2">
-                <Clock className="w-4 h-4 animate-spin" />
-                <span>Loading delivery options...</span>
+          {/* Transport Delivery Notice (1 Week / To-Pay) */}
+          <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 shadow-xs space-y-2">
+            <div className="flex items-start space-x-2.5">
+              <Truck className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-black text-xs text-amber-950">Transport Office Delivery (Within 1 Week)</span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 text-[10px] font-bold uppercase tracking-wider flex-shrink-0">
+                    To-Pay
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800 font-semibold mt-0.5">
+                  Expected delivery between <strong>{defaultDeliveryEta}</strong> (~7 Days)
+                </p>
+                <p className="text-[10px] text-amber-700 mt-1 leading-relaxed">
+                  Parcel will be dispatched to your nearest transport office. Transport service / freight charges are to be paid directly to the transport office when collecting your parcel.
+                </p>
               </div>
-            ) : (
-              deliveryOptions.map(opt => (
-                <button
-                  key={opt.code}
-                  onClick={() => setDeliveryCode(opt.code)}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                    deliveryCode === opt.code ? 'border-purple ring-1 ring-purple/30 bg-purple/[0.03]' : 'border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <div
-                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                        deliveryCode === opt.code ? 'border-purple' : 'border-slate-300'
-                      }`}
-                    >
-                      {deliveryCode === opt.code && <div className="w-2 h-2 rounded-full bg-purple" />}
-                    </div>
-                    <div className="text-xs font-semibold text-slate-700">{opt.name}</div>
-                  </div>
-                  <div
-                    className={`text-xs font-black ${opt.charge === 0 ? 'text-emerald-600' : 'text-navy'}`}
-                  >
-                    {opt.charge === 0 ? 'FREE' : inr(opt.charge)}
-                  </div>
-                </button>
-              ))
-            )}
+            </div>
           </div>
 
-          {/* Green expected delivery note */}
-          {expectedRange && (
-            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-2 text-xs font-bold text-emerald-700">
-              <Truck className="w-4 h-4 flex-shrink-0" />
-              <span>Expected delivery between {expectedRange}</span>
+          {/* Cart Item rows */}
+          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs divide-y divide-slate-100">
+            <div className="font-bold text-navy text-xs pb-2">Order Items ({items.length})</div>
+            {items.map(item => (
+              <div key={item.productId} className="flex items-center space-x-3 py-2.5 first:pt-2 last:pb-0">
+                {item.imageUrl ? (
+                  <img
+                    src={item.imageUrl}
+                    alt={item.name}
+                    className="w-11 h-11 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-11 h-11 rounded-lg bg-purple-soft flex items-center justify-center flex-shrink-0">
+                    <Gift className="w-5 h-5 text-purple" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-navy truncate">{item.name}</div>
+                  <div className="text-[10px] text-slate-400">Qty: {item.quantity} × {inr(item.unitPrice)}</div>
+                </div>
+                <div className="text-xs font-black text-navy">{inr(item.lineTotal)}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bill Breakdown / Totals */}
+          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2 text-xs text-slate-600">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span className="font-bold text-slate-800">{inr(subtotal)}</span>
             </div>
-          )}
+            {discount > 0 && (
+              <div className="flex justify-between text-emerald-600 font-semibold">
+                <span>Discount{couponCode ? ` (${couponCode})` : ''}</span>
+                <span>-{inr(discount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <span>Delivery Charges</span>
+              <span className="font-bold text-amber-800 text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                To-Pay at Transport Office
+              </span>
+            </div>
+            {packingCharges > 0 && (
+              <div className="flex justify-between">
+                <span>Packing Charges ({packingPercent}%)</span>
+                <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm font-black text-navy pt-2 border-t border-slate-100">
+              <span>Total Payable Online</span>
+              <span className="text-base text-purple">{inr(orderTotal)}</span>
+            </div>
+            <div className="text-[10px] text-slate-400 pt-0.5">
+              * Transport office service charges to be paid directly on parcel collection.
+            </div>
+          </div>
 
           {errorBanner}
 
@@ -830,17 +824,35 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               onClick={() => goToStep(3)}
               className="flex-[2] py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider shadow-glow transition-all flex items-center justify-center space-x-1"
             >
-              <span>Continue to Payment</span>
+              <span>Proceed to Payment</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* ═══════════ STEP 3: PAYMENT (design 07) ═══════════ */}
+      {/* ═══════════ STEP 3: PAYMENT & PLACE ORDER ═══════════ */}
       {step === 3 && (
         <div className="px-4 space-y-3 animate-fade-in">
-          <h3 className="font-black text-sm text-navy">Payment Methods</h3>
+          <h3 className="font-black text-sm text-navy">Select Payment Method</h3>
+
+          {/* Order Total summary bar */}
+          <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between text-xs">
+            <div>
+              <span className="text-slate-400 font-semibold text-[11px] block">Total Amount to Pay</span>
+              <span className="text-base font-black text-purple">{inr(orderTotal)}</span>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] text-amber-700 font-semibold block">+ Transport charge To-Pay</span>
+              <button
+                type="button"
+                onClick={() => goToStep(2)}
+                className="text-[11px] text-purple font-bold hover:underline"
+              >
+                Review Items
+              </button>
+            </div>
+          </div>
 
           {/* UPI / QR option */}
           <button
@@ -986,7 +998,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               <Banknote className="w-4 h-4 text-emerald-600" />
               <div>
                 <div className="text-xs font-bold text-navy">Cash on Delivery</div>
-                <div className="text-[10px] text-slate-400">Pay in cash when your order arrives</div>
+                <div className="text-[10px] text-slate-400">Pay cash when order arrives</div>
               </div>
             </div>
           </button>
@@ -995,139 +1007,6 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
 
           <div className="flex space-x-2 pt-1">
             {backButton(() => goToStep(2))}
-            <button
-              onClick={handleContinueFromPayment}
-              className="flex-[2] py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider shadow-glow transition-all flex items-center justify-center space-x-1"
-            >
-              <span>Continue to Review</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════ STEP 4: REVIEW (design 08) ═══════════ */}
-      {step === 4 && (
-        <div className="px-4 space-y-3 animate-fade-in">
-          <h3 className="font-black text-sm text-navy">Review Your Order</h3>
-
-          {/* Item rows */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs divide-y divide-slate-100">
-            {items.map(item => (
-              <div key={item.productId} className="flex items-center space-x-3 py-2.5 first:pt-0 last:pb-0">
-                {item.imageUrl ? (
-                  <img
-                    src={item.imageUrl}
-                    alt={item.name}
-                    className="w-11 h-11 rounded-lg object-cover border border-slate-100 flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-11 h-11 rounded-lg bg-purple-soft flex items-center justify-center flex-shrink-0">
-                    <Gift className="w-5 h-5 text-purple" />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold text-navy truncate">{item.name}</div>
-                  <div className="text-[10px] text-slate-400">Qty: {item.quantity} × {inr(item.unitPrice)}</div>
-                </div>
-                <div className="text-xs font-black text-navy">{inr(item.lineTotal)}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Totals */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2 text-xs text-slate-600">
-            <div className="flex justify-between">
-              <span>Subtotal</span>
-              <span className="font-bold text-slate-800">{inr(subtotal)}</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between text-emerald-600 font-semibold">
-                <span>Discount{couponCode ? ` (${couponCode})` : ''}</span>
-                <span>-{inr(discount)}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span>Delivery Charges</span>
-              <span className={`font-bold ${deliveryCharge === 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
-                {deliveryCharge === 0 ? 'FREE' : inr(deliveryCharge)}
-              </span>
-            </div>
-            {packingCharges > 0 && (
-              <div className="flex justify-between">
-                <span>Packing Charges ({packingPercent}%)</span>
-                <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-sm font-black text-navy pt-2 border-t border-slate-100">
-              <span>Total</span>
-              <span className="text-base">{inr(orderTotal)}</span>
-            </div>
-          </div>
-
-          {/* Expected delivery */}
-          {expectedRange && (
-            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-2 text-xs font-bold text-emerald-700">
-              <Truck className="w-4 h-4 flex-shrink-0" />
-              <span>Expected delivery between {expectedRange}</span>
-            </div>
-          )}
-
-          {/* Deliver To */}
-          {selectedAddress && (
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs text-xs flex items-start justify-between">
-              <div className="space-y-0.5">
-                <div className="font-bold text-navy">Deliver To</div>
-                <div className="font-semibold text-slate-700">{selectedAddress.fullName}</div>
-                <div className="text-slate-500 leading-relaxed">{addressOneLine(selectedAddress)}</div>
-                <div className="text-slate-500">Ph: {selectedAddress.phone}</div>
-              </div>
-              <button
-                onClick={() => goToStep(1)}
-                className="text-purple font-bold text-[11px] hover:underline flex-shrink-0 ml-2"
-              >
-                Change
-              </button>
-            </div>
-          )}
-
-          {/* Payment method */}
-          <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs text-xs flex items-start justify-between">
-            <div className="space-y-0.5">
-              <div className="font-bold text-navy">Payment Method</div>
-              <div className="font-semibold text-purple">
-                {paymentMethod === 'UPI' ? 'UPI / QR' : 'Cash on Delivery'}
-              </div>
-              {paymentMethod === 'UPI' && utrNumber && (
-                <div className="text-slate-500 font-mono text-[10px]">UTR: {utrNumber}</div>
-              )}
-            </div>
-            <button
-              onClick={() => goToStep(3)}
-              className="text-purple font-bold text-[11px] hover:underline flex-shrink-0 ml-2"
-            >
-              Change
-            </button>
-          </div>
-
-          {/* Terms */}
-          <label className="flex items-start space-x-2 text-[11px] text-slate-600 cursor-pointer px-1">
-            <input
-              type="checkbox"
-              checked={agreedToTerms}
-              onChange={(e) => setAgreedToTerms(e.target.checked)}
-              className="mt-0.5 w-3.5 h-3.5 accent-[#4F2ACB]"
-            />
-            <span>
-              I agree to the <span className="text-purple font-bold">Terms & Conditions</span> and{' '}
-              <span className="text-purple font-bold">Privacy Policy</span>
-            </span>
-          </label>
-
-          {errorBanner}
-
-          <div className="flex space-x-2 pt-1">
-            {backButton(() => goToStep(3))}
             <button
               onClick={handlePlaceOrder}
               disabled={isSubmitting}
@@ -1143,7 +1022,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               ) : (
                 <>
                   <PackageCheck className="w-4 h-4" />
-                  <span>Place Order</span>
+                  <span>Place Order ({inr(orderTotal)})</span>
                 </>
               )}
             </button>
