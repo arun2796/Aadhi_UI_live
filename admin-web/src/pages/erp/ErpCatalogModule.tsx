@@ -1194,26 +1194,6 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-navy">Parent Category</label>
-                <select
-                  value={categoryFormData.parentCategoryId || ''}
-                  onChange={(e) =>
-                    setCategoryFormData({ ...categoryFormData, parentCategoryId: e.target.value || undefined })
-                  }
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
-                >
-                  <option value="">None (Top Level)</option>
-                  {topLevelCategories
-                    .filter((c) => c.id !== categoryFormData.id)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
                 <label className="font-bold text-navy">Category Slug</label>
                 <input
                   type="text"
