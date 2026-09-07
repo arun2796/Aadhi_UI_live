@@ -191,7 +191,7 @@ export const api = {
           isFeatured: p.isFeatured,
           isBestSeller: p.isBestSeller,
           isNewArrival: p.isNewArrival,
-          primaryImageUrl: normalizeImageUrl(p.primaryImageUrl) || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
+          primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
           images: (p.images || []).map((img: any) =>
             typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
           )
@@ -289,6 +289,38 @@ export const api = {
     try {
       const res = await apiClient.get('/products/combo-offers');
       return res.data?.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  // BANNERS (public storefront hero/promo banners; tolerant to the endpoint being absent)
+  async getBanners(placement: string = 'Home'): Promise<Array<{
+    id: string;
+    title: string;
+    subtitle?: string;
+    imageUrl?: string;
+    ctaText?: string;
+    targetUrl?: string;
+    displayOrder: number;
+  }>> {
+    try {
+      const res = await apiClient.get('/banners', {
+        params: { activeOnly: true, placement }
+      });
+      const raw = res.data?.data ?? res.data;
+      const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+      return list
+        .map((b: any, i: number) => ({
+          id: String(b?.id ?? i),
+          title: String(b?.title ?? '').trim(),
+          subtitle: b?.subtitle ? String(b.subtitle).trim() : undefined,
+          imageUrl: normalizeImageUrl(b?.imageUrl),
+          ctaText: b?.ctaText ? String(b.ctaText).trim() : undefined,
+          targetUrl: b?.targetUrl ? String(b.targetUrl).trim() : undefined,
+          displayOrder: Number(b?.displayOrder) || 0
+        }))
+        .sort((a: { displayOrder: number }, b: { displayOrder: number }) => a.displayOrder - b.displayOrder);
     } catch {
       return [];
     }

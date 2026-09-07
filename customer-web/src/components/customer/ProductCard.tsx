@@ -2,6 +2,7 @@ import React from 'react';
 import { Heart, ShoppingBag, Eye, Check } from 'lucide-react';
 import { Product } from '../../types';
 import { RatingStars } from '../common/CommonComponents';
+import productPlaceholder from '../../assets/product-placeholder.svg';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
@@ -49,7 +50,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
       {/* Image, Ribbon & Actions */}
       <div className="relative aspect-square w-full bg-slate-50 overflow-hidden">
         <img
-          src={product.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+          src={product.primaryImageUrl || productPlaceholder}
           alt={product.name}
           className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-500"
         />
@@ -113,8 +114,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
             )}
           </div>
 
-          {/* Star rating + count */}
-          {(product.rating || product.reviewCount) ? (
+          {/* Star rating + count — only when the DTO carries real review data */}
+          {(product.rating ?? 0) > 0 || (product.reviewCount ?? 0) > 0 ? (
             <div className="mb-2">
               <RatingStars rating={product.rating || 0} reviewCount={product.reviewCount || 0} size="w-3.5 h-3.5" />
             </div>

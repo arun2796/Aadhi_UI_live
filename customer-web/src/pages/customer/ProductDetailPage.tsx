@@ -20,24 +20,13 @@ import { ProductCard } from '../../components/customer/ProductCard';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../context/SettingsContext';
+import productPlaceholder from '../../assets/product-placeholder.svg';
 
 interface ProductDetailPageProps {
   slug: string;
   onNavigate: (page: string, params?: any) => void;
 }
-
-const FALLBACK_FEATURES = [
-  '62 Premium Items',
-  'Longer Burning Time',
-  'Safe & Eco Friendly',
-  'Perfect for All Celebrations'
-];
-
-const FALLBACK_GALLERY = [
-  'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1498931299472-f7a63a5a1cfa?w=600&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=600&auto=format&fit=crop&q=80'
-];
 
 const SAFETY_POINTS = [
   'Always light fireworks in an open outdoor area with a minimum 5-metre clearance.',
@@ -54,6 +43,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   const { addToCart, setIsCartDrawerOpen } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { showToast } = useToast();
+  const { freeShippingThreshold } = useSettings();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
@@ -95,32 +85,27 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : 0;
 
-  // Rating line with fallback copy per spec
-  const rating = product.rating ?? 4.7;
-  const reviewCount = product.reviewCount ?? 86;
-  const soldLabel = product.reviewCount ? `${product.reviewCount * 3}+` : '250+';
+  // Real review data only — the rating line/summary is omitted when the DTO has none.
+  const rating = (product.rating ?? 0) > 0 ? (product.rating as number) : 0;
+  const reviewCount = (product.reviewCount ?? 0) > 0 ? (product.reviewCount as number) : 0;
+  const hasRating = rating > 0 || reviewCount > 0;
 
-  // Gallery: real product images first, padded with fallbacks up to 4 thumbnails
+  // Gallery: real product images only; a single neutral placeholder when there are none.
   const productImages = [
     ...(product.primaryImageUrl ? [product.primaryImageUrl] : []),
     ...(product.images || []).map(i => i.url)
   ].filter((url, i, arr) => url && arr.indexOf(url) === i);
-  const galleryImages = [...productImages, ...FALLBACK_GALLERY].slice(0, 4);
+  const galleryImages = productImages.length > 0 ? productImages.slice(0, 4) : [productPlaceholder];
 
-  // Gold-bullet feature list derived from description lines, with spec fallback
+  // Gold-bullet feature list derived from real description lines only (hidden when none)
   const derivedFeatures = (product.description || '')
     .split(/\r?\n|•/)
     .map(s => s.replace(/^[-*\s]+/, '').trim())
     .filter(s => s.length > 3 && s.length < 90);
-  const features = derivedFeatures.length >= 2 ? derivedFeatures.slice(0, 5) : FALLBACK_FEATURES;
+  const features = derivedFeatures.length >= 2 ? derivedFeatures.slice(0, 5) : [];
 
   const fbtProducts = relatedProducts.slice(0, 3);
   const alsoLikeProducts = relatedProducts.slice(3, 7);
-
-  const placeholderReviews = Array.from(
-    { length: Math.min(3, Math.max(1, product.reviewCount || 3)) },
-    (_, i) => i
-  );
 
   const handleAddToCart = () => {
     addToCart(product, quantity);
@@ -224,16 +209,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
               {product.name}
             </h1>
 
-            {/* Rating line: 4.7 (86 Reviews) • Sold 250+ */}
-            <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mt-2 text-xs text-slate-600">
-              <span className="flex items-center space-x-1 font-bold text-navy">
-                <Star className="w-4 h-4 text-gold fill-current" />
-                <span>{rating.toFixed(1)}</span>
-              </span>
-              <span className="font-medium">({reviewCount} Reviews)</span>
-              <span className="text-slate-300">•</span>
-              <span className="font-medium">Sold {soldLabel}</span>
-            </div>
+            {/* Rating line — only when the DTO carries real review data */}
+            {hasRating && (
+              <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mt-2 text-xs text-slate-600">
+                <span className="flex items-center space-x-1 font-bold text-navy">
+                  <Star className="w-4 h-4 text-gold fill-current" />
+                  <span>{rating.toFixed(1)}</span>
+                </span>
+                <span className="font-medium">({reviewCount} Reviews)</span>
+              </div>
+            )}
           </div>
 
           {/* Price row */}
@@ -259,19 +244,24 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
               </div>
             )}
             <div className="text-[11px] text-slate-500">
-              Inclusive of all GST taxes. Free express shipping on orders over ₹3,000.
+              Inclusive of all GST taxes.
+              {freeShippingThreshold > 0 && (
+                <> Free express shipping on orders over ₹{freeShippingThreshold.toLocaleString('en-IN')}.</>
+              )}
             </div>
           </div>
 
-          {/* Gold-bullet feature list */}
-          <ul className="space-y-2">
-            {features.map((f, i) => (
-              <li key={i} className="flex items-start space-x-2 text-xs sm:text-sm font-semibold text-slate-700">
-                <Star className="w-4 h-4 text-gold fill-current shrink-0 mt-0.5" />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
+          {/* Gold-bullet feature list (real description lines only) */}
+          {features.length > 0 && (
+            <ul className="space-y-2">
+              {features.map((f, i) => (
+                <li key={i} className="flex items-start space-x-2 text-xs sm:text-sm font-semibold text-slate-700">
+                  <Star className="w-4 h-4 text-gold fill-current shrink-0 mt-0.5" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {/* Stock + Quantity stepper */}
           <div className="space-y-3 pt-1">
@@ -375,7 +365,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                   className="w-16 h-16 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0"
                 >
                   <img
-                    src={p.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=300&auto=format&fit=crop&q=80'}
+                    src={p.primaryImageUrl || productPlaceholder}
                     alt={p.name}
                     className="w-full h-full object-cover"
                   />
@@ -427,10 +417,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
           {activeTab === 'description' && (
             <div className="space-y-4 text-xs sm:text-sm text-slate-600 leading-relaxed max-w-4xl">
               <h3 className="text-base font-bold text-navy">About {product.name}</h3>
-              <p>{product.description || product.shortDescription || 'Premium quality Sivakasi fireworks, crafted for bright, safe and memorable celebrations.'}</p>
-              <p>
-                Manufactured using high-grade chemical compositions with lower sulfur content, resulting in vibrant colors, longer burning duration, and reduced smoke emissions. Suitable for all celebratory events, weddings, Diwali, New Year, and festivals.
-              </p>
+              {product.description || product.shortDescription ? (
+                <p>{product.description || product.shortDescription}</p>
+              ) : (
+                <p className="text-slate-400">No description available for this product yet.</p>
+              )}
             </div>
           )}
 
@@ -456,31 +447,25 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
 
           {activeTab === 'reviews' && (
             <div className="space-y-6 max-w-3xl">
-              {/* Rating summary */}
-              <div className="flex items-center space-x-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div className="text-3xl font-black text-navy">{rating.toFixed(1)}</div>
-                <div>
-                  <RatingStars rating={rating} />
-                  <div className="text-xs text-slate-500 mt-1">
-                    Based on {reviewCount} reviews from verified buyers
+              {hasRating ? (
+                <div className="flex items-center space-x-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="text-3xl font-black text-navy">{rating.toFixed(1)}</div>
+                  <div>
+                    <RatingStars rating={rating} />
+                    <div className="text-xs text-slate-500 mt-1">
+                      Based on {reviewCount} {reviewCount === 1 ? 'review' : 'reviews'} from verified buyers
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Placeholder review list */}
-              <div className="space-y-3">
-                {placeholderReviews.map((i) => (
-                  <div key={i} className="p-4 rounded-xl border border-slate-100 bg-white">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-bold text-slate-800">Verified Buyer</span>
-                      <RatingStars rating={Math.max(3, Math.round(rating))} size="w-3.5 h-3.5" />
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      Detailed reviews are coming from verified buyers after delivery confirmation.
-                    </p>
-                  </div>
-                ))}
-              </div>
+              ) : (
+                <div className="p-8 rounded-2xl bg-slate-50 border border-slate-100 text-center space-y-2">
+                  <Star className="w-8 h-8 text-slate-300 mx-auto" />
+                  <div className="text-sm font-bold text-navy">No reviews yet</div>
+                  <p className="text-xs text-slate-500">
+                    Reviews from verified buyers will appear here after delivery.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

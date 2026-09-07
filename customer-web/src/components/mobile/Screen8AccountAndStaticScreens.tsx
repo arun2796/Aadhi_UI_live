@@ -411,7 +411,7 @@ export const Screen9AboutUs: React.FC<{ onBack: () => void }> = ({ onBack }) => 
       {/* Storefront Photo Card matching Screen 9 */}
       <div className="rounded-3xl overflow-hidden bg-slate-900 border border-slate-800 shadow-lg relative aspect-16/10">
         <img
-          src="https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80"
+          src="/product-placeholder.svg"
           alt="Aadhi Crackers Store"
           className="w-full h-full object-cover opacity-80"
         />

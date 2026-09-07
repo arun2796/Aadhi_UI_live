@@ -25,7 +25,7 @@ const SOCIAL_LINKS = [
 const PAYMENT_BADGES = ['VISA', 'Mastercard', 'UPI', 'RuPay', 'COD'];
 
 export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) => {
-  const { footerMessage } = useSettings();
+  const { footerMessage, storeName, storeTagline, storeEmail, storePhone, storeAddress } = useSettings();
 
   const columns: Array<{
     title: string;
@@ -83,30 +83,32 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
               <Flame className="w-5 h-5 text-navy fill-current" />
             </div>
             <div>
-              <div className="font-black text-lg text-white">AADHI CRACKERS</div>
-              <div className="text-[10px] text-gold font-medium tracking-wider uppercase">Celebrate Every Moment</div>
+              <div className="font-black text-lg text-white">{storeName || 'AADHI CRACKERS'}</div>
+              {storeTagline && (
+                <div className="text-[10px] text-gold font-medium tracking-wider uppercase">{storeTagline}</div>
+              )}
             </div>
           </div>
 
-          <p className="text-slate-400 text-xs leading-relaxed max-w-sm">
-            Quality You Trust, Celebrations You Love! Sivakasi’s most trusted manufacturer and
-            distributor of premium, eco-conscious fireworks and family gift boxes — delivering joy
-            and sparkle across India since 1998.
-          </p>
-
           <div className="space-y-2 pt-1 text-xs">
-            <div className="flex items-center space-x-2 text-slate-300">
-              <MapPin className="w-4 h-4 text-orange flex-shrink-0" />
-              <span>124/B Sivakasi Main Road, Thiruthangal, Sivakasi, Tamil Nadu - 626130</span>
-            </div>
-            <div className="flex items-center space-x-2 text-slate-300">
-              <Phone className="w-4 h-4 text-gold flex-shrink-0" />
-              <span>+91 98765 43210 / +91 94433 12345</span>
-            </div>
-            <div className="flex items-center space-x-2 text-slate-300">
-              <Mail className="w-4 h-4 text-purple-light flex-shrink-0" />
-              <span>support@aadhicrackers.com</span>
-            </div>
+            {storeAddress && (
+              <div className="flex items-center space-x-2 text-slate-300">
+                <MapPin className="w-4 h-4 text-orange flex-shrink-0" />
+                <span>{storeAddress}</span>
+              </div>
+            )}
+            {storePhone && (
+              <div className="flex items-center space-x-2 text-slate-300">
+                <Phone className="w-4 h-4 text-gold flex-shrink-0" />
+                <span>{storePhone}</span>
+              </div>
+            )}
+            {storeEmail && (
+              <div className="flex items-center space-x-2 text-slate-300">
+                <Mail className="w-4 h-4 text-purple-light flex-shrink-0" />
+                <span>{storeEmail}</span>
+              </div>
+            )}
           </div>
 
           {/* Social icon circles */}
@@ -157,7 +159,7 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
       {/* Bottom Bar: © line + payment badges */}
       <div className="border-t border-navy-border/40 py-4 px-4 bg-black/40">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-500 gap-3">
-          <div>© {new Date().getFullYear()} Aadhi Crackers. All Rights Reserved.</div>
+          <div>© {new Date().getFullYear()} {storeName || 'Aadhi Crackers'}. All Rights Reserved.</div>
           <div className="flex items-center flex-wrap gap-2">
             {PAYMENT_BADGES.map((badge) => (
               <span

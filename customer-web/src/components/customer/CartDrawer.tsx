@@ -104,7 +104,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onNavigate }) => {
                 className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center space-x-3"
               >
                 <img
-                  src={item.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+                  src={item.imageUrl || '/product-placeholder.svg'}
                   alt={item.name}
                   className="w-16 h-16 rounded-lg object-cover bg-white border flex-shrink-0"
                 />

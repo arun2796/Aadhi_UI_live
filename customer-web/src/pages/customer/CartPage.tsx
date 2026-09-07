@@ -11,6 +11,7 @@ import {
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../context/SettingsContext';
+import productPlaceholder from '../../assets/product-placeholder.svg';
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
@@ -30,7 +31,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
     removeFromCart
   } = useCart();
   const { showToast } = useToast();
-  const { promotionCodeEnabled } = useSettings();
+  const { promotionCodeEnabled, freeShippingThreshold } = useSettings();
 
   const [couponInput, setCouponInput] = useState('');
   const [applyingCoupon, setApplyingCoupon] = useState(false);
@@ -92,7 +93,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
               {items.map((item) => (
                 <div key={item.productId} className="p-4 sm:px-6 flex items-center gap-4">
                   <img
-                    src={item.imageUrl || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=200'}
+                    src={item.imageUrl || productPlaceholder}
                     alt={item.name}
                     className="w-16 h-16 rounded-xl object-cover border border-slate-100 flex-shrink-0"
                   />
@@ -188,6 +189,12 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                   <span className="font-bold text-slate-800">{inr(shippingCharge)}</span>
                 )}
               </div>
+
+              {shippingCharge > 0 && freeShippingThreshold > 0 && (
+                <div className="text-[10px] text-slate-400 font-medium">
+                  Free delivery on orders above {inr(freeShippingThreshold)}
+                </div>
+              )}
 
               <div className="flex justify-between items-center text-sm font-black text-navy pt-3 border-t border-slate-100">
                 <span>Total</span>

@@ -22,6 +22,20 @@ export interface StorefrontSettings {
   priceFormat: 'Discount' | 'NetRate';
   promotionCodeEnabled: boolean;
   deliveryZones: DeliveryZone[];
+  /** Store.BusinessName */
+  storeName: string;
+  /** Store.Tagline */
+  storeTagline: string;
+  /** Store.Email */
+  storeEmail: string;
+  /** Store.Phone */
+  storePhone: string;
+  /** Store.Address */
+  storeAddress: string;
+  /** Website.HeaderPromoText */
+  headerPromoText: string;
+  /** Shipping.FreeShippingThreshold — 0 when absent/invalid. */
+  freeShippingThreshold: number;
   /** True once the settings request has resolved (successfully or not). */
   isLoaded: boolean;
 }
@@ -33,6 +47,13 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
   priceFormat: 'Discount',
   promotionCodeEnabled: true,
   deliveryZones: [],
+  storeName: '',
+  storeTagline: '',
+  storeEmail: '',
+  storePhone: '',
+  storeAddress: '',
+  headerPromoText: '',
+  freeShippingThreshold: 0,
   isLoaded: false
 };
 
@@ -63,6 +84,12 @@ export const findDeliveryZone = (zones: DeliveryZone[], state?: string | null): 
   return zones.find(z => z.state.trim().toLowerCase() === target) || null;
 };
 
+/** Parse a settings value as a non-negative number; 0 when absent or invalid. */
+const parseThreshold = (raw?: string): number => {
+  const n = Number((raw || '').replace(/[^\d.]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
 const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   websiteStatus: (values['Website.Status'] || 'ON').trim().toUpperCase() === 'OFF' ? 'OFF' : 'ON',
   thankYouMessage: (values['Website.ThankYouMessage'] || '').trim(),
@@ -70,6 +97,13 @@ const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   priceFormat: (values['Website.PriceFormat'] || '').trim() === 'NetRate' ? 'NetRate' : 'Discount',
   promotionCodeEnabled: (values['Website.PromotionCodeEnabled'] || 'true').trim().toLowerCase() !== 'false',
   deliveryZones: parseDeliveryZones(values['DeliveryZones.Config']),
+  storeName: (values['Store.BusinessName'] || '').trim(),
+  storeTagline: (values['Store.Tagline'] || '').trim(),
+  storeEmail: (values['Store.Email'] || '').trim(),
+  storePhone: (values['Store.Phone'] || '').trim(),
+  storeAddress: (values['Store.Address'] || '').trim(),
+  headerPromoText: (values['Website.HeaderPromoText'] || '').trim(),
+  freeShippingThreshold: parseThreshold(values['Shipping.FreeShippingThreshold']),
   isLoaded: true
 });
 

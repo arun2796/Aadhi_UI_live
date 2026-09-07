@@ -19,25 +19,18 @@ import { Product, Category } from '../../types';
 import { api } from '../../services/api';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
+import productPlaceholder from '../../assets/product-placeholder.svg';
 
 /* ────────────────────────────── shared helpers ────────────────────────────── */
 
 const inr = (n: number) => '₹' + n.toLocaleString('en-IN');
 
-const hashStr = (s: string) => {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h;
-};
-
-/** Rating fields are optional on the DTO — fall back to a stable pseudo-rating per product. */
-const ratingOf = (p: Product): { rating: number; reviews: number } => {
-  const h = hashStr(p.id || p.sku || p.name || 'aadhi');
-  const rating =
-    typeof p.rating === 'number' && p.rating > 0 ? p.rating : 4.3 + (h % 6) / 10;
-  const reviews =
-    typeof p.reviewCount === 'number' && p.reviewCount > 0 ? p.reviewCount : 12 + (h % 140);
-  return { rating: Math.round(rating * 10) / 10, reviews };
+/** Real review data only — null when the DTO carries no rating/review count. */
+const realRatingOf = (p: Product): { rating: number; reviews: number } | null => {
+  const rating = typeof p.rating === 'number' && p.rating > 0 ? Math.round(p.rating * 10) / 10 : 0;
+  const reviews = typeof p.reviewCount === 'number' && p.reviewCount > 0 ? p.reviewCount : 0;
+  if (rating <= 0 && reviews <= 0) return null;
+  return { rating, reviews };
 };
 
 const pctOff = (p: Product): number => {
@@ -48,29 +41,7 @@ const pctOff = (p: Product): number => {
 };
 
 const productImage = (p: Product): string =>
-  p.primaryImageUrl ||
-  (p as any).imageUrl ||
-  'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=600&auto=format&fit=crop&q=80';
-
-const FALLBACK_CATEGORY_IMG =
-  'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=300&auto=format&fit=crop&q=80';
-
-const FALLBACK_CATEGORIES: Category[] = [
-  'Sparklers',
-  'Ground Chakkar',
-  'Aerial Shots',
-  'Rockets',
-  'Flower Pots',
-  'Gift Boxes',
-  'Combo Offers'
-].map((name, i) => ({
-  id: `fallback-${i}`,
-  name,
-  slug: name.toLowerCase().replace(/\s+/g, '-'),
-  displayOrder: i + 1,
-  isActive: true,
-  productCount: 0
-}));
+  p.primaryImageUrl || (p as any).imageUrl || productPlaceholder;
 
 const prettifySlug = (slug: string) =>
   slug
@@ -98,10 +69,10 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
     api
       .getCategories()
       .then((cats) => {
-        if (live) setCategories(cats.length > 0 ? cats : FALLBACK_CATEGORIES);
+        if (live) setCategories(cats);
       })
       .catch(() => {
-        if (live) setCategories(FALLBACK_CATEGORIES);
+        if (live) setCategories([]);
       });
 
     (async () => {
@@ -147,17 +118,12 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
           <div className="absolute -right-8 -top-10 w-36 h-36 rounded-full bg-orange/20 blur-2xl pointer-events-none" />
           <div className="absolute right-6 bottom-8 w-20 h-20 rounded-full bg-purple/40 blur-xl pointer-events-none" />
 
-          {/* right hero graphic — brand logo (public/logo.png); falls back to fireworks art */}
+          {/* right hero graphic — brand logo (public/logo.png); hidden if the asset is missing */}
           <img
             src="/logo.png"
             alt="Aadhi Crackers"
             onError={(e) => {
-              const img = e.currentTarget;
-              if (!img.src.includes('unsplash')) {
-                img.src = 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=500&auto=format&fit=crop&q=80';
-                img.className =
-                  'absolute right-0 top-0 h-full w-2/5 object-cover opacity-45 pointer-events-none [mask-image:linear-gradient(to_left,black_55%,transparent)]';
-              }
+              e.currentTarget.style.display = 'none';
             }}
             className="absolute right-1 top-1/2 -translate-y-1/2 h-[92%] w-2/5 object-contain pointer-events-none drop-shadow-[0_0_18px_rgba(255,176,0,0.35)]"
           />
@@ -220,48 +186,50 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         </div>
       </div>
 
-      {/* 4. Shop by Category */}
-      <div className="space-y-3">
-        <div className="px-4 flex items-center justify-between">
-          <h3 className="text-sm font-black text-navy">Shop by Category</h3>
-          <button
-            onClick={() => onNavigate('category-menu')}
-            className="text-[11px] font-bold text-purple flex items-center gap-0.5 active:opacity-70"
-          >
-            View All <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+      {/* 4. Shop by Category — hidden entirely when the API returns no categories */}
+      {categories.length > 0 && (
+        <div className="space-y-3">
+          <div className="px-4 flex items-center justify-between">
+            <h3 className="text-sm font-black text-navy">Shop by Category</h3>
+            <button
+              onClick={() => onNavigate('category-menu')}
+              className="text-[11px] font-bold text-purple flex items-center gap-0.5 active:opacity-70"
+            >
+              View All <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-        {/* Auto-scrolling marquee (left → right); pauses while pressed. */}
-        <div className="overflow-hidden pb-1">
-          <div className="flex w-max animate-marquee-ltr">
-            {[0, 1].map((dup) => (
-              <div key={dup} className="flex gap-4 pr-4 pl-4" aria-hidden={dup === 1}>
-                {(categories.length > 0 ? categories : FALLBACK_CATEGORIES).map((c) => (
-                  <button
-                    key={`${dup}-${c.id || c.slug}`}
-                    onClick={() => onNavigate('category', { category: c.slug })}
-                    tabIndex={dup === 1 ? -1 : 0}
-                    className="flex flex-col items-center flex-shrink-0 w-[68px] group"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-navy border-2 border-orange/50 shadow-md overflow-hidden group-active:scale-95 transition-transform">
-                      <img
-                        src={c.imageUrl || FALLBACK_CATEGORY_IMG}
-                        alt={c.name}
-                        className="w-full h-full object-cover opacity-90"
-                        loading="lazy"
-                      />
-                    </div>
-                    <span className="text-[9.5px] font-bold text-slate-700 mt-1.5 leading-tight text-center line-clamp-2">
-                      {c.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ))}
+          {/* Auto-scrolling marquee (left → right); pauses while pressed. */}
+          <div className="overflow-hidden pb-1">
+            <div className="flex w-max animate-marquee-ltr">
+              {[0, 1].map((dup) => (
+                <div key={dup} className="flex gap-4 pr-4 pl-4" aria-hidden={dup === 1}>
+                  {categories.map((c) => (
+                    <button
+                      key={`${dup}-${c.id || c.slug}`}
+                      onClick={() => onNavigate('category', { category: c.slug })}
+                      tabIndex={dup === 1 ? -1 : 0}
+                      className="flex flex-col items-center flex-shrink-0 w-[68px] group"
+                    >
+                      <div className="w-16 h-16 rounded-full bg-navy border-2 border-orange/50 shadow-md overflow-hidden group-active:scale-95 transition-transform">
+                        <img
+                          src={c.imageUrl || productPlaceholder}
+                          alt={c.name}
+                          className="w-full h-full object-cover opacity-90"
+                          loading="lazy"
+                        />
+                      </div>
+                      <span className="text-[9.5px] font-bold text-slate-700 mt-1.5 leading-tight text-center line-clamp-2">
+                        {c.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 5. Best Selling Products */}
       <div className="space-y-3">
@@ -292,7 +260,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         ) : (
           <div className="grid grid-cols-2 gap-3 px-4">
             {bestSellers.map((p) => {
-              const { rating, reviews } = ratingOf(p);
+              const real = realRatingOf(p);
               const off = pctOff(p);
               return (
                 <button
@@ -321,12 +289,14 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
                   </div>
 
                   <div className="w-full mt-1">
-                    <div className="flex items-center gap-1 mb-1">
-                      <Star className="w-3 h-3 text-gold fill-gold" />
-                      <span className="text-[9px] font-bold text-slate-600">
-                        {rating} ({reviews})
-                      </span>
-                    </div>
+                    {real && (
+                      <div className="flex items-center gap-1 mb-1">
+                        <Star className="w-3 h-3 text-gold fill-gold" />
+                        <span className="text-[9px] font-bold text-slate-600">
+                          {real.rating} ({real.reviews})
+                        </span>
+                      </div>
+                    )}
 
                     <div className="flex items-baseline gap-1.5 flex-wrap">
                       <span className="font-black text-[13px] text-navy">{inr(p.price ?? 0)}</span>
@@ -436,7 +406,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       list = list.filter((p) => p.brandName && set.has(p.brandName.toLowerCase()));
     }
     if (filters?.minRating && filters.minRating > 0) {
-      list = list.filter((p) => ratingOf(p).rating >= (filters.minRating as number));
+      list = list.filter((p) => (p.rating ?? 0) >= (filters.minRating as number));
     }
 
     if (sortBy === 'price-asc') list.sort((a, b) => a.price - b.price);
@@ -446,7 +416,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
         (a, b) =>
           Number(b.isBestSeller) - Number(a.isBestSeller) ||
           Number(b.isFeatured) - Number(a.isFeatured) ||
-          ratingOf(b).reviews - ratingOf(a).reviews
+          (b.reviewCount ?? 0) - (a.reviewCount ?? 0)
       );
     }
     return list;
@@ -573,7 +543,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       ) : (
         <div className="px-4 mt-3 grid grid-cols-2 gap-3">
           {visible.map((p) => {
-            const { rating, reviews } = ratingOf(p);
+            const real = realRatingOf(p);
             const off = pctOff(p);
             const inStock = (p.availableQuantity ?? 1) > 0;
             return (
@@ -622,12 +592,14 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
                   )}
                 </div>
 
-                {/* rating */}
-                <div className="flex items-center gap-1 mb-2">
-                  <Star className="w-3 h-3 text-gold fill-gold" />
-                  <span className="text-[9.5px] font-bold text-slate-600">{rating}</span>
-                  <span className="text-[9.5px] text-slate-400">({reviews})</span>
-                </div>
+                {/* rating — only when the DTO carries real review data */}
+                {real && (
+                  <div className="flex items-center gap-1 mb-2">
+                    <Star className="w-3 h-3 text-gold fill-gold" />
+                    <span className="text-[9.5px] font-bold text-slate-600">{real.rating}</span>
+                    <span className="text-[9.5px] text-slate-400">({real.reviews})</span>
+                  </div>
+                )}
 
                 {/* add to cart */}
                 <button

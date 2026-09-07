@@ -807,7 +807,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                       <div key={i.productId} className="p-3.5 bg-white flex items-center justify-between text-xs">
                         <div className="flex items-center space-x-3">
                           <img
-                            src={i.imageUrl || 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=100'}
+                            src={i.imageUrl || '/product-placeholder.svg'}
                             alt={i.name}
                             className="w-12 h-12 rounded-lg object-cover border border-slate-100"
                           />

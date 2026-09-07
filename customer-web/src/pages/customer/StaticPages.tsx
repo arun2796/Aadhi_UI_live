@@ -44,7 +44,7 @@ export const AboutUsPage: React.FC<{ onNavigate: (page: string) => void }> = ({ 
 
         <div className="rounded-3xl overflow-hidden shadow-2xl border border-slate-200 aspect-4/3 bg-slate-100">
           <img
-            src="https://images.unsplash.com/photo-1514565131-fce0801e5785?w=800&auto=format&fit=crop&q=80"
+            src="/product-placeholder.svg"
             alt="Sivakasi Fireworks"
             className="w-full h-full object-cover"
           />

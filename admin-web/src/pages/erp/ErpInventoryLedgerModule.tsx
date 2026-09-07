@@ -809,7 +809,7 @@ export const ErpInventoryLedgerModule: React.FC<ErpInventoryLedgerModuleProps> =
                 <div>
                   <div className="text-[10px] text-slate-400 font-bold">Depot Manager:</div>
                   <div className="font-bold text-slate-700">{wh.managerName || 'Murugan S.'}</div>
-                  <div className="text-[10px] text-slate-500">{wh.phone || '+91 94431 22334'}</div>
+                  <div className="text-[10px] text-slate-500">{wh.phone || '—'}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-[10px] text-slate-400 font-bold">Stock Capacity:</div>

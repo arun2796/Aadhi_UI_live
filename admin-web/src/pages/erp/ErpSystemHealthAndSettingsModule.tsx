@@ -63,6 +63,7 @@ const COMPANY_GSTIN_FALLBACK_KEY = 'Company.Gstin';
 
 // ---------- Website / Terms / Delivery Zones settings keys ----------
 const WEBSITE_STATUS_KEY = 'Website.Status';
+const WEBSITE_HEADER_PROMO_KEY = 'Website.HeaderPromoText';
 const WEBSITE_THANKYOU_KEY = 'Website.ThankYouMessage';
 const WEBSITE_FOOTER_KEY = 'Website.FooterMessage';
 const WEBSITE_PRICE_FORMAT_KEY = 'Website.PriceFormat';
@@ -75,6 +76,7 @@ const DELIVERY_ZONES_KEY = 'DeliveryZones.Config';
 
 const WEBSITE_FIELD_KEYS = [
   WEBSITE_STATUS_KEY,
+  WEBSITE_HEADER_PROMO_KEY,
   WEBSITE_THANKYOU_KEY,
   WEBSITE_FOOTER_KEY,
   WEBSITE_PRICE_FORMAT_KEY,
@@ -597,6 +599,19 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                 )}
 
                 <div>
+                  <label className="font-bold text-navy">Header Promo Text</label>
+                  <input
+                    type="text"
+                    value={settingValues[WEBSITE_HEADER_PROMO_KEY] ?? ''}
+                    onChange={(e) => setValue(WEBSITE_HEADER_PROMO_KEY, e.target.value)}
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy outline-none focus:border-purple"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Short promotional line shown in the storefront header (e.g. a coupon announcement). Leave empty to hide.
+                  </p>
+                </div>
+
+                <div>
                   <label className="font-bold text-navy">Thank You Message</label>
                   <textarea
                     value={settingValues[WEBSITE_THANKYOU_KEY] ?? ''}
@@ -986,7 +1001,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                 <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                 <span>{health.status}</span>
               </div>
-              <div className="text-[10px] text-slate-400">All 5 micro-services operating normally</div>
+              <div className="text-[10px] text-slate-400">Live report from the API health endpoint</div>
             </div>
 
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
@@ -1023,7 +1038,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                   </div>
                 </div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                  Healthy (3.2ms)
+                  {health.database.status} ({health.database.latencyMs}ms)
                 </span>
               </div>
 
@@ -1036,7 +1051,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                   </div>
                 </div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                  Running (4 Active Jobs)
+                  Running
                 </span>
               </div>
 
@@ -1045,7 +1060,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                   <ShieldCheck className="w-5 h-5 text-blue-600" />
                   <div>
                     <div className="font-bold text-navy">ASP.NET Core Rate Limiter</div>
-                    <div className="text-[10px] text-slate-400">9 Granular Policies Active (Public, Login, Checkout, AdminApi, Reports)</div>
+                    <div className="text-[10px] text-slate-400">Granular policies active (Public, Login, Checkout, AdminApi, Reports)</div>
                   </div>
                 </div>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">

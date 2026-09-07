@@ -86,7 +86,7 @@ export const MobileSearchModal: React.FC<MobileSearchModalProps> = ({
           >
             <div className="flex items-center space-x-3 min-w-0">
               <img
-                src={prod.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+                src={prod.primaryImageUrl || '/product-placeholder.svg'}
                 alt={prod.name}
                 className="w-12 h-12 rounded-lg object-cover bg-slate-100 border border-slate-100 flex-shrink-0"
               />

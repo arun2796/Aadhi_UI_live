@@ -17,7 +17,7 @@ const isInStock = (p: Product): boolean => {
 };
 
 const FALLBACK_IMG =
-  'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80';
+  '/product-placeholder.svg';
 
 /** Design 13: Wishlist — real wishlist items, In Stock => Add to Cart, Out of Stock => Notify Me, Clear Wishlist. */
 export const ScreenWishlist: React.FC<NavProps> = ({ onNavigate }) => {

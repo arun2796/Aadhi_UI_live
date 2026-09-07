@@ -22,6 +22,7 @@ import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../context/SettingsContext';
 import { api } from '../../services/api';
+import productPlaceholder from '../../assets/product-placeholder.svg';
 
 /* ────────────────────────────── shared helpers ────────────────────────────── */
 
@@ -31,16 +32,6 @@ const pctOff = (price: number, mrp?: number, explicit?: number): number => {
   if (mrp && mrp > price) return explicit || Math.round((1 - price / mrp) * 100);
   return 0;
 };
-
-const FALLBACK_IMG =
-  'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=600&auto=format&fit=crop&q=80';
-
-const FALLBACK_FEATURES = [
-  'Premium Quality',
-  'Longer Burning Time',
-  'Safe & Eco Friendly',
-  'Perfect for All Celebrations'
-];
 
 /** Star strip used on the rating line, e.g. ★★★★☆ */
 const Stars: React.FC<{ rating: number; className?: string }> = ({ rating, className = 'w-3.5 h-3.5' }) => (
@@ -110,7 +101,8 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
       .split(/\r?\n|•|;/)
       .map((s) => s.replace(/^[\s\-–—*·]+/, '').trim())
       .filter((s) => s.length > 2 && s.length <= 48);
-    return raw.length >= 2 ? raw.slice(0, 4) : FALLBACK_FEATURES;
+    // Only real feature lines from the product description — no fallback copy.
+    return raw.length >= 2 ? raw.slice(0, 4) : [];
   }, [product]);
 
   if (loading) {
@@ -140,16 +132,17 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
   const images =
     product.images && product.images.length > 0
       ? [...product.images].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((i) => i.url)
-      : [product.primaryImageUrl || FALLBACK_IMG];
+      : [product.primaryImageUrl || productPlaceholder];
 
   const inWish = isInWishlist(product.id);
   const inStock = (product.availableQuantity ?? 1) > 0;
   const off = pctOff(product.price, product.compareAtPrice, product.discountPercentage);
 
-  // Rating fields are optional on the DTO — fallback copy per design: "4.7 (86 Reviews) · Sold 250+"
-  const rating = typeof product.rating === 'number' && product.rating > 0 ? product.rating : 4.7;
+  // Real review data only — the rating line is omitted entirely when the DTO has none.
+  const rating = typeof product.rating === 'number' && product.rating > 0 ? product.rating : 0;
   const reviews =
-    typeof product.reviewCount === 'number' && product.reviewCount > 0 ? product.reviewCount : 86;
+    typeof product.reviewCount === 'number' && product.reviewCount > 0 ? product.reviewCount : 0;
+  const hasRating = rating > 0 || reviews > 0;
 
   const handleTrackScroll = () => {
     const el = trackRef.current;
@@ -208,7 +201,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
           {images.map((src, i) => (
             <img
               key={i}
-              src={src || FALLBACK_IMG}
+              src={src || productPlaceholder}
               alt={`${product.name} ${i + 1}`}
               className="w-full h-full object-cover flex-shrink-0 snap-center"
               draggable={false}
@@ -272,13 +265,13 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
 
         <h1 className="text-xl font-black text-navy leading-tight">{product.name}</h1>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <Stars rating={rating} />
-          <span className="text-[11px] font-bold text-slate-700">{rating}</span>
-          <span className="text-[11px] text-slate-400">({reviews} Reviews)</span>
-          <span className="text-slate-300 text-[10px]">|</span>
-          <span className="text-[11px] font-semibold text-slate-500">Sold 250+</span>
-        </div>
+        {hasRating && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Stars rating={rating} />
+            <span className="text-[11px] font-bold text-slate-700">{rating}</span>
+            <span className="text-[11px] text-slate-400">({reviews} Reviews)</span>
+          </div>
+        )}
 
         {/* 3. Price row */}
         <div className="flex items-baseline gap-2 pt-1">
@@ -297,17 +290,19 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
         <div className="text-[10px] text-slate-400 font-medium">Inclusive of all taxes</div>
       </div>
 
-      {/* 4. Feature checklist (from description lines, with design fallback) */}
-      <div className="px-4 pt-3">
-        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
-          {features.map((f) => (
-            <div key={f} className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span className="text-xs font-semibold text-slate-700">{f}</span>
-            </div>
-          ))}
+      {/* 4. Feature checklist (from real description lines only; hidden when none) */}
+      {features.length > 0 && (
+        <div className="px-4 pt-3">
+          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+            {features.map((f) => (
+              <div key={f} className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span className="text-xs font-semibold text-slate-700">{f}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 5. Stock + quantity stepper */}
       <div className="px-4 pt-3 space-y-3">
@@ -439,7 +434,7 @@ export const Screen4Cart: React.FC<{
     grandTotal
   } = useCart();
   const { showToast } = useToast();
-  const { promotionCodeEnabled } = useSettings();
+  const { promotionCodeEnabled, freeShippingThreshold } = useSettings();
 
   const [code, setCode] = useState('');
   const [applying, setApplying] = useState(false);
@@ -497,7 +492,7 @@ export const Screen4Cart: React.FC<{
                 className="p-3 rounded-2xl bg-white border border-slate-100 shadow-xs flex gap-3"
               >
                 <img
-                  src={item.imageUrl || FALLBACK_IMG}
+                  src={item.imageUrl || productPlaceholder}
                   alt={item.name}
                   className="w-[70px] h-[70px] rounded-xl object-cover border border-slate-100 flex-shrink-0"
                 />
@@ -633,9 +628,9 @@ export const Screen4Cart: React.FC<{
             )}
           </div>
 
-          {shippingCharge > 0 && (
+          {shippingCharge > 0 && freeShippingThreshold > 0 && (
             <div className="text-[10px] text-slate-400 font-medium">
-              Free delivery on orders above {inr(3000)}
+              Free delivery on orders above {inr(freeShippingThreshold)}
             </div>
           )}
 

@@ -18,30 +18,26 @@ import { api } from '../../services/api';
 import { ProductCard } from '../../components/customer/ProductCard';
 import { SafetySection } from '../../components/customer/CustomerSections';
 import { Modal } from '../../components/common/CommonComponents';
+import { useSettings } from '../../context/SettingsContext';
+import productPlaceholder from '../../assets/product-placeholder.svg';
 
 interface HomePageProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
-const HERO_SLIDES = [
-  {
-    badge: 'Sivakasi’s Most Trusted Fireworks Portal',
-    // Brand logo (drop the artwork into public/logo.png); falls back to fireworks art.
-    image: '/logo.png',
-    fallbackImage: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=900&auto=format&fit=crop&q=80',
-    imageAlt: 'Aadhi Crackers'
-  },
-  {
-    badge: 'Festival Gift Boxes for the Whole Family',
-    image: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=900&auto=format&fit=crop&q=80',
-    imageAlt: 'Diwali gift boxes'
-  },
-  {
-    badge: 'Use Code DIWALI2026 for 15% OFF',
-    image: 'https://images.unsplash.com/photo-1467810563316-b5476525c0f9?w=900&auto=format&fit=crop&q=80',
-    imageAlt: 'Sky shot fireworks display'
-  }
-];
+interface HeroSlide {
+  badge: string;
+  image: string;
+  imageAlt: string;
+}
+
+/** Shown until (or unless) admin-managed banners arrive from GET /banners. */
+const LOGO_HERO_SLIDE: HeroSlide = {
+  badge: '',
+  // Brand logo (public/logo.png) — the only static hero asset.
+  image: '/logo.png',
+  imageAlt: 'Aadhi Crackers'
+};
 
 const TRUST_TILES = [
   { icon: ShieldCheck, title: '100% Original', subtitle: 'Trusted Brands', color: 'text-orange bg-orange/10 border-orange/20' },
@@ -51,9 +47,12 @@ const TRUST_TILES = [
 ];
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
+  const { headerPromoText, freeShippingThreshold, storePhone } = useSettings();
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([LOGO_HERO_SLIDE]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -68,6 +67,21 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         api.getFeaturedProducts().then(setBestSellers);
       }
     });
+
+    // Hero slides come from admin-managed banners; single logo slide when none exist.
+    api.getBanners('Home').then((banners) => {
+      const slides = banners
+        .filter((b) => b.imageUrl || b.title || b.subtitle)
+        .map((b) => ({
+          badge: b.subtitle || b.title || '',
+          image: b.imageUrl || '/logo.png',
+          imageAlt: b.title || 'Banner'
+        }));
+      if (slides.length > 0) {
+        setHeroSlides(slides);
+        setHeroIndex(0);
+      }
+    });
   }, []);
 
   const giftBoxes = products.filter(p => p.categoryName?.toLowerCase().includes('gift')).slice(0, 4);
@@ -76,26 +90,30 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     bestSellers.length > 0 ? bestSellers : localBestSellers.length > 0 ? localBestSellers : products
   ).slice(0, 8);
 
-  const slide = HERO_SLIDES[heroIndex];
-  const prevSlide = () => setHeroIndex((heroIndex - 1 + HERO_SLIDES.length) % HERO_SLIDES.length);
-  const nextSlide = () => setHeroIndex((heroIndex + 1) % HERO_SLIDES.length);
+  const slide = heroSlides[Math.min(heroIndex, heroSlides.length - 1)];
+  const prevSlide = () => setHeroIndex((heroIndex - 1 + heroSlides.length) % heroSlides.length);
+  const nextSlide = () => setHeroIndex((heroIndex + 1) % heroSlides.length);
 
   const faqs = [
     {
-      q: 'How does AADHI CRACKERS ensure safe shipment of fireworks?',
-      a: 'We ship all fireworks in heavy-gauge 5-ply corrugated safety boxes with internal bubble cushioning. Our transport partners are licensed dangerous-goods carriers adhering to PESO safety protocols.'
+      q: 'How do you ensure safe shipment of fireworks?',
+      a: 'We ship all fireworks in heavy-gauge corrugated safety boxes with internal cushioning, through transport partners who follow PESO safety protocols for dangerous goods.'
     },
     {
-      q: 'Are your fireworks 100% genuine and manufactured in Sivakasi?',
-      a: 'Yes, all products are manufactured and quality-checked at our certified facility in Thiruthangal, Sivakasi, Tamil Nadu, adhering strictly to Indian Fireworks Standards.'
+      q: 'Are your fireworks 100% genuine?',
+      a: 'Yes, all products are quality-checked and adhere to Indian Fireworks Standards.'
     },
-    {
-      q: 'What is the minimum order amount for free delivery?',
-      a: 'Orders above ₹3,000 qualify for free express delivery across all serviceable PIN codes.'
-    },
+    ...(freeShippingThreshold > 0
+      ? [
+          {
+            q: 'What is the minimum order amount for free delivery?',
+            a: `Orders above ₹${freeShippingThreshold.toLocaleString('en-IN')} qualify for free express delivery across all serviceable PIN codes.`
+          }
+        ]
+      : []),
     {
       q: 'Do you offer bulk wholesale pricing for distributors and apartments?',
-      a: 'Yes! For bulk bookings above ₹25,000, please reach out to our wholesale support team on +91 98765 43210 or via the Contact Us page for customized volume discounts.'
+      a: `Yes! For bulk bookings, please reach out to our wholesale support team${storePhone ? ` on ${storePhone}` : ''} or via the Contact Us page for customized volume discounts.`
     }
   ];
 
@@ -108,28 +126,34 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           <div className="absolute top-0 left-1/4 w-72 h-72 bg-purple/30 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-orange/20 rounded-full blur-3xl pointer-events-none" />
 
-          {/* Carousel arrows */}
-          <button
-            onClick={prevSlide}
-            aria-label="Previous slide"
-            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 text-white" />
-          </button>
-          <button
-            onClick={nextSlide}
-            aria-label="Next slide"
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors"
-          >
-            <ChevronRight className="w-5 h-5 text-white" />
-          </button>
+          {/* Carousel arrows (only when there is more than one banner) */}
+          {heroSlides.length > 1 && (
+            <>
+              <button
+                onClick={prevSlide}
+                aria-label="Previous slide"
+                className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5 text-white" />
+              </button>
+              <button
+                onClick={nextSlide}
+                aria-label="Next slide"
+                className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors"
+              >
+                <ChevronRight className="w-5 h-5 text-white" />
+              </button>
+            </>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10 px-10 sm:px-16 py-10 sm:py-14">
             <div className="lg:col-span-7 space-y-5 text-center lg:text-left">
-              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-gold text-xs font-bold uppercase tracking-wider">
-                <Sparkles className="w-4 h-4 text-orange" />
-                <span>{slide.badge}</span>
-              </div>
+              {slide.badge && (
+                <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-gold text-xs font-bold uppercase tracking-wider">
+                  <Sparkles className="w-4 h-4 text-orange" />
+                  <span>{slide.badge}</span>
+                </div>
+              )}
 
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight">
                 Celebrate Every Moment with{' '}
@@ -169,8 +193,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                     src={slide.image}
                     alt={slide.imageAlt}
                     onError={(e) => {
-                      const fallback = (slide as any).fallbackImage;
-                      if (fallback && e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                      // Broken banner image → brand logo; broken logo → hide.
+                      const img = e.currentTarget;
+                      if (!img.src.endsWith('/logo.png')) img.src = '/logo.png';
+                      else img.style.display = 'none';
                     }}
                     className={slide.image === '/logo.png' ? 'w-full h-full object-contain' : 'w-full h-full object-cover'}
                   />
@@ -179,17 +205,19 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          {/* Carousel dots */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-2">
-            {HERO_SLIDES.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setHeroIndex(i)}
-                aria-label={`Go to slide ${i + 1}`}
-                className={`h-2 rounded-full transition-all ${i === heroIndex ? 'w-6 bg-gold' : 'w-2 bg-white/40 hover:bg-white/70'}`}
-              />
-            ))}
-          </div>
+          {/* Carousel dots (only when there is more than one banner) */}
+          {heroSlides.length > 1 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-2">
+              {heroSlides.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setHeroIndex(i)}
+                  aria-label={`Go to slide ${i + 1}`}
+                  className={`h-2 rounded-full transition-all ${i === heroIndex ? 'w-6 bg-gold' : 'w-2 bg-white/40 hover:bg-white/70'}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -245,7 +273,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                   >
                     <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden mb-2.5 p-1 border-2 border-orange/20 group-hover:border-orange transition-colors">
                       <img
-                        src={c.imageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+                        src={c.imageUrl || productPlaceholder}
                         alt={c.name}
                         className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-300"
                       />
@@ -290,36 +318,41 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 5. Special Festival Offers Banner */}
-      <section className="max-w-7xl mx-auto px-4">
-        <div className="rounded-3xl bg-gradient-to-r from-[#111238] via-[#2d1b7a] to-[#111238] text-white p-8 sm:p-12 relative overflow-hidden shadow-2xl border border-purple/30">
-          <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-20 pointer-events-none bg-[radial-gradient(#FF7A00_1px,transparent_1px)] [background-size:16px_16px]" />
+      {/* 5. Special Festival Offers Banner — storefront-controlled (Website.HeaderPromoText) */}
+      {headerPromoText && (
+        <section className="max-w-7xl mx-auto px-4">
+          <div className="rounded-3xl bg-gradient-to-r from-[#111238] via-[#2d1b7a] to-[#111238] text-white p-8 sm:p-12 relative overflow-hidden shadow-2xl border border-purple/30">
+            <div className="absolute right-0 top-0 bottom-0 w-1/2 opacity-20 pointer-events-none bg-[radial-gradient(#FF7A00_1px,transparent_1px)] [background-size:16px_16px]" />
 
-          <div className="relative z-10 max-w-xl space-y-4">
-            <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-orange text-white text-xs font-black uppercase tracking-wider">
-              <Percent className="w-3.5 h-3.5" />
-              <span>Mega Festival Discount</span>
-            </span>
+            <div className="relative z-10 max-w-xl space-y-4">
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-orange text-white text-xs font-black uppercase tracking-wider">
+                <Percent className="w-3.5 h-3.5" />
+                <span>Special Offer</span>
+              </span>
 
-            <h2 className="text-3xl sm:text-4xl font-black">
-              Make Every Celebration Brighter!
-            </h2>
+              <h2 className="text-3xl sm:text-4xl font-black">
+                Make Every Celebration Brighter!
+              </h2>
 
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Order now and get an extra <strong>15% OFF</strong> on all family gift boxes with coupon code <strong className="text-gold">DIWALI2026</strong>. Free doorstep delivery on orders above ₹3,000.
-            </p>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                {headerPromoText}
+                {freeShippingThreshold > 0 && (
+                  <> Free doorstep delivery on orders above ₹{freeShippingThreshold.toLocaleString('en-IN')}.</>
+                )}
+              </p>
 
-            <div className="pt-2 flex items-center space-x-4">
-              <button
-                onClick={() => onNavigate('shop', { category: 'gift-boxes' })}
-                className="px-6 py-3 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider shadow-glow transition-all"
-              >
-                Claim Offer Now
-              </button>
+              <div className="pt-2 flex items-center space-x-4">
+                <button
+                  onClick={() => onNavigate('shop')}
+                  className="px-6 py-3 rounded-xl bg-orange hover:bg-orange-hover text-white font-bold text-xs uppercase tracking-wider shadow-glow transition-all"
+                >
+                  Claim Offer Now
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* 6. Gift Boxes Showcase */}
       {giftBoxes.length > 0 && (
@@ -400,7 +433,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="aspect-square rounded-xl overflow-hidden bg-slate-100">
               <img
-                src={quickViewProduct.primaryImageUrl || 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=600&auto=format&fit=crop&q=80'}
+                src={quickViewProduct.primaryImageUrl || productPlaceholder}
                 alt={quickViewProduct.name}
                 className="w-full h-full object-cover"
               />

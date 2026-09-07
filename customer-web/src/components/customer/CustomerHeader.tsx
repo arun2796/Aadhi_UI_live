@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   Search,
@@ -13,9 +13,12 @@ import {
   X,
   ChevronDown
 } from 'lucide-react';
+import { Category } from '../../types';
+import { api } from '../../services/api';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSettings } from '../../context/SettingsContext';
 
 interface CustomerHeaderProps {
   onNavigate: (page: string, params?: any) => void;
@@ -26,10 +29,20 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
   const { totalItems, setIsCartDrawerOpen } = useCart();
   const { wishlist } = useWishlist();
   const { user, isAdmin, toggleUserRole } = useAuth();
+  const { storePhone, storeEmail, headerPromoText, freeShippingThreshold } = useSettings();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+  const [navCategories, setNavCategories] = useState<Category[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    api.getCategories().then((cats) => {
+      if (mounted) setNavCategories(cats);
+    });
+    return () => { mounted = false; };
+  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,38 +51,38 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
     }
   };
 
-  const navCategories = [
-    { name: 'Gift Boxes', slug: 'gift-boxes' },
-    { name: 'Combo Offers', slug: 'combo-offers' },
-    { name: 'Sparklers', slug: 'sparklers' },
-    { name: 'Ground Chakkar', slug: 'ground-chakkar' },
-    { name: 'Flower Pots', slug: 'flower-pots' },
-    { name: 'Rockets', slug: 'rockets' },
-    { name: 'Aerial Shots', slug: 'aerial-shots' },
-    { name: 'Fancy Items', slug: 'fancy-items' }
-  ];
-
   return (
     <header className="sticky top-0 z-40 w-full shadow-lg">
       {/* Top Banner */}
       <div className="bg-navy-dark text-slate-300 text-xs py-1.5 px-4 border-b border-navy-border/60">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange text-white">
-              FESTIVAL SALE
-            </span>
-            <span className="hidden sm:inline text-slate-200">
-              🎇 Free Express Delivery on orders above ₹3,000 | 100% Certified Sivakasi Fireworks
-            </span>
+            {headerPromoText && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange text-white">
+                FESTIVAL SALE
+              </span>
+            )}
+            {freeShippingThreshold > 0 && (
+              <span className="hidden sm:inline text-slate-200">
+                🎇 Free Express Delivery on orders above ₹{freeShippingThreshold.toLocaleString('en-IN')}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center space-x-4">
-            <a href="tel:+919876543210" className="flex items-center space-x-1 hover:text-white transition-colors">
-              <Phone className="w-3.5 h-3.5 text-gold" />
-              <span>+91 98765 43210</span>
-            </a>
-            <span className="hidden md:inline text-slate-400">|</span>
-            <span className="hidden md:inline text-gold font-semibold">support@aadhicrackers.com</span>
+            {storePhone && (
+              <a
+                href={`tel:${storePhone.replace(/[^+\d]/g, '')}`}
+                className="flex items-center space-x-1 hover:text-white transition-colors"
+              >
+                <Phone className="w-3.5 h-3.5 text-gold" />
+                <span>{storePhone}</span>
+              </a>
+            )}
+            {storePhone && storeEmail && <span className="hidden md:inline text-slate-400">|</span>}
+            {storeEmail && (
+              <span className="hidden md:inline text-gold font-semibold">{storeEmail}</span>
+            )}
           </div>
         </div>
       </div>
@@ -211,19 +224,25 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
 
               {isCategoryOpen && (
                 <div className="absolute top-full left-0 w-56 bg-white text-slate-800 rounded-b-xl shadow-2xl py-2 z-50 border border-slate-100 animate-slide-in">
-                  {navCategories.map(c => (
-                    <button
-                      key={c.slug}
-                      onClick={() => {
-                        setIsCategoryOpen(false);
-                        onNavigate('shop', { category: c.slug });
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-orange/10 hover:text-orange flex items-center justify-between transition-colors text-xs font-medium"
-                    >
-                      <span>{c.name}</span>
-                      <span className="text-[10px] text-slate-400">→</span>
-                    </button>
-                  ))}
+                  {navCategories.length === 0 ? (
+                    <div className="px-4 py-2 text-xs text-slate-400 font-medium">
+                      No categories available yet
+                    </div>
+                  ) : (
+                    navCategories.map(c => (
+                      <button
+                        key={c.slug || c.id}
+                        onClick={() => {
+                          setIsCategoryOpen(false);
+                          onNavigate('shop', { category: c.slug });
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-orange/10 hover:text-orange flex items-center justify-between transition-colors text-xs font-medium"
+                      >
+                        <span>{c.name}</span>
+                        <span className="text-[10px] text-slate-400">→</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -266,12 +285,14 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
             </button>
           </div>
 
-          <div className="flex items-center space-x-3 text-gold font-medium text-xs">
-            <span className="flex items-center space-x-1">
-              <Sparkles className="w-3.5 h-3.5 text-orange animate-spin" />
-              <span>Use Code: <strong>DIWALI2026</strong> for 15% OFF</span>
-            </span>
-          </div>
+          {headerPromoText && (
+            <div className="flex items-center space-x-3 text-gold font-medium text-xs">
+              <span className="flex items-center space-x-1">
+                <Sparkles className="w-3.5 h-3.5 text-orange animate-spin" />
+                <span>{headerPromoText}</span>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
