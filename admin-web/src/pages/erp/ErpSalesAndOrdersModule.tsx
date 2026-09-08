@@ -21,7 +21,8 @@ import {
   Plus,
   Truck,
   Eye,
-  AlertCircle
+  AlertCircle,
+  Upload
 } from 'lucide-react';
 import { Order, Customer, Invoice, Payment, OrderStatus, OrderStatusHistory } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
@@ -400,8 +401,15 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const [trackingInput, setTrackingInput] = useState('');
   const [dispatchTargetOrder, setDispatchTargetOrder] = useState<Order | null>(null);
   const [dispatchLrInput, setDispatchLrInput] = useState('');
-  const [viewerImage, setViewerImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const [rejectPaymentTarget, setRejectPaymentTarget] = useState<Order | null>(null);
+  const [viewerImage, setViewerImage] = useState<{
+    url: string;
+    title: string;
+    subtitle?: string;
+    orderId?: string;
+    orderNumber?: string;
+    utrNumber?: string;
+  } | null>(null);
   const [orderFilters, setOrderFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
   const [statusDraft, setStatusDraft] = useState<OrderStatus | ''>('');
   const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null);
@@ -1043,7 +1051,10 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                                   setViewerImage({
                                     url: o.paymentScreenshotUrl!,
                                     title: `Payment Proof - ${o.orderNumber}`,
-                                    subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))} • ${o.customerName}`
+                                    subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))} • ${o.customerName}`,
+                                    orderId: o.id,
+                                    orderNumber: o.orderNumber,
+                                    utrNumber: o.utrNumber
                                   });
                                 }}
                                 className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-slate-900 group flex-shrink-0 cursor-zoom-in"
@@ -1226,9 +1237,28 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-1">
                     {/* Proof preview with click to zoom lightbox */}
                     <div className="md:col-span-4">
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-                        Payment Proof Screenshot
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                          Payment Proof Screenshot
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setViewerImage({
+                              url: selectedOrder.paymentScreenshotUrl || '',
+                              title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                              subtitle: `Customer: ${selectedOrder.customerName}`,
+                              orderId: selectedOrder.id,
+                              orderNumber: selectedOrder.orderNumber,
+                              utrNumber: selectedOrder.utrNumber
+                            })
+                          }
+                          className="text-[11px] font-bold text-purple hover:text-purple-dark flex items-center gap-1 cursor-pointer"
+                        >
+                          <Upload className="w-3 h-3" />
+                          <span>{selectedOrder.paymentScreenshotUrl ? 'Replace' : 'Upload'}</span>
+                        </button>
+                      </div>
                       {selectedOrder.paymentScreenshotUrl ? (
                         <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group">
                           <img
@@ -1239,7 +1269,10 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                               setViewerImage({
                                 url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
                                 title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(selectedOrder.grandTotal)}`
+                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}`,
+                                orderId: selectedOrder.id,
+                                orderNumber: selectedOrder.orderNumber,
+                                utrNumber: selectedOrder.utrNumber
                               })
                             }
                           />
@@ -1248,7 +1281,10 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                               setViewerImage({
                                 url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
                                 title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(selectedOrder.grandTotal)}`
+                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}`,
+                                orderId: selectedOrder.id,
+                                orderNumber: selectedOrder.orderNumber,
+                                utrNumber: selectedOrder.utrNumber
                               })
                             }
                             className="absolute inset-0 bg-navy/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer"
@@ -1267,10 +1303,22 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                           </a>
                         </div>
                       ) : (
-                        <div className="h-36 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-slate-400 p-3 text-center">
-                          <AlertCircle className="w-6 h-6 mb-1 text-slate-300" />
-                          <span className="text-xs font-bold">No Screenshot Uploaded</span>
-                          <span className="text-[10px] text-slate-400">Customer placed order with reference UTR</span>
+                        <div
+                          onClick={() =>
+                            setViewerImage({
+                              url: '',
+                              title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                              subtitle: `Customer: ${selectedOrder.customerName}`,
+                              orderId: selectedOrder.id,
+                              orderNumber: selectedOrder.orderNumber,
+                              utrNumber: selectedOrder.utrNumber
+                            })
+                          }
+                          className="h-36 rounded-xl border border-dashed border-purple/30 bg-purple/5 hover:bg-purple/10 flex flex-col items-center justify-center text-purple p-3 text-center cursor-pointer transition"
+                        >
+                          <Upload className="w-6 h-6 mb-1 text-purple" />
+                          <span className="text-xs font-bold">Upload Payment Screenshot</span>
+                          <span className="text-[10px] text-slate-500">Click to upload customer proof</span>
                         </div>
                       )}
                     </div>
@@ -2271,6 +2319,18 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         imageUrl={viewerImage?.url}
         title={viewerImage?.title}
         subtitle={viewerImage?.subtitle}
+        orderId={viewerImage?.orderId}
+        orderNumber={viewerImage?.orderNumber}
+        utrNumber={viewerImage?.utrNumber}
+        onScreenshotUpdated={(newUrl) => {
+          if (selectedOrder && viewerImage?.orderId === selectedOrder.id) {
+            setSelectedOrder({ ...selectedOrder, paymentScreenshotUrl: newUrl });
+          }
+          setOrders((prev) =>
+            prev.map((o) => (o.id === viewerImage?.orderId ? { ...o, paymentScreenshotUrl: newUrl } : o))
+          );
+          showToast('Payment proof screenshot saved and updated successfully!', 'success');
+        }}
       />
     </div>
   );

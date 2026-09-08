@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   ZoomIn,
@@ -9,9 +9,12 @@ import {
   ExternalLink,
   AlertCircle,
   Copy,
-  Check
+  Check,
+  Upload,
+  RefreshCw
 } from 'lucide-react';
 import { normalizeImageUrl } from '../../utils/imageUrl';
+import { api } from '../../services/api';
 
 interface ImageViewerModalProps {
   isOpen: boolean;
@@ -20,6 +23,10 @@ interface ImageViewerModalProps {
   title?: string;
   subtitle?: string;
   altText?: string;
+  orderId?: string;
+  orderNumber?: string;
+  utrNumber?: string;
+  onScreenshotUpdated?: (newUrl: string) => void;
 }
 
 export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
@@ -28,23 +35,33 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   imageUrl,
   title = 'Payment Proof / Screenshot',
   subtitle,
-  altText = 'Payment Screenshot'
+  altText = 'Payment Screenshot',
+  orderId,
+  orderNumber,
+  utrNumber,
+  onScreenshotUpdated
 }) => {
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [currentUrl, setCurrentUrl] = useState<string | null | undefined>(imageUrl);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Normalize image URL
-  const resolvedUrl = normalizeImageUrl(imageUrl);
+  const resolvedUrl = normalizeImageUrl(currentUrl);
 
-  // Reset transform whenever modal opens or image changes
+  // Reset transform and url whenever modal opens or image changes
   useEffect(() => {
     if (isOpen) {
       setScale(1);
       setRotation(0);
       setHasError(false);
       setCopied(false);
+      setCurrentUrl(imageUrl);
+      setUploadSuccess(false);
     }
   }, [isOpen, imageUrl]);
 
@@ -100,8 +117,71 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     document.body.removeChild(link);
   };
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      // Compress with canvas to ~100KB JPEG
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let { width, height } = img;
+            const max = 1600;
+            if (width > max || height > max) {
+              const ratio = Math.min(max / width, max / height);
+              width = Math.round(width * ratio);
+              height = Math.round(height * ratio);
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return resolve(reader.result as string);
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
+          };
+          img.onerror = () => resolve(reader.result as string);
+          img.src = reader.result as string;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      if (orderId) {
+        await api.submitPaymentProof(orderId, {
+          utrNumber: utrNumber || 'MANUAL-PROOF',
+          paymentScreenshotBase64: base64,
+          orderNumber: orderNumber
+        });
+      }
+
+      setCurrentUrl(base64);
+      setHasError(false);
+      setUploadSuccess(true);
+      setTimeout(() => setUploadSuccess(false), 3000);
+      onScreenshotUpdated?.(base64);
+    } catch (err) {
+      console.error('Failed to upload screenshot', err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 animate-fade-in">
+      {/* Hidden file input for uploading / replacing screenshot */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/jpg"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-950/80 backdrop-blur-md transition-opacity"
@@ -113,11 +193,33 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900/90 border-b border-slate-800 text-white">
           <div className="min-w-0 pr-4">
-            <h3 className="font-bold text-sm text-slate-100 truncate">{title}</h3>
+            <h3 className="font-bold text-sm text-slate-100 truncate flex items-center gap-2">
+              <span>{title}</span>
+              {uploadSuccess && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30 animate-pulse">
+                  Saved & Persistent!
+                </span>
+              )}
+            </h3>
             {subtitle && <p className="text-xs text-slate-400 font-mono mt-0.5 truncate">{subtitle}</p>}
           </div>
 
           <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
+            {/* Upload / Replace button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/60 transition flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50 cursor-pointer"
+              title="Upload or Replace Screenshot"
+            >
+              {isUploading ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple" />
+              ) : (
+                <Upload className="w-3.5 h-3.5 text-purple" />
+              )}
+              <span className="hidden sm:inline">{isUploading ? 'Uploading...' : 'Replace Proof'}</span>
+            </button>
+
             {resolvedUrl && !hasError && (
               <>
                 <button
@@ -180,18 +282,26 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         {/* Image Canvas */}
         <div className="flex-1 min-h-[350px] sm:min-h-[480px] max-h-[75vh] overflow-auto flex items-center justify-center p-4 bg-slate-950/90 relative select-none">
           {!resolvedUrl ? (
-            <div className="text-center p-8 space-y-2 text-slate-400">
+            <div className="text-center p-8 space-y-3 text-slate-400 max-w-sm">
               <AlertCircle className="w-10 h-10 mx-auto text-amber-400" />
               <div className="font-bold text-slate-200">No screenshot attached</div>
               <p className="text-xs text-slate-500">The customer has not submitted an image proof for this transaction.</p>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5 shadow-md transition disabled:opacity-50 cursor-pointer mt-2"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload Payment Proof</span>
+              </button>
             </div>
           ) : hasError ? (
             <div className="text-center p-8 max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl space-y-3">
               <AlertCircle className="w-10 h-10 mx-auto text-amber-400" />
               <div>
-                <h4 className="font-bold text-slate-200 text-sm">Image file could not be displayed directly</h4>
+                <h4 className="font-bold text-slate-200 text-sm">Image File Not Found on Server (404)</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  The proof URL could not be rendered inline. You can copy the link or open it directly in a new window.
+                  The original screenshot was stored on ephemeral cloud storage that was cleared during a server restart. You can attach or re-upload the payment screenshot now to permanently save it in the database.
                 </p>
               </div>
 
@@ -206,19 +316,22 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
                 </button>
               </div>
 
-              <div className="flex justify-center gap-2 pt-2">
-                <a
-                  href={resolvedUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5"
+              <div className="flex flex-wrap justify-center gap-2 pt-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5 shadow-md shadow-purple/20 transition disabled:opacity-50 cursor-pointer"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Open URL Directly</span>
-                </a>
+                  {isUploading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isUploading ? 'Uploading & Saving...' : 'Re-upload / Replace Screenshot'}</span>
+                </button>
                 <button
                   onClick={() => setHasError(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
                 >
                   Retry
                 </button>

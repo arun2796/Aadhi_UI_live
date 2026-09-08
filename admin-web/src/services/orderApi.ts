@@ -82,5 +82,13 @@ export const orderApi = {
     // Backend contract: POST /orders/{id}/reject-payment { reason } → order cancelled.
     const res = await apiClient.post<{ data: Order }>(`/orders/${orderId}/reject-payment`, { reason });
     return res.data?.data;
+  },
+
+  submitPaymentProof: async (
+    orderId: string,
+    data: { utrNumber?: string; paymentScreenshotBase64?: string; notes?: string; orderNumber?: string }
+  ) => {
+    const res = await apiClient.post<{ data: Order }>(`/orders/${orderId}/payment-proof`, data);
+    return res.data?.data;
   }
 };

@@ -8,6 +8,9 @@ const API_ORIGIN = API_BASE_URL.replace(/\/api.*$/i, '');
 export const normalizeImageUrl = (url?: string | null): string | undefined => {
   if (!url || !url.trim()) return undefined;
   const trimmed = url.trim();
+  if (trimmed.startsWith('data:')) {
+    return trimmed;
+  }
   if (trimmed.startsWith('/storage/')) {
     return `${API_ORIGIN}${trimmed}`;
   }

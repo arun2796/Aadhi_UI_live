@@ -145,6 +145,7 @@ export const api = {
   verifyPayment: orderApi.verifyUpiPayment,
   moveToPacking: orderApi.moveToPacking,
   rejectPayment: orderApi.rejectPayment,
+  submitPaymentProof: orderApi.submitPaymentProof,
   // Low Stock Alerts (direct product stock)
   getLowStockAlerts: productApi.getLowStockProducts,
 
