@@ -53,14 +53,6 @@ const inputCls =
 
 const RequiredMark = () => <span className="text-red-500"> *</span>;
 
-/**
- * Unified Add / Edit Product page:
- * - Single-page layout (no separate tabs for pricing or images).
- * - No HSN Code or stock tracking counters.
- * - Dynamic Brand addition with inline modal.
- * - Auto SKU generator.
- * - Real-time profit margin calculator and integrated Google Drive imagery.
- */
 export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productId }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
