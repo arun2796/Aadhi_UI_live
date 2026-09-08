@@ -8,7 +8,8 @@ import {
   ImageIcon,
   Link as LinkIcon,
   Wand2,
-  X
+  X,
+  Sparkles
 } from 'lucide-react';
 import { Product, Category, Brand } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
@@ -22,9 +23,8 @@ interface ErpProductFormPageProps {
   productId?: string;
 }
 
-/** Local form model — extends Product with fields not yet in the shared type (HSN, SEO meta). */
+/** Local form model — extends Product with fields not yet in the shared type. */
 type ProductFormState = Partial<Product> & {
-  hsnCode?: string;
   metaTitle?: string;
   metaDescription?: string;
 };
@@ -34,23 +34,6 @@ interface GalleryImage {
   url: string;
   isPrimary: boolean;
 }
-
-type FormTab = 'general' | 'pricing' | 'inventory' | 'images' | 'seo';
-
-const ALL_TABS: { id: FormTab; label: string }[] = [
-  { id: 'general', label: 'General Information' },
-  { id: 'pricing', label: 'Pricing' },
-  { id: 'inventory', label: 'Inventory' },
-  { id: 'images', label: 'Images' },
-  { id: 'seo', label: 'SEO' }
-];
-
-
-const SHOW_EXTRA_TABS: boolean = false;
-
-const TABS = SHOW_EXTRA_TABS
-  ? ALL_TABS
-  : ALL_TABS.filter((t) => t.id !== 'inventory' && t.id !== 'seo');
 
 /** Fields the form can highlight inline when the server returns field-level validation errors. */
 type ServerFieldKey = 'name' | 'sku' | 'description' | 'price';
@@ -65,22 +48,19 @@ const getServerErrorMessage = (error: unknown, fallback: string): string => {
   return message || fallback;
 };
 
-/** URL-slug helper — mirrors the backend's slug generation from the product name. */
-const slugify = (value: string) =>
-  value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-
 const inputCls =
   'w-full mt-1 p-2.5 rounded-xl border border-slate-200 bg-white text-xs text-navy outline-none focus:border-purple transition-colors';
 
 const RequiredMark = () => <span className="text-red-500"> *</span>;
 
-/** Dedicated Add / Edit Product page (design 08) with General | Pricing | Inventory | Images tabs. */
+/**
+ * Unified Add / Edit Product page:
+ * - Single-page layout (no separate tabs for pricing or images).
+ * - No HSN Code or stock tracking counters.
+ * - Dynamic Brand addition with inline modal.
+ * - Auto SKU generator.
+ * - Real-time profit margin calculator and integrated Google Drive imagery.
+ */
 export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productId }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -88,7 +68,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<FormTab>('general');
 
   const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -120,10 +99,9 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
   // Product Image Google Drive helpers
   const [imageUrlInput, setImageUrlInput] = useState('');
-  const [galleryUrlInput, setGalleryUrlInput] = useState('');
   const [galleryBatchUrls, setGalleryBatchUrls] = useState('');
 
-  // Inline field errors (client-side validation + server validation ProblemDetails `errors`)
+  // Inline field errors
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ServerFieldKey, string>>>({});
   const nameRef = useRef<HTMLInputElement>(null);
   const skuRef = useRef<HTMLInputElement>(null);
@@ -136,7 +114,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
   const setField = <K extends keyof ProductFormState>(key: K, value: ProductFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    // Editing a highlighted field clears its inline error
     const errKey = key as string;
     if ((SERVER_FIELD_KEYS as string[]).includes(errKey)) {
       setFieldErrors((prev) =>
@@ -145,101 +122,119 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     }
   };
 
-  /** Red-border style for a field with an inline error (wins over inputCls border colors). */
   const fieldCls = (key: ServerFieldKey) =>
     `${inputCls}${fieldErrors[key] ? ' border-red-400! focus:border-red-400!' : ''}`;
 
-  /** Switches to the tab holding the field, then focuses it once the tab has rendered. */
-  const focusField = (key: ServerFieldKey) => {
-    setActiveTab(key === 'price' ? 'pricing' : 'general');
-    const refs: Record<ServerFieldKey, React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>> = {
-      name: nameRef,
-      sku: skuRef,
-      description: descriptionRef,
-      price: priceRef
-    };
-    window.setTimeout(() => refs[key].current?.focus(), 0);
-  };
+  const focusField = useCallback((key: ServerFieldKey) => {
+    requestAnimationFrame(() => {
+      const refs: Record<ServerFieldKey, React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>> = {
+        name: nameRef,
+        sku: skuRef,
+        description: descriptionRef,
+        price: priceRef
+      };
+      refs[key]?.current?.focus();
+      refs[key]?.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, []);
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [cats, brs, prod] = await Promise.all([
-        api.getCategories(true),
-        api.getBrands(),
-        productId ? api.getProductById(productId) : Promise.resolve(undefined)
-      ]);
-      const flat = flattenCategories(cats || []);
-      setAllCategories(flat);
-      setBrands(brs || []);
-
-      if (productId) {
-        if (!prod) {
-          showToast('Product not found', 'error');
-          navigate('/admin/products');
-          return;
-        }
-        setForm({ ...(prod as ProductFormState) });
-
-        // Resolve dependent Category / Sub Category dropdowns from the product's categoryId
-        const assigned = flat.find((c) => c.id === prod.categoryId);
-        if (assigned?.parentCategoryId) {
-          setTopCategoryId(assigned.parentCategoryId);
-          setSubCategoryId(assigned.id);
-        } else if (assigned) {
-          setTopCategoryId(assigned.id);
-          setSubCategoryId('');
-        }
-
-        // Build image gallery from images[] + primaryImageUrl
-        const imgs: GalleryImage[] = (prod.images || []).map((img) => ({
-          id: img.id,
-          url: img.url,
-          isPrimary: img.isPrimary
-        }));
-        if (prod.primaryImageUrl && !imgs.some((g) => g.url === prod.primaryImageUrl)) {
-          imgs.unshift({ url: prod.primaryImageUrl, isPrimary: true });
-        }
-        if (imgs.length > 0 && !imgs.some((g) => g.isPrimary)) {
-          imgs[0] = { ...imgs[0], isPrimary: true };
-        }
-        setGallery(imgs);
-      }
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to load product form data', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId]);
+  // ---- Data Loading ------------------------------------------------------
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    let isMounted = true;
 
-  // ---- Image helpers ----------------------------------------------------
+    const loadFormData = async () => {
+      setIsLoading(true);
+      try {
+        const [catsRes, brandsRes, product] = await Promise.all([
+          api.getCategories(true),
+          brandApi.getBrands(),
+          productId ? api.getProductById(productId) : Promise.resolve(undefined)
+        ]);
+        if (!isMounted) return;
 
-  /** Sets / replaces the primary product image.
-   *  Google Drive share links are converted to direct-image URLs. */
+        const flat = flattenCategories(catsRes);
+        setAllCategories(flat);
+        setBrands(brandsRes || []);
+
+        if (isEdit && product) {
+
+          setForm({
+            ...product,
+            price: product.price ?? 0,
+            compareAtPrice: product.compareAtPrice ?? 0,
+            costPrice: product.costPrice ?? 0,
+            stockQuantity: product.stockQuantity ?? 9999,
+            reorderLevel: product.reorderLevel ?? 10,
+            unit: product.unit || 'Box',
+            isActive: product.isActive ?? true,
+            isFeatured: product.isFeatured ?? false,
+            productType: product.productType || 'Simple'
+          });
+
+          // Resolve Category & Sub Category
+          if (product.categoryId) {
+            const currentCat = flat.find((c) => c.id === product.categoryId);
+            if (currentCat?.parentCategoryId) {
+              setTopCategoryId(currentCat.parentCategoryId);
+              setSubCategoryId(currentCat.id);
+            } else {
+              setTopCategoryId(product.categoryId);
+            }
+          }
+
+          // Build gallery
+          const imgs: GalleryImage[] = (product.images || []).map((img) => ({
+            id: img.id,
+            url: normalizeImageUrl(img.url) ?? img.url,
+            isPrimary: Boolean(img.isPrimary)
+          }));
+          if (imgs.length === 0 && product.primaryImageUrl) {
+            imgs.push({
+              url: normalizeImageUrl(product.primaryImageUrl) ?? product.primaryImageUrl,
+              isPrimary: true
+            });
+          }
+          if (imgs.length > 0 && !imgs.some((g) => g.isPrimary)) {
+            imgs[0].isPrimary = true;
+          }
+          setGallery(imgs);
+        }
+      } catch (error) {
+        showToast(getServerErrorMessage(error, 'Failed to load form data'), 'error');
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    loadFormData();
+    return () => {
+      isMounted = false;
+    };
+  }, [productId, isEdit]);
+
+  // ---- Image Handling ----------------------------------------------------
+
   const setPrimaryImageUrl = (rawUrl: string) => {
-    if (!rawUrl?.trim()) return;
-    const url = normalizeImageUrl(rawUrl.trim()) ?? rawUrl.trim();
+    if (!rawUrl.trim()) return;
+    const normalized = normalizeImageUrl(rawUrl.trim()) ?? rawUrl.trim();
     setGallery((prev) => {
-      const others = prev.filter((g) => !g.isPrimary).map((g) => ({ ...g, isPrimary: false }));
-      return [{ url, isPrimary: true }, ...others];
+      const existing = prev.find((g) => g.url === normalized);
+      if (existing) {
+        return prev.map((g) => ({ ...g, isPrimary: g.url === normalized }));
+      }
+      return [{ url: normalized, isPrimary: true }, ...prev.map((g) => ({ ...g, isPrimary: false }))];
     });
     setImageUrlInput('');
-    showToast('Primary product image set', 'success');
+    showToast('Primary image updated!', 'success');
   };
 
-  /** Adds one or multiple Google Drive URLs (separated by newlines or commas) to gallery */
-  const addMultipleGalleryUrls = (rawInput: string) => {
-    if (!rawInput?.trim()) return;
-    const tokens = rawInput
-      .split(/[\n,;\r]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+  const addMultipleGalleryUrls = (urlsText: string) => {
+    if (!urlsText.trim()) return;
+    const tokens = urlsText
+      .split(/[\n,]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
 
     if (tokens.length === 0) return;
 
@@ -277,6 +272,8 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     });
   };
 
+  // ---- Brand Helper ------------------------------------------------------
+
   const handleCreateBrand = async () => {
     if (!newBrandName.trim()) {
       showToast('Brand name is required', 'warning');
@@ -308,6 +305,8 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     }
   };
 
+  // ---- SKU Auto Generator ------------------------------------------------
+
   const generateAutoSku = () => {
     const cat = allCategories.find((c) => c.id === (subCategoryId || topCategoryId));
     const catPrefix = cat
@@ -338,16 +337,13 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       return;
     }
     if (!topCategoryId) {
-      setActiveTab('general');
       showToast('Please select a Category', 'warning');
       return;
     }
     if (subCategories.length > 0 && !subCategoryId) {
-      setActiveTab('general');
       showToast('Please select a Sub Category', 'warning');
       return;
     }
-    // Description is required by the backend — catch it client-side before submit
     if (!form.description?.trim()) {
       setFieldErrors({ description: 'Description is required' });
       showToast('Description is required', 'warning');
@@ -366,7 +362,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     const finalCategory = allCategories.find((c) => c.id === finalCategoryId);
     const primary = gallery.find((g) => g.isPrimary) || gallery[0];
 
-    // Meta Title / Meta Description are local-only (no backend fields yet) — exclude from payload.
     const { metaTitle: _metaTitle, metaDescription: _metaDescription, ...persistedForm } = form;
 
     const payload: ProductFormState = {
@@ -402,8 +397,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       }
       navigate('/admin/products');
     } catch (error) {
-      // Validation ProblemDetails carry field-level errors, e.g.
-      // { errors: { "Description": ["'Description' must not be empty."] } }
       const data = (error as { response?: { data?: { errors?: unknown } } } | null)?.response?.data;
       const validationErrors =
         data?.errors && typeof data.errors === 'object' && !Array.isArray(data.errors)
@@ -422,7 +415,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
           toastMessage = firstMessage;
           const key = field.toLowerCase() as ServerFieldKey;
           if (SERVER_FIELD_KEYS.includes(key)) {
-            // A field the form knows — highlight it inline and jump to it
             setFieldErrors((prev) => ({ ...prev, [key]: firstMessage }));
             focusField(key);
           }
@@ -435,18 +427,24 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     }
   };
 
+  // Pricing calculations
+  const sellingPrice = Number(form.price) || 0;
+  const costPrice = Number(form.costPrice) || 0;
+  const profitMargin = sellingPrice > 0 ? sellingPrice - costPrice : 0;
+  const profitPercent = sellingPrice > 0 ? Math.round((profitMargin / sellingPrice) * 100) : 0;
+
   if (isLoading) {
     return <ErpLoadingState message="Loading product form..." height="h-96" />;
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-10">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <button
             onClick={() => navigate('/admin/products')}
-            className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-2xs"
+            className="p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-2xs transition-colors"
             title="Back to Products"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -458,183 +456,170 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
             <p className="text-xs text-slate-500 mt-0.5">
               {isEdit
                 ? `Update details for ${form.name || 'this product'}${form.sku ? ` (${form.sku})` : ''}.`
-                : 'Create a new product for the live catalog.'}
+                : 'Create and publish a new product in the live catalog.'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Form Card */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs">
-        {/* Tabs */}
-        <div className="flex items-center space-x-6 border-b border-slate-200 px-6 overflow-x-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-3.5 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                activeTab === tab.id
-                  ? 'border-purple text-purple'
-                  : 'border-transparent text-slate-500 hover:text-navy'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
+      {/* Unified Single-Page Form Card */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="p-6">
-          {/* GENERAL TAB */}
-          {activeTab === 'general' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left: form fields */}
-              <div className="lg:col-span-2 space-y-4 text-xs">
-                <div>
-                  <label className="font-bold text-navy">
-                    Product Name
-                    <RequiredMark />
-                  </label>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left Column: Product Information & Pricing (7 cols) */}
+            <div className="lg:col-span-7 space-y-5 text-xs">
+              {/* Product Name */}
+              <div>
+                <label className="font-bold text-navy">
+                  Product Name
+                  <RequiredMark />
+                </label>
+                <input
+                  ref={nameRef}
+                  type="text"
+                  value={form.name || ''}
+                  onChange={(e) => setField('name', e.target.value)}
+                  placeholder="e.g. Aadhi Deluxe 30 Shots"
+                  className={fieldCls('name')}
+                />
+                {fieldErrors.name && (
+                  <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.name}</p>
+                )}
+              </div>
+
+              {/* SKU with Auto-SKU button */}
+              <div>
+                <label className="font-bold text-navy">
+                  SKU
+                  <RequiredMark />
+                </label>
+                <div className="flex items-center space-x-2">
                   <input
-                    ref={nameRef}
+                    ref={skuRef}
                     type="text"
-                    value={form.name || ''}
-                    onChange={(e) => setField('name', e.target.value)}
-                    placeholder="e.g. Aadhi Deluxe 30 Shots"
-                    className={fieldCls('name')}
+                    value={form.sku || ''}
+                    onChange={(e) => setField('sku', e.target.value.toUpperCase())}
+                    placeholder="e.g. AC-SP-010"
+                    className={`${fieldCls('sku')} font-mono uppercase flex-1`}
                   />
-                  {fieldErrors.name && (
-                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.name}</p>
-                  )}
+                  <button
+                    type="button"
+                    onClick={generateAutoSku}
+                    className="mt-1 px-3 py-2.5 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/10 text-purple text-xs font-bold shrink-0 transition-colors flex items-center space-x-1.5"
+                    title="Auto generate unique SKU"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>Auto SKU</span>
+                  </button>
+                </div>
+                {fieldErrors.sku && (
+                  <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.sku}</p>
+                )}
+              </div>
+
+              {/* Category & Sub Category */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-bold text-navy">
+                    Category
+                    <RequiredMark />
+                  </label>
+                  <select
+                    value={topCategoryId}
+                    onChange={(e) => {
+                      setTopCategoryId(e.target.value);
+                      setSubCategoryId('');
+                    }}
+                    className={inputCls}
+                  >
+                    <option value="">Select Category</option>
+                    {topCategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
                   <label className="font-bold text-navy">
-                    SKU
+                    Sub Category
                     <RequiredMark />
                   </label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      ref={skuRef}
-                      type="text"
-                      value={form.sku || ''}
-                      onChange={(e) => setField('sku', e.target.value.toUpperCase())}
-                      placeholder="e.g. AC-SP-010"
-                      className={`${fieldCls('sku')} font-mono uppercase flex-1`}
-                    />
-                    <button
-                      type="button"
-                      onClick={generateAutoSku}
-                      className="mt-1 px-3 py-2.5 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/10 text-purple text-xs font-bold shrink-0 transition-colors flex items-center space-x-1.5"
-                      title="Auto generate unique SKU"
-                    >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      <span>Auto SKU</span>
-                    </button>
-                  </div>
-                  {fieldErrors.sku && (
-                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.sku}</p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="font-bold text-navy">
-                      Category
-                      <RequiredMark />
-                    </label>
-                    <select
-                      value={topCategoryId}
-                      onChange={(e) => {
-                        setTopCategoryId(e.target.value);
-                        setSubCategoryId('');
-                      }}
-                      className={inputCls}
-                    >
-                      <option value="">Select Category</option>
-                      {topCategories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold text-navy">Brand</label>
-                    <div className="flex items-center space-x-2">
-                      <select
-                        value={form.brandId || ''}
-                        onChange={(e) => {
-                          const brand = brands.find((b) => b.id === e.target.value);
-                          setForm((prev) => ({
-                            ...prev,
-                            brandId: e.target.value || undefined,
-                            brandName: brand?.name
-                          }));
-                        }}
-                        className={`${inputCls} flex-1`}
-                      >
-                        <option value="">Select Brand</option>
-                        {brands.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddBrandModal(true)}
-                        className="mt-1 p-2.5 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/15 text-purple shadow-2xs shrink-0 transition-colors"
-                        title="Add new Brand dynamically"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="font-bold text-navy">
-                      Sub Category
-                      <RequiredMark />
-                    </label>
-                    <select
-                      value={subCategoryId}
-                      onChange={(e) => setSubCategoryId(e.target.value)}
-                      disabled={!topCategoryId || subCategories.length === 0}
-                      className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`}
-                    >
-                      <option value="">
-                        {!topCategoryId
-                          ? 'Select Category first'
-                          : subCategories.length === 0
-                          ? 'No sub categories'
-                          : 'Select Sub Category'}
+                  <select
+                    value={subCategoryId}
+                    onChange={(e) => setSubCategoryId(e.target.value)}
+                    disabled={!topCategoryId || subCategories.length === 0}
+                    className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-400`}
+                  >
+                    <option value="">
+                      {!topCategoryId
+                        ? 'Select Category first'
+                        : subCategories.length === 0
+                        ? 'No sub categories'
+                        : 'Select Sub Category'}
+                    </option>
+                    {subCategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
                       </option>
-                      {subCategories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="font-bold text-navy">HSN Code</label>
-                    <input
-                      type="text"
-                      value={form.hsnCode || ''}
-                      onChange={(e) => setField('hsnCode', e.target.value)}
-                      placeholder="e.g. 3604"
-                      className={`${inputCls} font-mono`}
-                    />
-                  </div>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Brand Selection with Inline Add Brand button */}
+              <div>
+                <label className="font-bold text-navy">Brand</label>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={form.brandId || ''}
+                    onChange={(e) => {
+                      const brand = brands.find((b) => b.id === e.target.value);
+                      setForm((prev) => ({
+                        ...prev,
+                        brandId: e.target.value || undefined,
+                        brandName: brand?.name
+                      }));
+                    }}
+                    className={`${inputCls} flex-1`}
+                  >
+                    <option value="">Select Brand (Optional)</option>
+                    {brands.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddBrandModal(true)}
+                    className="mt-1 px-3 py-2.5 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/15 text-purple shadow-2xs shrink-0 transition-colors flex items-center space-x-1"
+                    title="Add new Brand dynamically"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="font-bold">Add Brand</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Pricing & Profitability Card */}
+              <div className="p-4 rounded-2xl bg-purple/5 border border-purple/15 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black text-navy flex items-center space-x-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-purple" />
+                    <span>Pricing</span>
+                  </h3>
+                  <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-md border border-purple/10">
+                    GST 0% Inclusive
+                  </span>
                 </div>
 
-                {/* Primary Pricing Section Directly on General Tab */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-purple/5 border border-purple/15">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="font-bold text-navy flex items-center justify-between">
-                      <span>Selling Price (₹) <RequiredMark /></span>
+                    <label className="font-bold text-navy">
+                      Selling Price (₹)
+                      <RequiredMark />
                     </label>
                     <input
                       ref={priceRef}
@@ -649,8 +634,9 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                       <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.price}</p>
                     )}
                   </div>
+
                   <div>
-                    <label className="font-bold text-navy">MRP / Compare at Price (₹)</label>
+                    <label className="font-bold text-navy">MRP / Compare at (₹)</label>
                     <input
                       type="number"
                       min={0}
@@ -660,95 +646,122 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                       className={`${inputCls} bg-white`}
                     />
                   </div>
-                </div>
 
-                <div>
-                  <label className="font-bold text-navy">
-                    Description
-                    <RequiredMark />
-                  </label>
-                  <textarea
-                    ref={descriptionRef}
-                    rows={5}
-                    value={form.description || ''}
-                    onChange={(e) => setField('description', e.target.value)}
-                    placeholder="Describe the firecracker effect, contents and highlights..."
-                    className={fieldCls('description')}
-                  />
-                  {fieldErrors.description && (
-                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.description}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="font-bold text-navy">Short Description</label>
-                  <input
-                    type="text"
-                    value={form.shortDescription || ''}
-                    onChange={(e) => setField('shortDescription', e.target.value)}
-                    placeholder="One-line summary shown on product cards..."
-                    className={inputCls}
-                  />
-                </div>
-
-                {/* Status toggle (Active / Inactive) */}
-                <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50/50">
                   <div>
-                    <div className="font-bold text-navy">Status</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">
-                      {form.isActive ?? true
-                        ? 'Product is visible and purchasable in the store.'
-                        : 'Product is hidden from the store.'}
-                    </div>
+                    <label className="font-bold text-navy">Cost Price (₹)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.costPrice ? form.costPrice : ''}
+                      placeholder="e.g. 200"
+                      onChange={(e) => setField('costPrice', e.target.value === '' ? ('' as any) : Number(e.target.value))}
+                      className={`${inputCls} bg-white`}
+                    />
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={form.isActive ?? true}
-                    onClick={() => setField('isActive', !(form.isActive ?? true))}
-                    className="flex items-center space-x-2 cursor-pointer"
-                  >
-                    <span
-                      className={`text-[10px] font-bold ${
-                        form.isActive ?? true ? 'text-emerald-600' : 'text-slate-400'
-                      }`}
-                    >
-                      {form.isActive ?? true ? 'Active' : 'Inactive'}
-                    </span>
-                    <span
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                        form.isActive ?? true ? 'bg-emerald-500' : 'bg-slate-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transform transition-transform ${
-                          form.isActive ?? true ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                        }`}
-                      />
-                    </span>
-                  </button>
                 </div>
+
+                {/* Profit Margin Indicator */}
+                {sellingPrice > 0 && costPrice > 0 && (
+                  <div className="p-2.5 rounded-xl bg-white border border-emerald-200 text-emerald-800 text-[11px] font-medium flex items-center justify-between">
+                    <span>Gross Profit Margin:</span>
+                    <span className="font-black text-xs">
+                      ₹{profitMargin.toLocaleString('en-IN')} ({profitPercent}%)
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Right: Product Image card */}
-              <div className="space-y-4">
+              {/* Description */}
+              <div>
+                <label className="font-bold text-navy">
+                  Description
+                  <RequiredMark />
+                </label>
+                <textarea
+                  ref={descriptionRef}
+                  rows={4}
+                  value={form.description || ''}
+                  onChange={(e) => setField('description', e.target.value)}
+                  placeholder="Describe the firecracker effect, contents and safety guidelines..."
+                  className={fieldCls('description')}
+                />
+                {fieldErrors.description && (
+                  <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.description}</p>
+                )}
+              </div>
+
+              {/* Short Description */}
+              <div>
+                <label className="font-bold text-navy">Short Description</label>
+                <input
+                  type="text"
+                  value={form.shortDescription || ''}
+                  onChange={(e) => setField('shortDescription', e.target.value)}
+                  placeholder="One-line summary shown on product cards and listings..."
+                  className={inputCls}
+                />
+              </div>
+
+              {/* Status Toggle (Active / Inactive) */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div>
+                  <div className="font-bold text-navy">Catalog Visibility</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    {form.isActive ?? true
+                      ? 'Product is active, visible, and purchasable by customers.'
+                      : 'Product is hidden from the store catalog.'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.isActive ?? true}
+                  onClick={() => setField('isActive', !(form.isActive ?? true))}
+                  className="flex items-center space-x-2 cursor-pointer"
+                >
+                  <span
+                    className={`text-[10px] font-bold ${
+                      form.isActive ?? true ? 'text-emerald-600' : 'text-slate-400'
+                    }`}
+                  >
+                    {form.isActive ?? true ? 'Active' : 'Inactive'}
+                  </span>
+                  <span
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      form.isActive ?? true ? 'bg-emerald-500' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transform transition-transform ${
+                        form.isActive ?? true ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                      }`}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Product Imagery (5 cols) */}
+            <div className="lg:col-span-5 space-y-5 text-xs">
+              <div className="p-4.5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-black text-navy">Product Primary Image</h3>
-                  {gallery.length > 0 && (
-                    <span className="text-[10px] font-bold text-purple bg-purple/10 px-2 py-0.5 rounded-full">
-                      {gallery.length} in Gallery
-                    </span>
-                  )}
+                  <h3 className="text-xs font-black text-navy flex items-center space-x-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-purple" />
+                    <span>Product Imagery</span>
+                  </h3>
+                  <span className="text-[10px] font-bold text-purple bg-purple/10 px-2.5 py-0.5 rounded-full">
+                    {gallery.length} in Gallery
+                  </span>
                 </div>
 
-                {/* Primary Preview */}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden relative">
+                {/* Primary Preview Card */}
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden relative shadow-2xs">
                   {primaryImage ? (
                     <div className="relative">
                       <img
                         src={primaryImage.url}
-                        alt="Product primary preview"
-                        className="w-full h-48 object-cover"
+                        alt="Product preview"
+                        className="w-full h-52 object-cover"
                         onError={(e) => {
                           (e.currentTarget as HTMLElement).style.display = 'none';
                         }}
@@ -760,7 +773,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center text-center p-8 min-h-48 text-slate-400">
-                      <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center mb-2 shadow-2xs">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center mb-2 shadow-2xs">
                         <ImageIcon className="w-6 h-6 text-slate-400" />
                       </div>
                       <p className="text-xs font-bold text-navy">No Primary Image Set</p>
@@ -771,14 +784,14 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                   )}
                 </div>
 
-                {/* Primary Drive Link Input */}
+                {/* Google Drive Link Input for Primary Image */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-navy flex items-center justify-between">
-                    <span>Google Drive Image URL</span>
+                    <span>Set Primary Image</span>
                     <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
                   </label>
                   <div className="flex items-center space-x-2">
-                    <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl focus-within:border-purple focus-within:bg-white transition-all">
+                    <div className="flex items-center space-x-2 flex-1 bg-white border border-slate-200 px-3 py-2 rounded-xl focus-within:border-purple transition-all">
                       <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                       <input
                         type="text"
@@ -789,9 +802,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
-                            if (imageUrlInput.trim()) {
-                              setPrimaryImageUrl(imageUrlInput.trim());
-                            }
+                            if (imageUrlInput.trim()) setPrimaryImageUrl(imageUrlInput.trim());
                           }
                         }}
                       />
@@ -799,60 +810,51 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     <button
                       type="button"
                       onClick={() => {
-                        if (imageUrlInput.trim()) {
-                          setPrimaryImageUrl(imageUrlInput.trim());
-                        }
+                        if (imageUrlInput.trim()) setPrimaryImageUrl(imageUrlInput.trim());
                       }}
                       className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-all flex-shrink-0 shadow-xs"
                     >
                       Set Primary
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-400">
-                    Supports Google Drive sharing links (e.g. <span className="font-mono text-slate-600">drive.google.com/file/d/...</span>).
-                  </p>
                 </div>
 
-                {/* Gallery Thumbnails + Quick Add More */}
-                <div className="pt-3 border-t border-slate-100 space-y-2">
+                {/* Gallery Images Section */}
+                <div className="pt-3 border-t border-slate-200 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-navy">Gallery Images</span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('images')}
-                      className="text-[10px] font-bold text-purple hover:underline"
-                    >
-                      Manage All ({gallery.length}) &rarr;
-                    </button>
+                    <span className="text-[10px] text-slate-400">Click any thumbnail to set as primary</span>
                   </div>
 
-                  {/* Thumbnail Row */}
+                  {/* Thumbnail Row / Grid */}
                   {gallery.length > 0 && (
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    <div className="grid grid-cols-4 gap-2">
                       {gallery.map((img, idx) => (
                         <div
                           key={`${img.url.slice(0, 64)}-${idx}`}
-                          className="relative flex-shrink-0 group"
+                          className="relative group rounded-xl overflow-hidden border-2 bg-white aspect-square"
+                          style={{ borderColor: img.isPrimary ? '#6366f1' : '#e2e8f0' }}
                         >
                           <button
                             type="button"
                             onClick={() => markPrimary(idx)}
-                            className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all block ${
-                              img.isPrimary
-                                ? 'border-purple ring-2 ring-purple/20'
-                                : 'border-slate-200 hover:border-purple/40 opacity-80 hover:opacity-100'
-                            }`}
+                            className="w-full h-full block"
                             title={img.isPrimary ? 'Current primary image' : 'Click to set as primary'}
                           >
                             <img src={img.url} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
                           </button>
+                          {img.isPrimary && (
+                            <div className="absolute top-1 left-1 p-0.5 rounded bg-purple text-white">
+                              <Star className="w-2.5 h-2.5 fill-current text-gold" />
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               removeImage(idx);
                             }}
-                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
+                            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
                             title="Remove image"
                           >
                             &times;
@@ -862,333 +864,43 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     </div>
                   )}
 
-                  {/* Quick Add Gallery Input (Multiple Drive URLs supported!) */}
-                  <div className="flex items-center space-x-2 pt-1">
-                    <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
-                      <Plus className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      <input
-                        type="text"
-                        value={galleryUrlInput}
-                        onChange={(e) => setGalleryUrlInput(e.target.value)}
-                        placeholder="Add Google Drive URL to gallery..."
-                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            if (galleryUrlInput.trim()) {
-                              addMultipleGalleryUrls(galleryUrlInput.trim());
-                              setGalleryUrlInput('');
-                            }
+                  {/* Batch Add Images via Multiple Drive Links */}
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-[11px] font-bold text-navy">Add Gallery Images (Google Drive)</label>
+                    <textarea
+                      rows={2}
+                      value={galleryBatchUrls}
+                      onChange={(e) => setGalleryBatchUrls(e.target.value)}
+                      placeholder={"Paste Google Drive links (one per line or comma separated)..."}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 bg-white outline-none text-xs text-navy font-mono placeholder-slate-400 focus:border-purple transition-all"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (galleryBatchUrls.trim()) {
+                            addMultipleGalleryUrls(galleryBatchUrls.trim());
+                            setGalleryBatchUrls('');
                           }
                         }}
-                      />
+                        className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all shadow-xs flex items-center space-x-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add to Gallery</span>
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (galleryUrlInput.trim()) {
-                          addMultipleGalleryUrls(galleryUrlInput.trim());
-                          setGalleryUrlInput('');
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 flex-shrink-0"
-                    >
-                      + Add
-                    </button>
                   </div>
                 </div>
               </div>
             </div>
-          )}
-
-          {/* PRICING TAB */}
-          {activeTab === 'pricing' && (
-            <div className="max-w-2xl space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-bold text-navy">
-                    Price (₹)
-                    <RequiredMark />
-                  </label>
-                  <input
-                    ref={priceRef}
-                    type="number"
-                    min={0}
-                    value={form.price ? form.price : ''}
-                    placeholder="e.g. 300"
-                    onChange={(e) => setField('price', e.target.value === '' ? ('' as any) : Number(e.target.value))}
-                    className={`${fieldCls('price')} font-bold`}
-                  />
-                  {fieldErrors.price && (
-                    <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.price}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="font-bold text-navy">MRP / Compare at Price (₹)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.compareAtPrice ? form.compareAtPrice : ''}
-                    placeholder="e.g. 500"
-                    onChange={(e) => setField('compareAtPrice', e.target.value === '' ? ('' as any) : Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-bold text-navy">Cost Price (₹)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.costPrice ? form.costPrice : ''}
-                    placeholder="e.g. 200"
-                    onChange={(e) => setField('costPrice', e.target.value === '' ? ('' as any) : Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-navy">GST Rate</label>
-                  <div className="px-3 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-medium">
-                    0% (GST Inclusive / No Separate Tax)
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-medium">
-                Calculated Gross Profit Margin:{' '}
-                <span className="font-bold">
-                  ₹{((form.price || 0) - (form.costPrice || 0)).toLocaleString('en-IN')} (
-                  {form.price
-                    ? Math.round(((form.price - (form.costPrice || 0)) / form.price) * 100)
-                    : 0}
-                  %)
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* INVENTORY TAB — hidden while SHOW_EXTRA_TABS is false (defaults sent on save) */}
-          {SHOW_EXTRA_TABS && activeTab === 'inventory' && (
-            <div className="max-w-2xl space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="font-bold text-navy">Initial Stock Quantity</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.stockQuantity ?? 0}
-                    onChange={(e) => {
-                      const qty = Number(e.target.value);
-                      setForm((prev) => ({ ...prev, stockQuantity: qty, availableQuantity: qty }));
-                    }}
-                    className={inputCls}
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-navy">Reorder Level Threshold</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.reorderLevel ?? 10}
-                    onChange={(e) => setField('reorderLevel', Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-bold text-navy">Safety &amp; Lighting Instructions</label>
-                <textarea
-                  rows={3}
-                  value={form.safetyInformation || ''}
-                  onChange={(e) => setField('safetyInformation', e.target.value)}
-                  placeholder="e.g. Maintain 5m distance. Light only using an agarbatti or incense stick outdoors."
-                  className={inputCls}
-                />
-              </div>
-
-              <div className="flex items-center space-x-6 pt-2">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.isFeatured ?? false}
-                    onChange={(e) => setField('isFeatured', e.target.checked)}
-                    className="accent-purple w-4 h-4"
-                  />
-                  <span className="font-bold text-navy">Featured on Homepage</span>
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* IMAGES TAB */}
-          {activeTab === 'images' && (
-            <div className="space-y-5 text-xs">
-              {/* Batch Add Google Drive Links Section */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-black text-navy flex items-center space-x-2">
-                      <LinkIcon className="w-4 h-4 text-purple" />
-                      <span>Add Images via Google Drive URL</span>
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Paste one or multiple Google Drive links below. All links are automatically converted to direct high-resolution images.
-                    </p>
-                  </div>
-                  <span className="text-xs font-bold text-purple bg-purple/10 px-3 py-1 rounded-full self-start sm:self-auto">
-                    {gallery.length} Images in Gallery
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  <textarea
-                    rows={3}
-                    value={galleryBatchUrls}
-                    onChange={(e) => setGalleryBatchUrls(e.target.value)}
-                    placeholder={"Paste Google Drive link(s) here...\nSupports multiple links: paste one link per line or separate by commas\nExample:\nhttps://drive.google.com/file/d/1A2B3C4D.../view?usp=sharing"}
-                    className="w-full p-3 rounded-xl border border-slate-200 outline-none text-xs text-navy font-mono placeholder-slate-400 focus:border-purple focus:ring-1 focus:ring-purple/20 transition-all"
-                  />
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <p className="text-[11px] text-slate-400">
-                      Supports: <span className="font-mono text-slate-600">drive.google.com/file/d/...</span> or direct web image links.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (galleryBatchUrls.trim()) {
-                          addMultipleGalleryUrls(galleryBatchUrls.trim());
-                          setGalleryBatchUrls('');
-                        }
-                      }}
-                      className="px-5 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 transition-all flex items-center justify-center space-x-1.5"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Image(s) to Gallery</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Gallery Grid */}
-              {gallery.length === 0 ? (
-                <div className="flex flex-col items-center justify-center text-center p-12 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50">
-                  <ImageIcon className="w-10 h-10 text-slate-300 mb-2" />
-                  <p className="font-bold text-navy text-sm">No Images in Gallery</p>
-                  <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                    Paste one or more Google Drive image links in the box above to add them to your product gallery.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {gallery.map((img, idx) => (
-                    <div
-                      key={`${img.url.slice(0, 64)}-${idx}`}
-                      className={`rounded-2xl border overflow-hidden bg-white shadow-2xs flex flex-col transition-all ${
-                        img.isPrimary ? 'border-purple ring-2 ring-purple/20' : 'border-slate-200'
-                      }`}
-                    >
-                      <div className="relative aspect-square bg-slate-900 overflow-hidden">
-                        <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-full object-cover" />
-                        {img.isPrimary ? (
-                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-purple text-white text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 shadow-xs">
-                            <Star className="w-3 h-3 fill-current text-gold" />
-                            <span>Primary</span>
-                          </span>
-                        ) : (
-                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-navy/80 text-white text-[10px] font-bold backdrop-blur-xs">
-                            #{idx + 1}
-                          </span>
-                        )}
-                      </div>
-                      <div className="p-3 flex items-center justify-between border-t border-slate-100 bg-white">
-                        {img.isPrimary ? (
-                          <span className="text-[11px] font-bold text-purple flex items-center space-x-1">
-                            <Star className="w-3 h-3 fill-current text-gold" />
-                            <span>Primary Image</span>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => markPrimary(idx)}
-                            className="text-[11px] font-bold text-slate-600 hover:text-purple transition-colors"
-                          >
-                            Set as Primary
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => removeImage(idx)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                          title="Remove image"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* SEO TAB — hidden while SHOW_EXTRA_TABS is false */}
-          {SHOW_EXTRA_TABS && activeTab === 'seo' && (
-            <div className="max-w-2xl space-y-4 text-xs">
-              <div>
-                <label className="font-bold text-navy">URL Slug</label>
-                <input
-                  type="text"
-                  value={form.slug ?? ''}
-                  onChange={(e) => setField('slug', e.target.value)}
-                  placeholder={slugify(form.name || '') || 'e.g. aadhi-deluxe-30-shots'}
-                  className={`${inputCls} font-mono text-purple`}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Public product URL: /products/{form.slug || slugify(form.name || '') || '...'}
-                  {' '}— auto-generated from the product name when left blank.
-                </p>
-              </div>
-
-              <div>
-                <label className="font-bold text-navy">Meta Title</label>
-                <input
-                  type="text"
-                  value={form.metaTitle ?? form.name ?? ''}
-                  onChange={(e) => setField('metaTitle', e.target.value)}
-                  placeholder="Title shown in search engine results..."
-                  className={inputCls}
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-navy">Meta Description</label>
-                <textarea
-                  rows={3}
-                  value={form.metaDescription ?? form.shortDescription ?? ''}
-                  onChange={(e) => setField('metaDescription', e.target.value)}
-                  placeholder="Short summary shown under the title in search results..."
-                  className={inputCls}
-                />
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500">
-                Meta Title and Meta Description are not yet stored by the product API — they prefill
-                from the product name and short description and are kept locally until the backend
-                supports SEO meta fields.
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-
 
         {/* Footer: Cancel + Save Product */}
         <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex items-center justify-end space-x-3">
           <button
             onClick={() => navigate('/admin/products')}
-            className="px-5 py-2.5 rounded-xl border border-red-400 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors"
+            className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-100 transition-colors"
           >
             Cancel
           </button>

@@ -667,7 +667,6 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     <th className="py-3 px-4">Product</th>
                     <th className="py-3 px-3">SKU</th>
                     <th className="py-3 px-3">Category</th>
-                    <th className="py-3 px-3">Stock</th>
                     <th className="py-3 px-3">Price</th>
                     <th className="py-3 px-3">Status</th>
                     <th className="py-3 px-4 text-right">Action</th>
@@ -676,14 +675,14 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {isProductsLoading && displayedProducts.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-10 text-center text-slate-400">
+                      <td colSpan={6} className="py-10 text-center text-slate-400">
                         Loading products...
                       </td>
                     </tr>
                   )}
                   {!isProductsLoading && displayedProducts.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-10 text-center text-slate-400">
+                      <td colSpan={6} className="py-10 text-center text-slate-400">
                         No products found.
                       </td>
                     </tr>
@@ -713,16 +712,6 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                           {cells.subCategory !== '—' && (
                             <div className="text-[10px] text-slate-400 mt-1 pl-0.5">{cells.subCategory}</div>
                           )}
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="flex items-center space-x-1.5">
-                            <span
-                              className={`w-2 h-2 rounded-full ${
-                                (p.availableQuantity ?? p.stockQuantity) > 10 ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'
-                              }`}
-                            />
-                            <span className="font-bold text-navy">{p.availableQuantity ?? p.stockQuantity}</span>
-                          </div>
                         </td>
                         <td className="py-3 px-3">
                           <div className="font-black text-navy text-xs">₹{p.price.toLocaleString('en-IN')}</div>
