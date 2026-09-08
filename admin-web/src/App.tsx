@@ -16,8 +16,6 @@ const ErpSalesAndOrdersModule = lazy(() => import('./pages/erp/ErpSalesAndOrders
 const ErpCatalogModule = lazy(() => import('./pages/erp/ErpCatalogModule').then(m => ({ default: m.ErpCatalogModule })));
 const ErpProductFormPage = lazy(() => import('./pages/erp/ErpProductFormPage').then(m => ({ default: m.ErpProductFormPage })));
 const ErpSubCategoriesPage = lazy(() => import('./pages/erp/ErpSubCategoriesPage').then(m => ({ default: m.ErpSubCategoriesPage })));
-const ErpInventoryLedgerModule = lazy(() => import('./pages/erp/ErpInventoryLedgerModule').then(m => ({ default: m.ErpInventoryLedgerModule })));
-const ErpPurchaseOrdersModule = lazy(() => import('./pages/erp/ErpPurchaseOrdersModule').then(m => ({ default: m.ErpPurchaseOrdersModule })));
 const ErpFinanceAndPnlModule = lazy(() => import('./pages/erp/ErpFinanceAndPnlModule').then(m => ({ default: m.ErpFinanceAndPnlModule })));
 const ErpMarketingModule = lazy(() => import('./pages/erp/ErpMarketingModule').then(m => ({ default: m.ErpMarketingModule })));
 const ErpEnquiryModule = lazy(() => import('./pages/erp/ErpEnquiryModule').then(m => ({ default: m.ErpEnquiryModule })));
@@ -63,27 +61,18 @@ function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedA
       dashboard: '/admin/dashboard',
       orders: '/admin/orders',
       customers: '/admin/customers',
-      quotes: '/admin/quotes',
       invoices: '/admin/invoices',
       payments: '/admin/payments',
       returns: '/admin/returns',
       products: '/admin/products',
       categories: '/admin/categories',
+      brands: '/admin/brands',
       combos: '/admin/combo-offers',
       reviews: '/admin/reviews',
       banners: '/admin/banners',
-      inventory: '/admin/inventory',
-      transfers: '/admin/stock-transfers',
-      'low-stock': '/admin/inventory/low-stock',
-      warehouses: '/admin/warehouses',
-      purchases: '/admin/purchases',
-      suppliers: '/admin/suppliers',
-      grn: '/admin/goods-received',
-      bills: '/admin/supplier-bills',
       finance: '/admin/finance',
       expenses: '/admin/expenses',
       receivables: '/admin/receivables',
-      payables: '/admin/payables',
       coupons: '/admin/marketing/coupons',
       reports: '/admin/reports',
       'audit-logs': '/admin/audit-logs',
@@ -162,13 +151,10 @@ function AdminAppRoutes() {
       <Route path="/admin/orders/:id" element={<ProtectedAdminShell currentTab="orders"><OrderDetailWrapper /></ProtectedAdminShell>} />
       <Route path="/admin/customers" element={<ProtectedAdminShell currentTab="customers"><ErpSalesAndOrdersModule initialSubTab="customers" /></ProtectedAdminShell>} />
       <Route path="/admin/customers/:id" element={<ProtectedAdminShell currentTab="customers"><ErpSalesAndOrdersModule initialSubTab="customers" /></ProtectedAdminShell>} />
-      <Route path="/admin/quotes" element={<ProtectedAdminShell currentTab="quotes"><ErpSalesAndOrdersModule initialSubTab="quotes" /></ProtectedAdminShell>} />
       <Route path="/admin/invoices" element={<ProtectedAdminShell currentTab="invoices"><ErpSalesAndOrdersModule initialSubTab="invoices" /></ProtectedAdminShell>} />
       <Route path="/admin/invoices/:id" element={<ProtectedAdminShell currentTab="invoices"><ErpSalesAndOrdersModule initialSubTab="invoices" /></ProtectedAdminShell>} />
       <Route path="/admin/payments" element={<ProtectedAdminShell currentTab="payments"><ErpSalesAndOrdersModule initialSubTab="payments" /></ProtectedAdminShell>} />
       <Route path="/admin/payments/:id" element={<ProtectedAdminShell currentTab="payments"><ErpSalesAndOrdersModule initialSubTab="payments" /></ProtectedAdminShell>} />
-      <Route path="/admin/returns" element={<ProtectedAdminShell currentTab="returns"><ErpSalesAndOrdersModule initialSubTab="returns" /></ProtectedAdminShell>} />
-      <Route path="/admin/returns/:id" element={<ProtectedAdminShell currentTab="returns"><ErpSalesAndOrdersModule initialSubTab="returns" /></ProtectedAdminShell>} />
 
       {/* Catalog (§5) */}
       <Route path="/admin/products" element={<ProtectedAdminShell currentTab="products"><ErpCatalogModule initialSubTab="products" /></ProtectedAdminShell>} />
@@ -178,7 +164,7 @@ function AdminAppRoutes() {
       <Route path="/admin/categories" element={<ProtectedAdminShell currentTab="categories"><ErpCatalogModule initialSubTab="categories" /></ProtectedAdminShell>} />
       <Route path="/admin/categories/:id" element={<ProtectedAdminShell currentTab="categories"><CategoryDetailWrapper /></ProtectedAdminShell>} />
       <Route path="/admin/sub-categories" element={<ProtectedAdminShell currentTab="sub-categories"><ErpSubCategoriesPage /></ProtectedAdminShell>} />
-      <Route path="/admin/brands" element={<ProtectedAdminShell currentTab="products"><ErpCatalogModule initialSubTab="products" /></ProtectedAdminShell>} />
+      <Route path="/admin/brands" element={<ProtectedAdminShell currentTab="brands"><ErpCatalogModule initialSubTab="brands" /></ProtectedAdminShell>} />
       <Route path="/admin/gift-boxes" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
       <Route path="/admin/gift-boxes/:id" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
       <Route path="/admin/combo-offers" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
@@ -186,30 +172,21 @@ function AdminAppRoutes() {
       <Route path="/admin/reviews" element={<ProtectedAdminShell currentTab="reviews"><ErpCatalogModule initialSubTab="reviews" /></ProtectedAdminShell>} />
       <Route path="/admin/banners" element={<ProtectedAdminShell currentTab="banners"><ErpCatalogModule initialSubTab="banners" /></ProtectedAdminShell>} />
 
-      {/* Inventory & Warehouses (§5) */}
-      <Route path="/admin/inventory" element={<ProtectedAdminShell currentTab="inventory"><ErpInventoryLedgerModule initialSubTab="overview" /></ProtectedAdminShell>} />
-      <Route path="/admin/inventory/movements" element={<ProtectedAdminShell currentTab="inventory"><ErpInventoryLedgerModule initialSubTab="transfers" /></ProtectedAdminShell>} />
-      <Route path="/admin/inventory/adjustments" element={<ProtectedAdminShell currentTab="inventory"><ErpInventoryLedgerModule initialSubTab="overview" /></ProtectedAdminShell>} />
-      <Route path="/admin/inventory/low-stock" element={<ProtectedAdminShell currentTab="low-stock"><ErpInventoryLedgerModule initialSubTab="low-stock" /></ProtectedAdminShell>} />
-      <Route path="/admin/warehouses" element={<ProtectedAdminShell currentTab="warehouses"><ErpInventoryLedgerModule initialSubTab="warehouses" /></ProtectedAdminShell>} />
-      <Route path="/admin/warehouses/:id" element={<ProtectedAdminShell currentTab="warehouses"><ErpInventoryLedgerModule initialSubTab="warehouses" /></ProtectedAdminShell>} />
-      <Route path="/admin/stock-transfers" element={<ProtectedAdminShell currentTab="transfers"><ErpInventoryLedgerModule initialSubTab="transfers" /></ProtectedAdminShell>} />
-      <Route path="/admin/stock-transfers/:id" element={<ProtectedAdminShell currentTab="transfers"><ErpInventoryLedgerModule initialSubTab="transfers" /></ProtectedAdminShell>} />
-
-      {/* Purchases & Suppliers (§5) */}
-      <Route path="/admin/suppliers" element={<ProtectedAdminShell currentTab="suppliers"><ErpPurchaseOrdersModule initialSubTab="suppliers" /></ProtectedAdminShell>} />
-      <Route path="/admin/suppliers/:id" element={<ProtectedAdminShell currentTab="suppliers"><ErpPurchaseOrdersModule initialSubTab="suppliers" /></ProtectedAdminShell>} />
-      <Route path="/admin/purchases" element={<ProtectedAdminShell currentTab="purchases"><ErpPurchaseOrdersModule initialSubTab="purchases" /></ProtectedAdminShell>} />
-      <Route path="/admin/purchases/:id" element={<ProtectedAdminShell currentTab="purchases"><ErpPurchaseOrdersModule initialSubTab="purchases" /></ProtectedAdminShell>} />
-      <Route path="/admin/goods-received" element={<ProtectedAdminShell currentTab="grn"><ErpPurchaseOrdersModule initialSubTab="grn" /></ProtectedAdminShell>} />
-      <Route path="/admin/goods-received/:id" element={<ProtectedAdminShell currentTab="grn"><ErpPurchaseOrdersModule initialSubTab="grn" /></ProtectedAdminShell>} />
-      <Route path="/admin/supplier-bills" element={<ProtectedAdminShell currentTab="bills"><ErpPurchaseOrdersModule initialSubTab="bills" /></ProtectedAdminShell>} />
+      {/* Obsolete Module Redirects */}
+      <Route path="/admin/returns/*" element={<Navigate to="/admin/orders" replace />} />
+      <Route path="/admin/inventory/*" element={<Navigate to="/admin/products" replace />} />
+      <Route path="/admin/warehouses/*" element={<Navigate to="/admin/products" replace />} />
+      <Route path="/admin/stock-transfers/*" element={<Navigate to="/admin/products" replace />} />
+      <Route path="/admin/suppliers/*" element={<Navigate to="/admin/dashboard" replace />} />
+      <Route path="/admin/purchases/*" element={<Navigate to="/admin/dashboard" replace />} />
+      <Route path="/admin/goods-received/*" element={<Navigate to="/admin/dashboard" replace />} />
+      <Route path="/admin/supplier-bills" element={<Navigate to="/admin/dashboard" replace />} />
 
       {/* Finance & Expenses (§5) */}
       <Route path="/admin/finance" element={<ProtectedAdminShell currentTab="finance"><ErpFinanceAndPnlModule initialSubTab="pnl" /></ProtectedAdminShell>} />
       <Route path="/admin/expenses" element={<ProtectedAdminShell currentTab="expenses"><ErpFinanceAndPnlModule initialSubTab="expenses" /></ProtectedAdminShell>} />
       <Route path="/admin/receivables" element={<ProtectedAdminShell currentTab="receivables"><ErpFinanceAndPnlModule initialSubTab="receivables" /></ProtectedAdminShell>} />
-      <Route path="/admin/payables" element={<ProtectedAdminShell currentTab="payables"><ErpFinanceAndPnlModule initialSubTab="payables" /></ProtectedAdminShell>} />
+      <Route path="/admin/payables" element={<Navigate to="/admin/finance" replace />} />
 
       {/* Marketing (§5) */}
       <Route path="/admin/marketing/coupons" element={<ProtectedAdminShell currentTab="coupons"><ErpMarketingModule /></ProtectedAdminShell>} />

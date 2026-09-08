@@ -73,20 +73,6 @@ export interface ProductImage {
   isPrimary: boolean;
 }
 
-export interface ProductVariant {
-  id: string;
-  productId: string;
-  sku: string;
-  name: string;
-  price: number;
-  compareAtPrice?: number;
-  costPrice: number;
-  weightKg: number;
-  stockQuantity: number;
-  barcode?: string;
-  isActive: boolean;
-}
-
 export interface Product {
   id: string;
   sku: string;
@@ -118,7 +104,6 @@ export interface Product {
   productType?: 'Simple' | 'Variant' | 'Bundle';
   primaryImageUrl?: string;
   images?: ProductImage[];
-  variants?: ProductVariant[];
   safetyInformation?: string;
   minOrderQuantity?: number;
   maxOrderQuantity?: number;
@@ -152,16 +137,6 @@ export interface Brand {
   productCount: number;
 }
 
-export interface GiftBoxBundleItem {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  quantity: number;
-  unitPrice: number;
-  imageUrl?: string;
-}
-
 export interface GiftBox {
   id: string;
   name: string;
@@ -174,7 +149,6 @@ export interface GiftBox {
   description: string;
   imageUrl: string;
   isActive: boolean;
-  components: GiftBoxBundleItem[];
 }
 
 export interface ComboOffer {
@@ -188,7 +162,6 @@ export interface ComboOffer {
   description: string;
   imageUrl: string;
   isActive: boolean;
-  items: GiftBoxBundleItem[];
 }
 
 export interface ProductReview {
@@ -294,205 +267,15 @@ export interface Customer {
   createdAtUtc: string;
 }
 
-export interface QuoteItem {
-  productId: string;
-  productName: string;
-  sku: string;
-  quantity: number;
-  unitPrice: number;
-  discountPercentage: number;
-  lineTotal: number;
-}
-
-export interface Quote {
+export interface LowStockAlert {
   id: string;
-  quoteNumber: string;
-  customerId: string;
-  customerName: string;
-  customerPhone: string;
-  subtotal: number;
-  tax: number;
-  grandTotal: number;
-  status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected' | 'Expired' | 'Converted';
-  expiryDateUtc: string;
-  notes?: string;
-  createdAtUtc: string;
-  items: QuoteItem[];
-}
-
-export interface ReturnItem {
-  productId: string;
-  productName: string;
+  name: string;
+  productName?: string;
   sku: string;
-  quantity: number;
-  reason: string;
-  condition: 'Unopened' | 'Damaged' | 'Defective';
-  refundAmount: number;
-}
-
-export interface ReturnRequest {
-  id: string;
-  returnNumber: string;
-  orderId: string;
-  orderNumber: string;
-  customerName: string;
-  customerPhone: string;
-  status: 'Requested' | 'Approved' | 'Rejected' | 'Received' | 'Refunded' | 'Closed';
-  totalRefundAmount: number;
-  requestedAtUtc: string;
-  items: ReturnItem[];
-}
-
-export interface StockItem {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  imageUrl?: string;
-  warehouseId: string;
-  warehouseName: string;
-  quantityOnHand: number;
-  quantityReserved: number;
-  quantityAvailable: number;
+  stockQuantity: number;
+  availableQuantity: number;
   reorderLevel: number;
-  status: string;
-}
-
-export interface StockMovement {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  warehouseId: string;
-  warehouseName: string;
-  movementType: StockMovementType;
-  quantityChange: number;
-  quantityBefore: number;
-  quantityAfter: number;
-  referenceType: string;
-  referenceId?: string;
-  reason: string;
-  createdBy?: string;
-  createdAtUtc: string;
-}
-
-export interface Warehouse {
-  id: string;
-  code: string;
-  name: string;
-  address?: string;
-  managerName?: string;
-  phone?: string;
-  email?: string;
-  isActive: boolean;
-  isPrimary: boolean;
-  totalProducts: number;
-  totalStock: number;
-  stockValue?: number;
-}
-
-export interface StockTransferItem {
-  productId: string;
-  productName: string;
-  sku: string;
-  quantity: number;
-}
-
-export interface StockTransfer {
-  id: string;
-  transferNumber: string;
-  sourceWarehouseId: string;
-  sourceWarehouseName: string;
-  destinationWarehouseId: string;
-  destinationWarehouseName: string;
-  status: 'Draft' | 'Submitted' | 'Approved' | 'InTransit' | 'Received' | 'Completed' | 'Cancelled';
-  reason: string;
-  requestedBy: string;
-  createdAtUtc: string;
-  items: StockTransferItem[];
-}
-
-export interface Supplier {
-  id: string;
-  code: string;
-  name: string;
-  companyName?: string;
-  contactPerson?: string;
-  email?: string;
-  phone: string;
-  address?: string;
-  gstNumber?: string;
-  paymentTerms?: string;
-  creditLimit?: number;
-  outstandingBalance?: number;
-  isActive: boolean;
-  totalPurchaseOrders: number;
-}
-
-export interface PurchaseOrderItem {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  unitPrice: number;
-  quantityOrdered: number;
-  quantityReceived: number;
-  lineTotal: number;
-}
-
-export interface PurchaseOrder {
-  id: string;
-  poNumber: string;
-  supplierId: string;
-  supplierName: string;
-  warehouseId: string;
-  warehouseName: string;
-  status: 'Draft' | 'Submitted' | 'Approved' | 'PartiallyReceived' | 'Received' | 'Cancelled';
-  subtotal: number;
-  tax: number;
-  grandTotal: number;
-  orderDateUtc: string;
-  expectedDeliveryDateUtc?: string;
-  notes?: string;
-  items: PurchaseOrderItem[];
-}
-
-export interface GoodsReceivedItem {
-  productId: string;
-  productName: string;
-  sku: string;
-  orderedQty: number;
-  receivedQty: number;
-  rejectedQty: number;
-  damagedQty: number;
-  remarks?: string;
-}
-
-export interface GoodsReceivedNote {
-  id: string;
-  grnNumber: string;
-  purchaseOrderId: string;
-  poNumber: string;
-  supplierName: string;
-  warehouseName: string;
-  receivedDateUtc: string;
-  receivedBy: string;
-  items: GoodsReceivedItem[];
-}
-
-export interface SupplierBill {
-  id: string;
-  billNumber: string;
-  supplierId: string;
-  supplierName: string;
-  poNumber?: string;
-  subtotal: number;
-  tax: number;
-  totalAmount: number;
-  paidAmount: number;
-  balanceAmount: number;
-  dueDateUtc: string;
-  status: 'Draft' | 'Issued' | 'PartiallyPaid' | 'Paid' | 'Cancelled' | 'Overdue';
+  primaryImageUrl?: string;
 }
 
 export interface Invoice {
@@ -577,18 +360,6 @@ export interface ReceivableItem {
   status: 'Current' | 'Overdue30' | 'Overdue60' | 'Overdue90Plus';
 }
 
-export interface PayableItem {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  billNumber: string;
-  totalAmount: number;
-  paidAmount: number;
-  balanceAmount: number;
-  dueDateUtc: string;
-  daysOverdue: number;
-  status: 'Current' | 'Overdue30' | 'Overdue60';
-}
 
 export interface Coupon {
   id: string;
@@ -788,9 +559,6 @@ export interface PagedResult<T> {
 export type LoginHistory = LoginHistoryItem;
 export type RateLimitLog = RateLimitLogItem;
 export type AuditLogDetail = AuditLog;
-export type LowStockAlert = StockItem;
-export type GoodsReceipt = GoodsReceivedNote;
-export type ReturnOrder = ReturnRequest;
 
 export interface SalesReport {
   period: string;

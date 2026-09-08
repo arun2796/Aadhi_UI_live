@@ -13,20 +13,19 @@ import {
   CheckCircle2,
   FileSpreadsheet
 } from 'lucide-react';
-import { Expense, ProfitAndLossStatement, ReceivableItem, PayableItem, ExpenseCategory } from '../../types';
+import { Expense, ProfitAndLossStatement, ReceivableItem, ExpenseCategory } from '../../types';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
 interface ErpFinanceAndPnlModuleProps {
-  initialSubTab?: 'pnl' | 'expenses' | 'receivables' | 'payables';
+  initialSubTab?: 'pnl' | 'expenses' | 'receivables';
 }
 
 /** Each route is its own standalone screen — the sidebar "Sales" item lands on 'pnl'. */
-const SCREEN_HEADERS: Record<'pnl' | 'expenses' | 'receivables' | 'payables', { title: string; subtitle: string }> = {
+const SCREEN_HEADERS: Record<'pnl' | 'expenses' | 'receivables', { title: string; subtitle: string }> = {
   pnl: { title: 'Sales', subtitle: 'Revenue, profit & loss overview.' },
   expenses: { title: 'Expenses', subtitle: 'Operating expenses ledger.' },
-  receivables: { title: 'Receivables', subtitle: 'Outstanding customer invoice balances.' },
-  payables: { title: 'Payables', subtitle: 'Outstanding supplier bill balances.' }
+  receivables: { title: 'Receivables', subtitle: 'Outstanding customer invoice balances.' }
 };
 
 export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
@@ -39,7 +38,6 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [pnl, setPnl] = useState<ProfitAndLossStatement | null>(null);
   const [receivables, setReceivables] = useState<ReceivableItem[]>([]);
-  const [payables, setPayables] = useState<PayableItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Add Expense Modal state
@@ -52,16 +50,14 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [exp, pnlData, recs, pays] = await Promise.all([
+      const [exp, pnlData, recs] = await Promise.all([
         api.getExpenses(),
         api.getProfitAndLoss(),
-        api.getReceivables(),
-        api.getPayables()
+        api.getReceivables()
       ]);
       setExpenses(exp);
       setPnl(pnlData);
       setReceivables(recs);
-      setPayables(pays);
     } catch {
       showToast('Failed to load financial records', 'error');
     } finally {
@@ -322,37 +318,6 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
         </div>
       )}
 
-      {/* 4. PAYABLES SCREEN */}
-      {subTab === 'payables' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                <tr>
-                  <th className="py-3 px-4">Supplier Name</th>
-                  <th className="py-3 px-3">Bill Number</th>
-                  <th className="py-3 px-3">Total Payable</th>
-                  <th className="py-3 px-3">Paid Amount</th>
-                  <th className="py-3 px-3">Pending Balance</th>
-                  <th className="py-3 px-3">Due Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {payables.map((pay) => (
-                  <tr key={pay.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-bold text-navy">{pay.supplierName}</td>
-                    <td className="py-3 px-3 font-mono text-purple">{pay.billNumber}</td>
-                    <td className="py-3 px-3">₹{pay.totalAmount.toLocaleString('en-IN')}</td>
-                    <td className="py-3 px-3 text-emerald-600 font-bold">₹{pay.paidAmount.toLocaleString('en-IN')}</td>
-                    <td className="py-3 px-3 text-red-600 font-black">₹{pay.balanceAmount.toLocaleString('en-IN')}</td>
-                    <td className="py-3 px-3 text-slate-500">{new Date(pay.dueDateUtc).toLocaleDateString('en-IN')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* ADD OPERATING EXPENSE MODAL */}
       {isExpenseModalOpen && (

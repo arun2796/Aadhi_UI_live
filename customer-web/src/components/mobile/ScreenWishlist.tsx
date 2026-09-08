@@ -11,10 +11,7 @@ interface NavProps {
 
 const inr = (n?: number) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 
-const isInStock = (p: Product): boolean => {
-  const qty = typeof p.availableQuantity === 'number' ? p.availableQuantity : p.stockQuantity;
-  return (qty ?? 0) > 0;
-};
+const isInStock = (p: Product): boolean => p.isActive !== false;
 
 const FALLBACK_IMG =
   '/product-placeholder.svg';

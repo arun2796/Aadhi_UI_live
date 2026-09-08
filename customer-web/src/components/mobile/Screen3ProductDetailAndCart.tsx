@@ -135,7 +135,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
       : [product.primaryImageUrl || productPlaceholder];
 
   const inWish = isInWishlist(product.id);
-  const inStock = (product.availableQuantity ?? 1) > 0;
+  const inStock = product.isActive !== false;
   const off = pctOff(product.price, product.compareAtPrice, product.discountPercentage);
 
   // Real review data only — the rating line is omitted entirely when the DTO has none.
@@ -313,11 +313,6 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
           <span className={`text-xs font-black ${inStock ? 'text-emerald-600' : 'text-red-600'}`}>
             {inStock ? 'In Stock' : 'Out of Stock'}
           </span>
-          {inStock && typeof product.availableQuantity === 'number' && product.availableQuantity <= 10 && (
-            <span className="text-[10px] font-bold text-orange">
-              Only {product.availableQuantity} left!
-            </span>
-          )}
         </div>
 
         <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
@@ -333,7 +328,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
             </button>
             <span className="font-black text-sm text-navy w-6 text-center">{quantity}</span>
             <button
-              onClick={() => setQuantity((q) => Math.min(product.availableQuantity || 99, q + 1))}
+              onClick={() => setQuantity((q) => Math.min(999, q + 1))}
               className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 active:bg-slate-100"
               aria-label="Increase quantity"
             >

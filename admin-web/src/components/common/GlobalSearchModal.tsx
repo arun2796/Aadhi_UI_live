@@ -6,7 +6,6 @@ import {
   ShoppingBag,
   Users,
   Receipt,
-  Truck,
   ArrowRight,
   Sparkles,
   Command
@@ -30,13 +29,11 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
     orders: Array<{ id: string; orderNumber: string; customerName: string; grandTotal: number; status: string }>;
     customers: Array<{ id: string; name: string; phone: string; email: string }>;
     invoices: Array<{ id: string; invoiceNumber: string; customerName: string; grandTotal: number }>;
-    suppliers: Array<{ id: string; name: string; phone: string }>;
   }>({
     products: [],
     orders: [],
     customers: [],
-    invoices: [],
-    suppliers: []
+    invoices: []
   });
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,13 +43,13 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
       setQuery('');
-      setResults({ products: [], orders: [], customers: [], invoices: [], suppliers: [] });
+      setResults({ products: [], orders: [], customers: [], invoices: [] });
     }
   }, [isOpen]);
 
   useEffect(() => {
     if (!query.trim()) {
-      setResults({ products: [], orders: [], customers: [], invoices: [], suppliers: [] });
+      setResults({ products: [], orders: [], customers: [], invoices: [] });
       return;
     }
 
@@ -75,8 +72,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
     results.products.length +
     results.orders.length +
     results.customers.length +
-    results.invoices.length +
-    results.suppliers.length;
+    results.invoices.length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-24 px-4 bg-navy/70 backdrop-blur-sm animate-fade-in">
@@ -90,7 +86,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search products, SKUs, orders, customers, invoices, suppliers... (e.g. GB-DLX, 98765, ORD-2026)"
+            placeholder="Search products, SKUs, orders, customers, invoices... (e.g. GB-DLX, 98765, ORD-2026)"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 bg-transparent text-sm font-semibold text-navy placeholder-slate-400 outline-none"
@@ -244,34 +240,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                           <div className="text-xs font-black text-navy">₹{inv.grandTotal.toLocaleString('en-IN')}</div>
                           <span className="text-[9px] text-amber-600 font-bold">View Invoice &rarr;</span>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Suppliers Section */}
-              {results.suppliers.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider flex items-center space-x-1">
-                    <Truck className="w-3 h-3 text-cyan-600" />
-                    <span>Suppliers ({results.suppliers.length})</span>
-                  </div>
-                  <div className="space-y-1">
-                    {results.suppliers.slice(0, 3).map((sup) => (
-                      <div
-                        key={sup.id}
-                        onClick={() => {
-                          onNavigateTab('purchases', { search: sup.name });
-                          onClose();
-                        }}
-                        className="p-2.5 rounded-xl hover:bg-cyan-50 border border-transparent hover:border-cyan-200 cursor-pointer flex items-center justify-between transition-colors"
-                      >
-                        <div>
-                          <div className="font-bold text-xs text-navy">{sup.name}</div>
-                          <div className="text-[10px] text-slate-500">{sup.phone}</div>
-                        </div>
-                        <span className="text-[9px] text-cyan-600 font-bold">Open Supplier &rarr;</span>
                       </div>
                     ))}
                   </div>

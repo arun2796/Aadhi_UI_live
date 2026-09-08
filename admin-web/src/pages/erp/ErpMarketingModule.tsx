@@ -4,6 +4,7 @@ import { Plus, Search, Filter, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { api, apiClient, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
+import { ErpConfirmDialog } from './ErpConfirmDialog';
 
 const PAGE_SIZE = 10;
 
@@ -68,11 +69,14 @@ export const ErpMarketingModule: React.FC = () => {
   const [isSavingOffer, setIsSavingOffer] = useState(false);
   // "Show as" is a presentation hint only — the offer is always saved to /promotions unchanged.
   const [offerShowAs, setOfferShowAs] = useState<MarketingViewTab>('discounts');
+  const [deleteOfferTarget, setDeleteOfferTarget] = useState<OfferRow | null>(null);
   const [offerForm, setOfferForm] = useState({
     name: '',
     code: '',
     discountType: 'Percentage' as 'Percentage' | 'FixedAmount',
     discountValue: 10,
+    minimumOrderAmount: 0,
+    usageLimit: 0,
     validFrom: new Date().toISOString().slice(0, 10),
     validTo: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)
   });
@@ -108,7 +112,7 @@ export const ErpMarketingModule: React.FC = () => {
   }, []);
 
   const handleSaveOffer = async () => {
-    const { name, code, discountType, discountValue, validFrom, validTo } = offerForm;
+    const { name, code, discountType, discountValue, minimumOrderAmount, usageLimit, validFrom, validTo } = offerForm;
     if (!name.trim() || !code.trim() || !discountValue || !validFrom || !validTo) {
       showToast('Offer name, code, discount value and validity dates are required', 'warning');
       return;
@@ -119,12 +123,14 @@ export const ErpMarketingModule: React.FC = () => {
     }
     setIsSavingOffer(true);
     try {
-      // Backend CreatePromotionRequest: { code, name, discountType, discountValue, startDateUtc, endDateUtc, isActive }
+      // Backend CreatePromotionRequest: { code, name, discountType, discountValue, minimumOrderAmount, usageLimit, startDateUtc, endDateUtc, isActive }
       await apiClient.post('/promotions', {
         code: code.toUpperCase().trim(),
         name: name.trim(),
         discountType,
-        discountValue,
+        discountValue: Number(discountValue),
+        minimumOrderAmount: minimumOrderAmount ? Number(minimumOrderAmount) : undefined,
+        usageLimit: usageLimit ? Number(usageLimit) : undefined,
         startDateUtc: `${validFrom}T00:00:00Z`,
         endDateUtc: `${validTo}T23:59:59Z`,
         isActive: true
@@ -136,6 +142,8 @@ export const ErpMarketingModule: React.FC = () => {
         code: '',
         discountType: 'Percentage',
         discountValue: 10,
+        minimumOrderAmount: 0,
+        usageLimit: 0,
         validFrom: new Date().toISOString().slice(0, 10),
         validTo: new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)
       });
@@ -148,15 +156,15 @@ export const ErpMarketingModule: React.FC = () => {
     }
   };
 
-  const handleDeleteOffer = async (offer: OfferRow) => {
-    if (window.confirm(`Delete offer "${offer.name}"?`)) {
-      try {
-        await api.deleteCoupon(offer.id);
-        showToast(`Offer "${offer.name}" removed`, 'info');
-        loadData();
-      } catch {
-        showToast('Failed to delete offer', 'error');
-      }
+  const confirmDeleteOffer = async () => {
+    if (!deleteOfferTarget) return;
+    try {
+      await api.deleteCoupon(deleteOfferTarget.id);
+      showToast(`Offer "${deleteOfferTarget.name}" removed`, 'info');
+      setDeleteOfferTarget(null);
+      loadData();
+    } catch {
+      showToast('Failed to delete offer', 'error');
     }
   };
 
@@ -304,7 +312,7 @@ export const ErpMarketingModule: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button
-                          onClick={() => handleDeleteOffer(o)}
+                          onClick={() => setDeleteOfferTarget(o)}
                           className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 shadow-2xs transition-all"
                           title="Delete offer"
                         >
@@ -370,7 +378,7 @@ export const ErpMarketingModule: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button
-                          onClick={() => handleDeleteOffer(o)}
+                          onClick={() => setDeleteOfferTarget(o)}
                           className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 shadow-2xs transition-all"
                           title="Delete promotion code"
                         >
@@ -458,9 +466,51 @@ export const ErpMarketingModule: React.FC = () => {
                   </label>
                   <input
                     type="number"
-                    value={offerForm.discountValue}
-                    onChange={(e) => setOfferForm({ ...offerForm, discountValue: Number(e.target.value) })}
+                    min={1}
+                    value={offerForm.discountValue ? offerForm.discountValue : ''}
+                    placeholder="e.g. 10"
+                    onChange={(e) =>
+                      setOfferForm({
+                        ...offerForm,
+                        discountValue: e.target.value === '' ? ('' as any) : Number(e.target.value)
+                      })
+                    }
                     className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none font-bold text-navy"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-navy">Min Order Amount (₹)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={offerForm.minimumOrderAmount ? offerForm.minimumOrderAmount : ''}
+                    placeholder="e.g. 500 (Optional)"
+                    onChange={(e) =>
+                      setOfferForm({
+                        ...offerForm,
+                        minimumOrderAmount: e.target.value === '' ? 0 : Number(e.target.value)
+                      })
+                    }
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none text-navy"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-navy">Usage Limit</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={offerForm.usageLimit ? offerForm.usageLimit : ''}
+                    placeholder="e.g. 100 (Optional)"
+                    onChange={(e) =>
+                      setOfferForm({
+                        ...offerForm,
+                        usageLimit: e.target.value === '' ? 0 : Number(e.target.value)
+                      })
+                    }
+                    className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none text-navy"
                   />
                 </div>
               </div>
@@ -505,6 +555,22 @@ export const ErpMarketingModule: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* DELETE OFFER CONFIRMATION */}
+      <ErpConfirmDialog
+        open={Boolean(deleteOfferTarget)}
+        title="Delete Offer / Coupon?"
+        message={
+          <>
+            Are you sure you want to delete offer{' '}
+            <span className="font-bold text-navy">"{deleteOfferTarget?.name}"</span> ({deleteOfferTarget?.code})?
+            Customers will no longer be able to use this code at checkout. This action cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDeleteOffer}
+        onCancel={() => setDeleteOfferTarget(null)}
+      />
     </div>
   );
 };

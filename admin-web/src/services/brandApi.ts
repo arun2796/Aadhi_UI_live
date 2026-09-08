@@ -10,5 +10,10 @@ export const brandApi = {
   createBrand: async (brandData: { name: string; slug?: string; description?: string; logoUrl?: string; isFeatured?: boolean }) => {
     const res = await apiClient.post<{ data: Brand }>('/brands', brandData);
     return res.data?.data;
+  },
+
+  deleteBrand: async (id: string) => {
+    const res = await apiClient.delete<{ data: boolean }>(`/brands/${id}`);
+    return res.data?.data;
   }
 };

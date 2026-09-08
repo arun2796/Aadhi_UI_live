@@ -15,10 +15,13 @@ import {
   ChevronRight,
   Monitor,
   Smartphone,
-  ExternalLink
+  ExternalLink,
+  Award,
+  X
 } from 'lucide-react';
-import { Product, Category, GiftBox, ComboOffer, ProductReview, HomepageBanner } from '../../types';
+import { Product, Category, GiftBox, ComboOffer, ProductReview, HomepageBanner, Brand } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
+import { brandApi } from '../../services/brandApi';
 import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { normalizeImageUrl } from '../../utils/imageUrl';
@@ -64,12 +67,13 @@ const EMPTY_BANNER_FORM: Partial<BannerRow> = {
   placement: 'Home'
 };
 
-type CatalogSubTab = 'products' | 'categories' | 'combos' | 'reviews' | 'banners';
+type CatalogSubTab = 'products' | 'categories' | 'brands' | 'combos' | 'reviews' | 'banners';
 
 /** Every sidebar item is its own standalone screen — per-screen header copy. */
 const SCREEN_HEADERS: Record<CatalogSubTab, { title: string; subtitle: string }> = {
   products: { title: 'Products', subtitle: 'Manage the live product catalog.' },
   categories: { title: 'Categories', subtitle: 'Top-level catalog categories.' },
+  brands: { title: 'Brands', subtitle: 'Manage product manufacturer brands.' },
   combos: { title: 'Gift Boxes & Combos', subtitle: 'Pre-packed gift boxes and special combo deals.' },
   reviews: { title: 'Reviews & Moderation', subtitle: 'Approve, reject or hide customer product reviews.' },
   banners: { title: 'Banners', subtitle: 'Manage homepage web and mobile app promotional banners.' }
@@ -146,6 +150,19 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     isActive: true
   });
 
+  // Brands state
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [brandSearch, setBrandSearch] = useState('');
+  const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
+  const [brandFormData, setBrandFormData] = useState<{ name: string; description: string; logoUrl: string; isFeatured: boolean }>({
+    name: '',
+    description: '',
+    logoUrl: '',
+    isFeatured: false
+  });
+  const [isSavingBrand, setIsSavingBrand] = useState(false);
+  const [deleteBrandTarget, setDeleteBrandTarget] = useState<Brand | null>(null);
+
   const loadProducts = async () => {
     setIsProductsLoading(true);
     try {
@@ -168,22 +185,61 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   const loadAuxData = async () => {
     setIsLoading(true);
     try {
-      const [cats, gbs, cmbs, revs, bans] = await Promise.all([
+      const [cats, gbs, cmbs, revs, bans, brds] = await Promise.all([
         api.getCategories(true),
         api.getGiftBoxes(),
         api.getComboOffers(),
         api.getProductReviews(),
-        api.getHomepageBanners()
+        api.getHomepageBanners(),
+        brandApi.getBrands(true)
       ]);
       setCategories(flattenCategories(cats || []));
       setGiftBoxes(gbs);
       setCombos(cmbs);
       setReviews(revs);
       setBanners(bans);
+      setBrands(brds || []);
     } catch {
       showToast('Failed to load catalog data', 'error');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveBrand = async () => {
+    if (!brandFormData.name.trim()) {
+      showToast('Brand name is required', 'error');
+      return;
+    }
+    setIsSavingBrand(true);
+    try {
+      await brandApi.createBrand({
+        name: brandFormData.name.trim(),
+        description: brandFormData.description.trim() || undefined,
+        logoUrl: brandFormData.logoUrl.trim() || undefined,
+        isFeatured: brandFormData.isFeatured
+      });
+      showToast('Brand created successfully', 'success');
+      setIsBrandModalOpen(false);
+      setBrandFormData({ name: '', description: '', logoUrl: '', isFeatured: false });
+      const fresh = await brandApi.getBrands(true);
+      setBrands(fresh || []);
+    } catch (err) {
+      showToast(getServerErrorMessage(err, 'Failed to create brand'), 'error');
+    } finally {
+      setIsSavingBrand(false);
+    }
+  };
+
+  const handleDeleteBrand = async () => {
+    if (!deleteBrandTarget) return;
+    try {
+      await brandApi.deleteBrand(deleteBrandTarget.id);
+      showToast(`Brand "${deleteBrandTarget.name}" deleted`, 'success');
+      setBrands((prev) => prev.filter((b) => b.id !== deleteBrandTarget.id));
+      setDeleteBrandTarget(null);
+    } catch (err) {
+      showToast(getServerErrorMessage(err, 'Failed to delete brand'), 'error');
     }
   };
 
@@ -279,6 +335,14 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   useEffect(() => {
     setCategoriesPage(1);
   }, [categorySearch]);
+
+  const filteredBrands = useMemo(() => {
+    const q = brandSearch.trim().toLowerCase();
+    if (!q) return brands;
+    return brands.filter(
+      (b) => b.name.toLowerCase().includes(q) || (b.description || '').toLowerCase().includes(q)
+    );
+  }, [brands, brandSearch]);
 
   // Handle Category Save
   const handleSaveCategory = async () => {
@@ -471,6 +535,19 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 <span>Add Category</span>
               </button>
             </>
+          )}
+
+          {subTab === 'brands' && (
+            <button
+              onClick={() => {
+                setBrandFormData({ name: '', description: '', logoUrl: '', isFeatured: false });
+                setIsBrandModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Brand</span>
+            </button>
           )}
 
           {subTab === 'banners' && (
@@ -805,6 +882,95 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
+      {/* 2.5 BRANDS SCREEN */}
+      {subTab === 'brands' && (
+        <div className="space-y-4">
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center space-x-2 w-full sm:w-80 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
+              <Search className="w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search brands..."
+                value={brandSearch}
+                onChange={(e) => setBrandSearch(e.target.value)}
+                className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
+              />
+            </div>
+            <div className="text-xs font-bold text-slate-500">
+              Total Brands: <span className="text-navy">{brands.length}</span>
+            </div>
+          </div>
+
+          {filteredBrands.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-3">
+              <Award className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="font-bold text-navy text-sm">No Brands Found</h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                {brandSearch ? 'No brands matched your search criteria.' : 'No manufacturer brands added yet. Click "+ Add Brand" to create one.'}
+              </p>
+              <button
+                onClick={() => {
+                  setBrandFormData({ name: '', description: '', logoUrl: '', isFeatured: false });
+                  setIsBrandModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-purple text-white text-xs font-bold hover:bg-purple-dark transition-all inline-flex items-center space-x-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Brand</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {filteredBrands.map((b) => (
+                <div
+                  key={b.id}
+                  className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs hover:border-purple/30 transition-all flex flex-col justify-between group"
+                >
+                  <div>
+                    <div className="flex items-start justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-purple/10 text-purple flex items-center justify-center font-black text-sm">
+                        {b.logoUrl ? (
+                          <img src={b.logoUrl} alt={b.name} className="w-full h-full object-contain rounded-xl" />
+                        ) : (
+                          b.name.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${b.isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                          {b.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteBrandTarget(b)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Delete Brand"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <h4 className="text-sm font-bold text-navy group-hover:text-purple transition-colors">{b.name}</h4>
+                      <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">
+                        {b.description || 'No description provided.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+                    <span>Products linked</span>
+                    <span className="font-bold text-navy bg-slate-100 px-2 py-0.5 rounded-md">
+                      {b.productCount ?? 0}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 3. GIFT BOXES & COMBOS SCREEN */}
       {subTab === 'combos' && (
         <div className="space-y-6">
@@ -835,17 +1001,6 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 space-y-1 text-[11px]">
-                    <div className="font-bold text-slate-600 text-[10px] uppercase">Box Contents Breakdown:</div>
-                    <div className="grid grid-cols-2 gap-1 text-slate-600">
-                      {gb.components.map((comp, idx) => (
-                        <div key={idx} className="flex items-center justify-between">
-                          <span className="truncate">{comp.productName}</span>
-                          <span className="font-bold text-navy">x{comp.quantity}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               ))}
             </div>
@@ -1491,6 +1646,92 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         onConfirm={handleDeleteCategory}
         onCancel={() => setDeleteCategoryTarget(null)}
       />
+
+      {/* DELETE BRAND CONFIRMATION */}
+      <ErpConfirmDialog
+        open={Boolean(deleteBrandTarget)}
+        title="Delete Brand?"
+        message={
+          <>
+            Are you sure you want to delete brand{' '}
+            <span className="font-bold text-navy">"{deleteBrandTarget?.name}"</span>? Any products linked
+            to this brand will lose their brand association. This action cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        onConfirm={handleDeleteBrand}
+        onCancel={() => setDeleteBrandTarget(null)}
+      />
+
+      {/* ADD BRAND MODAL */}
+      {isBrandModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black text-navy">Add New Brand</h3>
+              <button
+                type="button"
+                onClick={() => setIsBrandModalOpen(false)}
+                className="w-7 h-7 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-navy transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-navy block mb-1">
+                  Brand Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={brandFormData.name}
+                  onChange={(e) => setBrandFormData({ ...brandFormData, name: e.target.value })}
+                  placeholder="e.g. Standard Fireworks, Sony Fireworks"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none text-navy font-bold focus:border-purple"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="font-bold text-navy block mb-1">Description (Optional)</label>
+                <textarea
+                  rows={3}
+                  value={brandFormData.description}
+                  onChange={(e) => setBrandFormData({ ...brandFormData, description: e.target.value })}
+                  placeholder="Brand details, manufacturer location..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none text-navy focus:border-purple"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-navy block mb-1">Logo / Image URL (Optional)</label>
+                <input
+                  type="text"
+                  value={brandFormData.logoUrl}
+                  onChange={(e) => setBrandFormData({ ...brandFormData, logoUrl: e.target.value })}
+                  placeholder="https://..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none text-navy focus:border-purple"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsBrandModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveBrand}
+                disabled={isSavingBrand || !brandFormData.name.trim()}
+                className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 transition-all disabled:opacity-50"
+              >
+                {isSavingBrand ? 'Saving...' : 'Create Brand'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

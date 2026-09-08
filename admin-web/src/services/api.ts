@@ -6,8 +6,6 @@ export * from './categoryApi';
 export * from './brandApi';
 export * from './orderApi';
 export * from './customerApi';
-export * from './inventoryApi';
-export * from './purchaseApi';
 export * from './invoiceApi';
 export * from './paymentApi';
 export * from './financeApi';
@@ -22,8 +20,6 @@ import { categoryApi } from './categoryApi';
 import { brandApi } from './brandApi';
 import { orderApi } from './orderApi';
 import { customerApi } from './customerApi';
-import { inventoryApi } from './inventoryApi';
-import { purchaseApi } from './purchaseApi';
 import { invoiceApi } from './invoiceApi';
 import { paymentApi } from './paymentApi';
 import { financeApi } from './financeApi';
@@ -31,21 +27,15 @@ import { reportApi } from './reportApi';
 import { auditApi } from './auditApi';
 import { settingsApi } from './settingsApi';
 import {
-  Quote,
   Order,
-  ReturnOrder,
-  GoodsReceipt,
-  SupplierBill,
   StoreSettings,
   Coupon,
   GiftBox,
   ComboOffer,
   ProductReview,
   HomepageBanner,
-  StockTransfer,
   ProfitAndLossStatement,
-  ReceivableItem,
-  PayableItem
+  ReceivableItem
 } from '../types';
 
 export { apiClient, TOKEN_STORAGE_KEY, UNAUTHORIZED_EVENT, getApiErrorDetails };
@@ -55,21 +45,19 @@ export const api = {
   // Global Search
   searchGlobal: async (query: string) => {
     if (!query || !query.trim()) {
-      return { products: [], orders: [], customers: [], invoices: [], suppliers: [] };
+      return { products: [], orders: [], customers: [], invoices: [] };
     }
-    const [productsRes, ordersRes, customersRes, invoicesRes, suppliersRes] = await Promise.allSettled([
+    const [productsRes, ordersRes, customersRes, invoicesRes] = await Promise.allSettled([
       productApi.getProducts({ search: query, pageSize: 5 }),
       orderApi.getOrders({ search: query, pageSize: 5 }),
       customerApi.getCustomers({ search: query, pageSize: 5 }),
-      invoiceApi.getInvoices(1, 10),
-      purchaseApi.getSuppliers()
+      invoiceApi.getInvoices(1, 10)
     ]);
 
     const products = productsRes.status === 'fulfilled' ? (productsRes.value.items || productsRes.value || []) : [];
     const orders = ordersRes.status === 'fulfilled' ? (ordersRes.value.items || ordersRes.value || []) : [];
     const customers = customersRes.status === 'fulfilled' ? (customersRes.value.items || customersRes.value || []) : [];
     const rawInvoices = invoicesRes.status === 'fulfilled' ? (invoicesRes.value.items || invoicesRes.value || []) : [];
-    const rawSuppliers = suppliersRes.status === 'fulfilled' ? (suppliersRes.value || []) : [];
 
     const lowerQuery = query.toLowerCase();
     const invoices = rawInvoices.filter((inv: any) =>
@@ -77,18 +65,12 @@ export const api = {
       inv.customerName?.toLowerCase().includes(lowerQuery) ||
       inv.orderNumber?.toLowerCase().includes(lowerQuery)
     );
-    const suppliers = rawSuppliers.filter((s: any) =>
-      s.name?.toLowerCase().includes(lowerQuery) ||
-      s.code?.toLowerCase().includes(lowerQuery) ||
-      s.contactPerson?.toLowerCase().includes(lowerQuery)
-    );
 
     return {
       products: products.map((p: any) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price })),
       orders: orders.map((o: any) => ({ id: o.id, orderNumber: o.orderNumber, customerName: o.customerName, grandTotal: o.grandTotal, status: o.orderStatus })),
       customers: customers.map((c: any) => ({ id: c.id, name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim(), phone: c.phone, email: c.email })),
-      invoices: invoices.map((i: any) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, grandTotal: i.grandTotal, status: i.status })),
-      suppliers: suppliers.map((s: any) => ({ id: s.id, name: s.name, code: s.code, contactPerson: s.contactPerson, phone: s.phone }))
+      invoices: invoices.map((i: any) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, grandTotal: i.grandTotal, status: i.status }))
     };
   },
 
@@ -163,119 +145,12 @@ export const api = {
   verifyPayment: orderApi.verifyUpiPayment,
   moveToPacking: orderApi.moveToPacking,
   rejectPayment: orderApi.rejectPayment,
-  getQuotes: async (params?: { page?: number; pageSize?: number; status?: string }) => {
-    const res = await apiClient.get('/quotes', { params });
-    return wrapPagedResult<Quote>(res.data?.data);
-  },
-  createQuote: async (data: any) => {
-    const res = await apiClient.post('/quotes', data);
-    return res.data?.data as Quote;
-  },
-  updateQuoteStatus: async (quoteId: string, status: string, notes?: string) => {
-    const res = await apiClient.put(`/quotes/${quoteId}/status`, { status, notes });
-    return res.data?.data as Quote;
-  },
-  convertQuoteToOrder: async (quoteId: string) => {
-    const res = await apiClient.post(`/quotes/${quoteId}/convert`);
-    return res.data?.data as Order;
-  },
-  getReturns: async (params?: { page?: number; pageSize?: number; status?: string }) => {
-    const res = await apiClient.get('/returns', { params });
-    const paged = wrapPagedResult<any>(res.data?.data);
-    // Normalize backend ReturnOrderDto (reason/refundAmount at root, lineTotal per item)
-    // onto the UI ReturnRequest shape (per-item reason/condition/refundAmount, totalRefundAmount).
-    for (let i = 0; i < paged.length; i++) {
-      const r = paged[i];
-      if (!r) continue;
-      paged[i] = {
-        ...r,
-        customerPhone: r.customerPhone || '',
-        totalRefundAmount: r.totalRefundAmount ?? r.refundAmount ?? 0,
-        items: (r.items || []).map((it: any) => ({
-          ...it,
-          reason: it.reason || r.reason || '—',
-          condition: it.condition || (it.isDamaged ? 'Damaged' : 'Unopened'),
-          refundAmount: it.refundAmount ?? it.lineTotal ?? (it.unitPrice ?? 0) * (it.quantity ?? 0)
-        }))
-      };
-    }
-    return paged as unknown as ReturnOrder[] & {
-      items: ReturnOrder[];
-      totalCount: number;
-      page: number;
-      pageNumber: number;
-      pageSize: number;
-      totalPages: number;
-      hasPreviousPage: boolean;
-      hasNextPage: boolean;
-    };
-  },
-  getReturnById: async (returnId: string) => {
-    const res = await apiClient.get(`/returns/${returnId}`);
-    const r = res.data?.data;
-    if (!r) return undefined;
-    return {
-      ...r,
-      customerPhone: r.customerPhone || '',
-      totalRefundAmount: r.totalRefundAmount ?? r.refundAmount ?? 0,
-      items: (r.items || []).map((it: any) => ({
-        ...it,
-        reason: it.reason || r.reason || '—',
-        condition: it.condition || (it.isDamaged ? 'Damaged' : 'Unopened'),
-        refundAmount: it.refundAmount ?? it.lineTotal ?? (it.unitPrice ?? 0) * (it.quantity ?? 0)
-      }))
-    } as ReturnOrder;
-  },
-  updateReturnStatus: async (returnId: string, status: string, notes?: string) => {
-    // Reject uses the dedicated endpoint (API contract §6: POST /returns/{id}/reject { reason }).
-    if (status === 'Rejected') {
-      const res = await apiClient.post(`/returns/${returnId}/reject`, { reason: notes || 'Rejected by admin' });
-      return res.data?.data;
-    }
-    if (status === 'Inspected') {
-      const res = await apiClient.post(`/returns/${returnId}/inspect`, { inspectionNotes: notes, itemInspections: [] });
-      return res.data?.data;
-    }
-    const action = status === 'Received' ? 'receive' : 'approve';
-    // approve / receive take a raw JSON string body ([FromBody] string? notes).
-    const res = await apiClient.post(`/returns/${returnId}/${action}`, JSON.stringify(notes ?? ''), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    return res.data?.data;
-  },
+  // Low Stock Alerts (direct product stock)
+  getLowStockAlerts: productApi.getLowStockProducts,
 
   // Customers
   getCustomers: customerApi.getCustomers,
   getCustomerById: customerApi.getCustomerById,
-
-  // Inventory & Warehouses
-  getWarehouses: inventoryApi.getWarehouses,
-  getStockItems: inventoryApi.getStockItems,
-  adjustStock: inventoryApi.adjustStock,
-  transferStock: inventoryApi.transferStock,
-  getStockMovements: inventoryApi.getStockMovements,
-  getStockTransfers: async (params?: { page?: number; pageSize?: number }) => {
-    const res = await apiClient.get('/inventory/transfers', { params });
-    return wrapPagedResult<StockTransfer>(res.data?.data);
-  },
-  getLowStockAlerts: inventoryApi.getLowStockAlerts,
-
-  // Purchases
-  getSuppliers: purchaseApi.getSuppliers,
-  createSupplier: purchaseApi.createSupplier,
-  getPurchases: purchaseApi.getPurchaseOrders,
-  getPurchaseOrders: purchaseApi.getPurchaseOrders,
-  getPurchaseOrderById: purchaseApi.getPurchaseOrderById,
-  createPurchaseOrder: async (data: any) => purchaseApi.createPurchaseOrder(data),
-  createGoodsReceipt: purchaseApi.createGoodsReceipt,
-  getGoodsReceivedNotes: async (params?: { page?: number; pageSize?: number; purchaseOrderId?: string }) => {
-    const res = await apiClient.get('/purchases/goods-receipts', { params });
-    return wrapPagedResult<GoodsReceipt>(res.data?.data);
-  },
-  getSupplierBills: async (params?: { page?: number; pageSize?: number; supplierId?: string; status?: string }) => {
-    const res = await apiClient.get('/supplier-bills', { params });
-    return wrapPagedResult<SupplierBill>(res.data?.data);
-  },
 
   // Invoices & Payments
   getInvoices: invoiceApi.getInvoices,
@@ -339,31 +214,6 @@ export const api = {
           paidAmount: inv.paidAmount,
           balanceAmount: inv.balanceAmount,
           dueDateUtc: inv.dueDateUtc,
-          daysOverdue: diffDays,
-          status: statusBucket
-        };
-      });
-  },
-  getPayables: async (params?: any): Promise<PayableItem[]> => {
-    const res = await apiClient.get('/supplier-bills', { params: { ...params, pageSize: 100 } });
-    const bills = (res.data?.data?.items || res.data?.data || []) as any[];
-    const now = new Date().getTime();
-
-    return bills
-      .filter((bill) => Number(bill.balanceAmount) > 0 || bill.status === 'Issued' || bill.status === 'PartiallyPaid' || bill.status === 'Overdue')
-      .map((bill) => {
-        const dueDate = new Date(bill.dueDateUtc).getTime();
-        const diffDays = Math.max(0, Math.floor((now - dueDate) / (1000 * 60 * 60 * 24)));
-        const statusBucket = diffDays <= 0 ? 'Current' : (diffDays <= 30 ? 'Overdue30' : 'Overdue60');
-        return {
-          id: bill.id,
-          supplierId: bill.supplierId,
-          supplierName: bill.supplierName || 'Supplier',
-          billNumber: bill.billNumber,
-          totalAmount: bill.total,
-          paidAmount: bill.paidAmount,
-          balanceAmount: bill.balanceAmount,
-          dueDateUtc: bill.dueDateUtc,
           daysOverdue: diffDays,
           status: statusBucket
         };

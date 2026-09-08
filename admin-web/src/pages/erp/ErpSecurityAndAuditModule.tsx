@@ -43,7 +43,7 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   SuperAdmin: 'Full system access including user role management, security policies and audit controls.',
   Admin: 'Full operational access across catalog, orders, inventory, purchases and reports.',
   Manager: 'Oversees daily store operations — orders, customers, inventory and business reports.',
-  SalesExecutive: 'Creates and manages orders, quotes and customer accounts for the sales desk.',
+  SalesExecutive: 'Creates and manages orders and customer accounts for the sales desk.',
   InventoryManager: 'Controls stock levels, adjustments, warehouse transfers and low stock replenishment.',
   PurchaseManager: 'Manages suppliers, purchase orders, goods receipts and procurement workflows.',
   Accountant: 'Handles invoices, payments, supplier bills, expenses and financial statements.',

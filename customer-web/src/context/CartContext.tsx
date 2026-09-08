@@ -65,11 +65,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [items, couponCode]);
 
   const addToCart = (product: Product, quantity: number = 1) => {
-    const maxStock = typeof product.availableQuantity === 'number' ? product.availableQuantity : 99;
-    if (maxStock <= 0) {
-      alert('This product is currently out of stock.');
-      return;
-    }
+    const maxStock = typeof product.availableQuantity === 'number' && product.availableQuantity > 0
+      ? product.availableQuantity
+      : 9999;
 
     setItems(prev => {
       const existing = prev.find(i => i.productId === product.id);

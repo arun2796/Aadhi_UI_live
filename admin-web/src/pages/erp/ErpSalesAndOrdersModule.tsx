@@ -19,16 +19,16 @@ import {
   Filter,
   Plus
 } from 'lucide-react';
-import { Order, Customer, Quote, Invoice, Payment, ReturnRequest, OrderStatus, OrderStatusHistory } from '../../types';
+import { Order, Customer, Invoice, Payment, OrderStatus, OrderStatusHistory } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
-import { orderApi, RefundRecord } from '../../services/orderApi';
+import { orderApi } from '../../services/orderApi';
 import { customerApi, CustomerDetail } from '../../services/customerApi';
 import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
 import { StatusBadge } from '../../components/common/CommonComponents';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
 
-type SalesSubTab = 'orders' | 'customers' | 'quotes' | 'invoices' | 'payments' | 'returns';
+type SalesSubTab = 'orders' | 'customers' | 'invoices' | 'payments';
 
 interface ErpSalesAndOrdersModuleProps {
   initialSubTab?: SalesSubTab;
@@ -38,22 +38,18 @@ interface ErpSalesAndOrdersModuleProps {
 
 /** Each sidebar item is its own screen — per-screen page title/subtitle shown instead of the old
     shared "Sales & Order Fulfillment" header + cross-screen pill tab bar. The header follows the
-    currently shown section, so programmatic cross-navigation (e.g. a return opening its source
-    order) updates it too. */
+    currently shown section, so programmatic cross-navigation (e.g. an order opening customer detail) updates it too. */
 const SCREEN_HEADERS: Record<SalesSubTab, { title: string; subtitle: string }> = {
   orders: { title: 'Orders', subtitle: 'Manage and fulfil customer orders.' },
   customers: { title: 'Customers', subtitle: 'Customer directory and purchase history.' },
-  quotes: { title: 'Wholesale Quotes (B2B)', subtitle: 'Wholesale quote requests and conversion to orders.' },
   invoices: { title: 'Tax Invoices', subtitle: 'GST tax invoices issued for customer orders.' },
-  payments: { title: 'Payments', subtitle: 'Payment records, verification and refunds.' },
-  returns: { title: 'Returns', subtitle: 'Return requests, approvals and refunds.' }
+  payments: { title: 'Payments', subtitle: 'Payment records and verification.' }
 };
 
 const PAGE_SIZE = 10;
 
 type OrderStatusTab = 'all' | 'Pending' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'confirm';
-type ReturnStatusTab = 'all' | 'Pending' | 'Approved' | 'Rejected' | 'Completed';
-type PaymentTab = 'all' | 'Received' | 'Pending' | 'Refunds';
+type PaymentTab = 'all' | 'Received' | 'Pending';
 
 /** Valid next statuses per current status — mirrors Order.CanTransitionTo on the backend,
     so only transitions the API will accept are offered (prevents 409 Conflict). */
@@ -63,10 +59,9 @@ const NEXT_TRANSITIONS: Record<string, OrderStatus[]> = {
   Processing: ['Packed', 'Cancelled'],
   Packed: ['Shipped', 'Cancelled'],
   Shipped: ['OutForDelivery', 'Delivered'],
-  OutForDelivery: ['Delivered', 'Returned'],
-  Delivered: ['Returned'],
-  Cancelled: [],
-  Returned: []
+  OutForDelivery: ['Delivered'],
+  Delivered: [],
+  Cancelled: []
 };
 
 /** Client-side list filters shared by the Filters popovers (design: every list page has one). */
@@ -372,29 +367,6 @@ const buildTimeline = (order: Order): { steps: TimelineStep[]; cancelled?: Order
   return { steps, cancelled };
 };
 
-/** Buckets granular return statuses onto the design's tabs (Pending/Approved/Rejected/Completed). */
-const returnStatusGroup = (status: ReturnRequest['status']): Exclude<ReturnStatusTab, 'all'> => {
-  if (status === 'Requested') return 'Pending';
-  if (status === 'Approved') return 'Approved';
-  if (status === 'Rejected') return 'Rejected';
-  return 'Completed'; // Received / Refunded / Closed
-};
-
-const ReturnStatusPill: React.FC<{ status: ReturnRequest['status'] }> = ({ status }) => {
-  const group = returnStatusGroup(status);
-  const styles: Record<string, string> = {
-    Pending: 'bg-amber-50 text-amber-700 border border-amber-200',
-    Approved: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    Rejected: 'bg-red-50 text-red-700 border border-red-200',
-    Completed: 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-  };
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[group]}`}>
-      {group === 'Completed' && status !== 'Closed' ? status : group}
-    </span>
-  );
-};
-
 export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = ({
   initialSubTab = 'orders',
   initialSelectedOrderId,
@@ -409,10 +381,8 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [returns, setReturns] = useState<ReturnRequest[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -430,14 +400,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   // Order Confirm queue sub-filter chips (design 06 split)
   const [confirmChip, setConfirmChip] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
 
-  // RETURNS — tabs + detail
-  const [returnSearch, setReturnSearch] = useState('');
-  const [returnTab, setReturnTab] = useState<ReturnStatusTab>('all');
-  const [returnPage, setReturnPage] = useState(1);
-  const [returnFilters, setReturnFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
-  const [selectedReturn, setSelectedReturn] = useState<ReturnRequest | null>(null);
-  const [rejectReturnTarget, setRejectReturnTarget] = useState<ReturnRequest | null>(null);
-
   // CUSTOMERS — list + detail
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerPage, setCustomerPage] = useState(1);
@@ -448,13 +410,11 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
   const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
-  // PAYMENTS — tabs, search, filters + refunds (design 15)
+  // PAYMENTS — tabs, search, filters (design 15)
   const [paymentSearch, setPaymentSearch] = useState('');
   const [paymentTab, setPaymentTab] = useState<PaymentTab>('all');
   const [paymentPage, setPaymentPage] = useState(1);
   const [paymentFilters, setPaymentFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
-  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
-  const [refundsLoaded, setRefundsLoaded] = useState(false);
 
   // Selected Invoice for Printable View Modal
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
@@ -462,20 +422,16 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [ords, custs, qts, invs, pays, rets] = await Promise.all([
+      const [ords, custs, invs, pays] = await Promise.all([
         api.getOrders({ pageSize: 200 }),
         api.getCustomers({ pageSize: 200 }),
-        api.getQuotes(),
         api.getInvoices(),
-        api.getPayments(),
-        api.getReturns()
+        api.getPayments()
       ]);
       setOrders(ords);
       setCustomers(custs);
-      setQuotes(qts);
       setInvoices(invs);
       setPayments(pays);
-      setReturns(rets);
     } catch (error) {
       const { message } = getApiErrorDetails(error);
       showToast(message || 'Failed to load sales data', 'error');
@@ -499,7 +455,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       setSelectedCustomer(null);
       setCustomerOrders([]);
     }
-    if (initialSubTab !== 'returns') setSelectedReturn(null);
   }, [initialSubTab]);
 
   // ?tab=confirm deep link (sidebar "Order Confirm") — reacts to in-app navigation too
@@ -529,14 +484,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     }
   }, [routeCustomerId]);
 
-  // /admin/returns/:id deep link — open the return detail directly
-  const routeReturnId = initialSubTab === 'returns' ? routeParams.id : undefined;
-  useEffect(() => {
-    if (routeReturnId) {
-      openReturnById(routeReturnId);
-    }
-  }, [routeReturnId]);
-
   // Reset pagination when filters change
   useEffect(() => {
     setOrderPage(1);
@@ -545,9 +492,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     setCustomerPage(1);
   }, [customerSearch]);
   useEffect(() => {
-    setReturnPage(1);
-  }, [returnSearch, returnTab, returnFilters]);
-  useEffect(() => {
     setPaymentPage(1);
   }, [paymentSearch, paymentTab, paymentFilters]);
 
@@ -555,22 +499,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   useEffect(() => {
     setStatusDraft('');
   }, [selectedOrder?.id, selectedOrder?.orderStatus]);
-
-  // Lazy-load refund history the first time the Payments → Refunds tab is opened (GET /refunds)
-  useEffect(() => {
-    if (subTab !== 'payments' || paymentTab !== 'Refunds' || refundsLoaded) return;
-    orderApi
-      .getRefunds({ pageSize: 200 })
-      .then((r) => {
-        setRefunds([...r]);
-        setRefundsLoaded(true);
-      })
-      .catch((error) => {
-        setRefundsLoaded(true);
-        const { message } = getApiErrorDetails(error);
-        showToast(message || 'Failed to load refunds', 'error');
-      });
-  }, [subTab, paymentTab, refundsLoaded]);
 
   // ===================== ORDERS: derived data =====================
 
@@ -654,32 +582,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     }
   ];
 
-  // ===================== RETURNS: derived data =====================
-
-  const filteredReturns = useMemo(
-    () =>
-      returns.filter((r) => {
-        const q = returnSearch.toLowerCase();
-        const matchesSearch =
-          r.returnNumber.toLowerCase().includes(q) ||
-          r.orderNumber.toLowerCase().includes(q) ||
-          r.customerName.toLowerCase().includes(q);
-        const matchesTab = returnTab === 'all' || returnStatusGroup(r.status) === returnTab;
-        return matchesSearch && matchesTab && matchesDateRange(r.requestedAtUtc, returnFilters);
-      }),
-    [returns, returnSearch, returnTab, returnFilters]
-  );
-
-  const pagedReturns = filteredReturns.slice((returnPage - 1) * PAGE_SIZE, returnPage * PAGE_SIZE);
-
-  const returnTabs: { id: ReturnStatusTab; label: string; count: number }[] = [
-    { id: 'all', label: 'All', count: returns.length },
-    { id: 'Pending', label: 'Pending', count: returns.filter((r) => returnStatusGroup(r.status) === 'Pending').length },
-    { id: 'Approved', label: 'Approved', count: returns.filter((r) => returnStatusGroup(r.status) === 'Approved').length },
-    { id: 'Rejected', label: 'Rejected', count: returns.filter((r) => returnStatusGroup(r.status) === 'Rejected').length },
-    { id: 'Completed', label: 'Completed', count: returns.filter((r) => returnStatusGroup(r.status) === 'Completed').length }
-  ];
-
   // ===================== CUSTOMERS: derived data =====================
 
   const filteredCustomers = useMemo(
@@ -721,34 +623,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   const pagedPayments = filteredPayments.slice((paymentPage - 1) * PAGE_SIZE, paymentPage * PAGE_SIZE);
 
-  /** Refunds tab (GET /refunds) — RefundDto has no customer name, so resolve it from the loaded orders. */
-  const customerNameByOrder = useMemo(() => {
-    const map: Record<string, string> = {};
-    orders.forEach((o) => {
-      map[o.id] = o.customerName;
-      map[o.orderNumber] = o.customerName;
-    });
-    return map;
-  }, [orders]);
-
-  const filteredRefunds = useMemo(
-    () =>
-      refunds.filter((r) => {
-        const q = paymentSearch.toLowerCase();
-        const matchesSearch =
-          (r.refundNumber || '').toLowerCase().includes(q) ||
-          (r.orderNumber || '').toLowerCase().includes(q) ||
-          (customerNameByOrder[r.orderId] || '').toLowerCase().includes(q);
-        const matchesFilters =
-          (paymentFilters.method === 'all' || r.method === paymentFilters.method) &&
-          matchesDateRange(r.processedAtUtc, paymentFilters);
-        return matchesSearch && matchesFilters;
-      }),
-    [refunds, paymentSearch, paymentFilters, customerNameByOrder]
-  );
-
-  const pagedRefunds = filteredRefunds.slice((paymentPage - 1) * PAGE_SIZE, paymentPage * PAGE_SIZE);
-
   const paymentTabs: { id: PaymentTab; label: string; count: number }[] = [
     { id: 'all', label: 'All', count: payments.length },
     { id: 'Received', label: 'Received', count: payments.filter((p) => p.paymentStatus === 'Paid').length },
@@ -756,8 +630,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       id: 'Pending',
       label: 'Pending',
       count: payments.filter((p) => p.paymentStatus === 'Pending' || p.paymentStatus === 'Authorized').length
-    },
-    { id: 'Refunds', label: 'Refunds', count: refunds.length }
+    }
   ];
 
   // ===================== Handlers =====================
@@ -879,28 +752,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     }
   };
 
-  const openReturnById = async (id: string) => {
-    try {
-      const ret = await api.getReturnById(id);
-      if (ret) {
-        setSubTab('returns');
-        setSelectedReturn(ret);
-      } else {
-        showToast('Return request not found', 'warning');
-      }
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to load return details', 'error');
-    }
-  };
-
-  const closeReturnDetail = () => {
-    setSelectedReturn(null);
-    if (routeReturnId) {
-      navigate('/admin/returns');
-    }
-  };
-
   // Handle Order Status Transition
   const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus) => {
     try {
@@ -982,53 +833,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       const { message } = getApiErrorDetails(error);
       showToast(message || 'Payment rejection failed', 'error');
       setRejectPaymentTarget(null);
-    }
-  };
-
-  // Convert Quote to Order
-  const handleConvertQuote = async (quoteId: string) => {
-    try {
-      await api.convertQuoteToOrder(quoteId);
-      showToast('Quote successfully converted to live Order!', 'success');
-      loadData();
-      setSubTab('orders');
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Quote conversion failed', 'error');
-    }
-  };
-
-  // Approve & Restock a return
-  const handleApproveReturn = async (ret: ReturnRequest) => {
-    try {
-      await api.updateReturnStatus(ret.id, 'Approved');
-      showToast('Return approved & items queued for restock', 'success');
-      await loadData();
-      if (selectedReturn?.id === ret.id) {
-        const fresh = await api.getReturnById(ret.id);
-        if (fresh) setSelectedReturn(fresh);
-      }
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to approve return', 'error');
-    }
-  };
-
-  // Reject a return (POST /returns/{id}/reject via the api.ts helper)
-  const handleRejectReturn = async (ret: ReturnRequest) => {
-    try {
-      await api.updateReturnStatus(ret.id, 'Rejected', 'Rejected by admin after review');
-      showToast(`Return ${ret.returnNumber} rejected`, 'info');
-      setRejectReturnTarget(null);
-      await loadData();
-      if (selectedReturn?.id === ret.id) {
-        const fresh = await api.getReturnById(ret.id);
-        if (fresh) setSelectedReturn(fresh);
-      }
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to reject return', 'error');
-      setRejectReturnTarget(null);
     }
   };
 
@@ -1948,58 +1752,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         </div>
       )}
 
-      {/* ============ 3. WHOLESALE QUOTES (B2B) TAB ============ */}
-      {subTab === 'quotes' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {quotes.map((q) => (
-              <div key={q.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="font-mono font-black text-purple text-sm">{q.quoteNumber}</span>
-                    <h3 className="font-bold text-xs text-navy mt-0.5">{q.customerName}</h3>
-                    <p className="text-[10px] text-slate-400">{q.customerPhone}</p>
-                  </div>
-                  <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">
-                    {q.status}
-                  </span>
-                </div>
-
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5 text-xs">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase">Quote Line Items</div>
-                  {q.items.map((it, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-slate-700">
-                      <span>
-                        {it.productName} (x{it.quantity})
-                      </span>
-                      <span className="font-bold">{formatINR(it.lineTotal)}</span>
-                    </div>
-                  ))}
-                  <div className="pt-2 border-t border-slate-200 flex justify-between font-black text-navy text-xs">
-                    <span>Grand Total:</span>
-                    <span>{formatINR(q.grandTotal)}</span>
-                  </div>
-                </div>
-
-                {q.notes && <p className="text-[11px] text-slate-500 italic">"{q.notes}"</p>}
-
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                  <div className="text-[10px] text-slate-400">Expires: {formatDate(q.expiryDateUtc)}</div>
-                  <button
-                    onClick={() => handleConvertQuote(q.id)}
-                    className="px-4 py-1.5 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Convert to Order</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ============ 4. TAX INVOICES TAB ============ */}
+      {/* ============ 3. TAX INVOICES TAB ============ */}
       {subTab === 'invoices' && (
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -2050,7 +1803,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       {/* ============ 5. PAYMENTS TAB (design 15) ============ */}
       {subTab === 'payments' && (
         <div className="space-y-4">
-          {/* Status tab bar: All | Received | Pending | Refunds — internal to the Payments screen */}
+          {/* Status tab bar: All | Received | Pending — internal to the Payments screen */}
           <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
             {paymentTabs.map((t) => {
               const isActive = paymentTab === t.id;
@@ -2084,208 +1837,39 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
             <FiltersButton filters={paymentFilters} onChange={setPaymentFilters} />
           </div>
 
-          {paymentTab !== 'Refunds' ? (
-            /* Payments table: Payment ID / Order ID / Customer / Amount / Method / Status / Date */
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4">Payment ID</th>
-                      <th className="py-3 px-3">Order ID</th>
-                      <th className="py-3 px-3">Customer</th>
-                      <th className="py-3 px-3">Amount</th>
-                      <th className="py-3 px-3">Method</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                    {pagedPayments.map((pay) => (
-                      <tr key={pay.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-navy">{pay.paymentNumber}</td>
-                        <td className="py-3 px-3 font-mono text-purple">{pay.orderNumber || '—'}</td>
-                        <td className="py-3 px-3 font-bold">{pay.customerName}</td>
-                        <td className="py-3 px-3 font-black text-navy">{formatINR(pay.amount)}</td>
-                        <td className="py-3 px-3 font-bold text-slate-600">{pay.paymentMethod}</td>
-                        <td className="py-3 px-3">
-                          <PaymentStatusPill status={pay.paymentStatus} />
-                        </td>
-                        <td className="py-3 px-3 text-slate-500">{formatDate(pay.paidAtUtc)}</td>
-                      </tr>
-                    ))}
-                    {pagedPayments.length === 0 && !isLoading && (
-                      <tr>
-                        <td colSpan={7} className="py-10 text-center text-slate-400 text-xs font-bold">
-                          No payments match this view.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-4 pb-4">
-                <Pagination
-                  page={paymentPage}
-                  pageSize={PAGE_SIZE}
-                  total={filteredPayments.length}
-                  onPageChange={setPaymentPage}
-                />
-              </div>
-            </div>
-          ) : (
-            /* Refunds table (GET /refunds) */
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4">Refund ID</th>
-                      <th className="py-3 px-3">Order ID</th>
-                      <th className="py-3 px-3">Customer</th>
-                      <th className="py-3 px-3">Amount</th>
-                      <th className="py-3 px-3">Method</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                    {pagedRefunds.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-navy">{r.refundNumber}</td>
-                        <td className="py-3 px-3 font-mono text-purple">{r.orderNumber || '—'}</td>
-                        <td className="py-3 px-3 font-bold">{customerNameByOrder[r.orderId] || '—'}</td>
-                        <td className="py-3 px-3 font-black text-navy">{formatINR(r.amount)}</td>
-                        <td className="py-3 px-3 font-bold text-slate-600">{String(r.method ?? '—')}</td>
-                        <td className="py-3 px-3">
-                          <PaymentStatusPill status={r.status || 'Refunded'} />
-                        </td>
-                        <td className="py-3 px-3 text-slate-500">{formatDate(r.processedAtUtc)}</td>
-                      </tr>
-                    ))}
-                    {pagedRefunds.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="py-10 text-center text-slate-400 text-xs font-bold">
-                          {refundsLoaded ? 'No refunds recorded yet.' : 'Loading refunds...'}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-4 pb-4">
-                <Pagination
-                  page={paymentPage}
-                  pageSize={PAGE_SIZE}
-                  total={filteredRefunds.length}
-                  onPageChange={setPaymentPage}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ============ 6. RETURNS TAB (design 14) ============ */}
-      {subTab === 'returns' && !selectedReturn && (
-        <div className="space-y-4">
-          {/* Status tab bar — internal to the Returns screen */}
-          <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
-            {returnTabs.map((t) => {
-              const isActive = returnTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setReturnTab(t.id)}
-                  className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                    isActive ? 'border-purple text-purple' : 'border-transparent text-slate-500 hover:text-navy'
-                  }`}
-                >
-                  {t.label} {t.count > 0 && <span className={isActive ? 'text-purple' : 'text-slate-400'}>({t.count})</span>}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Search + Filters (design 11) */}
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-2">
-            <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs">
-              <Search className="w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search return ID or order ID..."
-                value={returnSearch}
-                onChange={(e) => setReturnSearch(e.target.value)}
-                className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
-              />
-            </div>
-            <FiltersButton filters={returnFilters} onChange={setReturnFilters} showMethod={false} />
-          </div>
-
-          {/* Returns table */}
+          {/* Payments table: Payment ID / Order ID / Customer / Amount / Method / Status / Date */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   <tr>
-                    <th className="py-3 px-4">Return ID</th>
+                    <th className="py-3 px-4">Payment ID</th>
                     <th className="py-3 px-3">Order ID</th>
                     <th className="py-3 px-3">Customer</th>
-                    <th className="py-3 px-3">Reason</th>
+                    <th className="py-3 px-3">Amount</th>
+                    <th className="py-3 px-3">Method</th>
                     <th className="py-3 px-3">Status</th>
                     <th className="py-3 px-3">Date</th>
-                    <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {pagedReturns.map((ret) => (
-                    <tr
-                      key={ret.id}
-                      onClick={() => setSelectedReturn(ret)}
-                      className="hover:bg-slate-50/60 transition-colors cursor-pointer"
-                    >
-                      <td className="py-3 px-4 font-mono font-bold text-navy">{ret.returnNumber}</td>
-                      <td className="py-3 px-3 font-mono text-purple">{ret.orderNumber}</td>
+                  {pagedPayments.map((pay) => (
+                    <tr key={pay.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-navy">{pay.paymentNumber}</td>
+                      <td className="py-3 px-3 font-mono text-purple">{pay.orderNumber || '—'}</td>
+                      <td className="py-3 px-3 font-bold">{pay.customerName}</td>
+                      <td className="py-3 px-3 font-black text-navy">{formatINR(pay.amount)}</td>
+                      <td className="py-3 px-3 font-bold text-slate-600">{pay.paymentMethod}</td>
                       <td className="py-3 px-3">
-                        <div className="font-bold text-navy">{ret.customerName}</div>
-                        {ret.customerPhone && <div className="text-[10px] text-slate-400">{ret.customerPhone}</div>}
+                        <PaymentStatusPill status={pay.paymentStatus} />
                       </td>
-                      <td className="py-3 px-3 text-slate-500">{ret.items?.[0]?.reason || '—'}</td>
-                      <td className="py-3 px-3">
-                        <ReturnStatusPill status={ret.status} />
-                      </td>
-                      <td className="py-3 px-3 text-slate-500">{formatDate(ret.requestedAtUtc)}</td>
-                      <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        {ret.status === 'Requested' ? (
-                          <div className="flex items-center justify-end space-x-1.5">
-                            <button
-                              onClick={() => handleApproveReturn(ret)}
-                              className="px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-bold"
-                            >
-                              Approve & Restock
-                            </button>
-                            <button
-                              onClick={() => setRejectReturnTarget(ret)}
-                              className="px-3 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-bold"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setSelectedReturn(ret)}
-                            className="px-3 py-1 rounded-lg border border-slate-200 text-purple hover:bg-purple/5 text-xs font-bold"
-                          >
-                            View
-                          </button>
-                        )}
-                      </td>
+                      <td className="py-3 px-3 text-slate-500">{formatDate(pay.paidAtUtc)}</td>
                     </tr>
                   ))}
-                  {pagedReturns.length === 0 && !isLoading && (
+                  {pagedPayments.length === 0 && !isLoading && (
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-slate-400 text-xs font-bold">
-                        No return requests match this view.
+                        No payments match this view.
                       </td>
                     </tr>
                   )}
@@ -2294,137 +1878,11 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
             </div>
             <div className="px-4 pb-4">
               <Pagination
-                page={returnPage}
+                page={paymentPage}
                 pageSize={PAGE_SIZE}
-                total={filteredReturns.length}
-                onPageChange={setReturnPage}
+                total={filteredPayments.length}
+                onPageChange={setPaymentPage}
               />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============ RETURN DETAIL VIEW ============ */}
-      {subTab === 'returns' && selectedReturn && (
-        <div className="space-y-4">
-          <button
-            onClick={closeReturnDetail}
-            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-purple text-xs font-bold hover:bg-purple/5 shadow-2xs"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Returns</span>
-          </button>
-
-          <div className="flex items-center flex-wrap gap-3">
-            <h2 className="text-lg font-black text-navy">Return ID: {selectedReturn.returnNumber}</h2>
-            <ReturnStatusPill status={selectedReturn.status} />
-            <span className="text-[10px] text-slate-400">Requested on {formatDate(selectedReturn.requestedAtUtc)}</span>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-2.5 text-xs">
-              <div className="font-black text-xs text-navy mb-1">Return Information</div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Original Order</span>
-                <button
-                  onClick={() => openOrderById(selectedReturn.orderId)}
-                  className="font-mono font-bold text-purple hover:underline"
-                >
-                  {selectedReturn.orderNumber}
-                </button>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Customer</span>
-                <span className="font-bold text-navy">{selectedReturn.customerName}</span>
-              </div>
-              {selectedReturn.customerPhone && (
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500">Phone</span>
-                  <span className="font-bold text-navy">{selectedReturn.customerPhone}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Requested On</span>
-                <span className="font-bold text-navy">{formatDateTime(selectedReturn.requestedAtUtc)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Status</span>
-                <ReturnStatusPill status={selectedReturn.status} />
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 flex flex-col justify-between">
-              <div>
-                <div className="font-black text-xs text-navy">Refund Summary</div>
-                <div className="mt-2 text-2xl font-black text-orange">{formatINR(selectedReturn.totalRefundAmount)}</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  Total refund for {selectedReturn.items?.length || 0} item(s)
-                </div>
-              </div>
-              {selectedReturn.status === 'Requested' && (
-                <div className="mt-4 flex items-center space-x-2">
-                  <button
-                    onClick={() => handleApproveReturn(selectedReturn)}
-                    className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-600/20"
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    <span>Approve & Restock</span>
-                  </button>
-                  <button
-                    onClick={() => setRejectReturnTarget(selectedReturn)}
-                    className="flex-1 px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-bold flex items-center justify-center space-x-1.5"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span>Reject Return</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Returned items */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 pt-4 pb-2 font-black text-xs text-navy">Returned Items</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="text-[10px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                  <tr>
-                    <th className="py-2 px-5">Product</th>
-                    <th className="py-2 px-3">Qty</th>
-                    <th className="py-2 px-3">Condition</th>
-                    <th className="py-2 px-3">Reason</th>
-                    <th className="py-2 px-5 text-right">Refund</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {(selectedReturn.items || []).map((it, idx) => (
-                    <tr key={idx}>
-                      <td className="py-3 px-5">
-                        <div className="font-bold text-navy">{it.productName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">SKU: {it.sku}</div>
-                      </td>
-                      <td className="py-3 px-3">{it.quantity}</td>
-                      <td className="py-3 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            it.condition === 'Unopened'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-red-50 text-red-600'
-                          }`}
-                        >
-                          {it.condition}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-slate-500">{it.reason}</td>
-                      <td className="py-3 px-5 text-right font-black text-navy">{formatINR(it.refundAmount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="px-5 py-3 border-t border-slate-100 flex justify-between items-center text-xs bg-slate-50/60">
-              <span className="font-bold text-slate-500">Total Refund Amount</span>
-              <span className="font-black text-navy text-sm">{formatINR(selectedReturn.totalRefundAmount)}</span>
             </div>
           </div>
         </div>
@@ -2543,26 +2001,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
           </div>
         </div>
       )}
-
-      {/* REJECT RETURN CONFIRM DIALOG */}
-      <ErpConfirmDialog
-        open={!!rejectReturnTarget}
-        title="Reject Return Request?"
-        message={
-          rejectReturnTarget ? (
-            <>
-              Return <span className="font-mono font-bold text-navy">{rejectReturnTarget.returnNumber}</span> for order{' '}
-              <span className="font-mono font-bold text-navy">{rejectReturnTarget.orderNumber}</span> will be rejected
-              and no refund will be issued.
-            </>
-          ) : (
-            ''
-          )
-        }
-        confirmLabel="Reject Return"
-        onConfirm={() => rejectReturnTarget && handleRejectReturn(rejectReturnTarget)}
-        onCancel={() => setRejectReturnTarget(null)}
-      />
 
       {/* PRINTABLE TAX INVOICE MODAL */}
       {selectedInvoice && (

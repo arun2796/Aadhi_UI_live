@@ -6,10 +6,13 @@ import {
   Trash2,
   Plus,
   ImageIcon,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Wand2,
+  X
 } from 'lucide-react';
 import { Product, Category, Brand } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
+import { brandApi } from '../../services/brandApi';
 import { flattenCategories } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { normalizeImageUrl } from '../../utils/imageUrl';
@@ -42,13 +45,7 @@ const ALL_TABS: { id: FormTab; label: string }[] = [
   { id: 'seo', label: 'SEO' }
 ];
 
-/**
- * Inventory and SEO tabs are hidden per owner request — flip SHOW_EXTRA_TABS to true to
- * restore them (this single flag gates both the tab bar entries and the tab panels below).
- * While hidden, the required inventory values are still sent on save with sensible defaults
- * (stock 0, reorder level 10, featured false) and the General tab's Status toggle keeps
- * controlling isActive.
- */
+
 const SHOW_EXTRA_TABS: boolean = false;
 
 const TABS = SHOW_EXTRA_TABS
@@ -59,11 +56,6 @@ const TABS = SHOW_EXTRA_TABS
 type ServerFieldKey = 'name' | 'sku' | 'description' | 'price';
 const SERVER_FIELD_KEYS: ServerFieldKey[] = ['name', 'sku', 'description', 'price'];
 
-/**
- * Friendly server error text: the backend returns ProblemDetails for business-rule 400s
- * (e.g. { title: "Business Rule Violation", detail: "A product named 'x' already exists..." }).
- * Prefer `detail`, then `message`, then whatever getApiErrorDetails extracts, then the fallback.
- */
 const getServerErrorMessage = (error: unknown, fallback: string): string => {
   const data = (error as { response?: { data?: { detail?: unknown; message?: unknown } } } | null)
     ?.response?.data;
@@ -108,8 +100,8 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     price: 0,
     compareAtPrice: 0,
     costPrice: 0,
-    taxRate: 18,
-    stockQuantity: 0,
+    taxRate: 0,
+    stockQuantity: 9999,
     reorderLevel: 10,
     unit: 'Box',
     isActive: true,
@@ -119,6 +111,12 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
   const [topCategoryId, setTopCategoryId] = useState('');
   const [subCategoryId, setSubCategoryId] = useState('');
   const [gallery, setGallery] = useState<GalleryImage[]>([]);
+
+  // Inline Brand creation modal state
+  const [showAddBrandModal, setShowAddBrandModal] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [newBrandDesc, setNewBrandDesc] = useState('');
+  const [isCreatingBrand, setIsCreatingBrand] = useState(false);
 
   // Product Image Google Drive helpers
   const [imageUrlInput, setImageUrlInput] = useState('');
@@ -279,6 +277,50 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     });
   };
 
+  const handleCreateBrand = async () => {
+    if (!newBrandName.trim()) {
+      showToast('Brand name is required', 'warning');
+      return;
+    }
+    setIsCreatingBrand(true);
+    try {
+      const created = await brandApi.createBrand({
+        name: newBrandName.trim(),
+        description: newBrandDesc.trim() || undefined
+      });
+      if (created) {
+        setBrands((prev) => [...prev, created]);
+        setForm((prev) => ({
+          ...prev,
+          brandId: created.id,
+          brandName: created.name
+        }));
+        showToast(`Brand "${created.name}" created and selected!`, 'success');
+        setNewBrandName('');
+        setNewBrandDesc('');
+        setShowAddBrandModal(false);
+      }
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to create brand', 'error');
+    } finally {
+      setIsCreatingBrand(false);
+    }
+  };
+
+  const generateAutoSku = () => {
+    const cat = allCategories.find((c) => c.id === (subCategoryId || topCategoryId));
+    const catPrefix = cat
+      ? cat.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase()
+      : 'AC';
+    const namePrefix = form.name
+      ? form.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase()
+      : 'CK';
+    const randomDigits = Math.floor(100 + Math.random() * 900);
+    const sku = `${catPrefix || 'AC'}-${namePrefix || 'CK'}-${randomDigits}`;
+    setField('sku', sku);
+  };
+
   // ---- Save -------------------------------------------------------------
 
   const handleSave = async () => {
@@ -312,8 +354,9 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       focusField('description');
       return;
     }
-    if (!form.price || form.price <= 0) {
-      setFieldErrors({ price: 'Selling Price is required' });
+    const numericPrice = Number(form.price);
+    if (!numericPrice || numericPrice <= 0) {
+      setFieldErrors({ price: 'Selling Price must be greater than 0' });
       showToast('Selling Price is required', 'warning');
       focusField('price');
       return;
@@ -328,9 +371,11 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
     const payload: ProductFormState = {
       ...persistedForm,
-      // The Inventory tab is hidden (see SHOW_EXTRA_TABS) — its required values are still
-      // sent with sensible defaults. The Status toggle on General keeps driving isActive.
-      stockQuantity: persistedForm.stockQuantity ?? 0,
+      price: numericPrice,
+      compareAtPrice: persistedForm.compareAtPrice ? Number(persistedForm.compareAtPrice) : undefined,
+      costPrice: persistedForm.costPrice ? Number(persistedForm.costPrice) : 0,
+      taxRate: 0,
+      stockQuantity: (persistedForm.stockQuantity && persistedForm.stockQuantity > 0) ? persistedForm.stockQuantity : 9999,
       reorderLevel: persistedForm.reorderLevel ?? 10,
       isActive: persistedForm.isActive ?? true,
       isFeatured: persistedForm.isFeatured ?? false,
@@ -467,14 +512,25 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     SKU
                     <RequiredMark />
                   </label>
-                  <input
-                    ref={skuRef}
-                    type="text"
-                    value={form.sku || ''}
-                    onChange={(e) => setField('sku', e.target.value)}
-                    placeholder="e.g. AC-SP-010"
-                    className={`${fieldCls('sku')} font-mono`}
-                  />
+                  <div className="flex items-center space-x-2">
+                    <input
+                      ref={skuRef}
+                      type="text"
+                      value={form.sku || ''}
+                      onChange={(e) => setField('sku', e.target.value.toUpperCase())}
+                      placeholder="e.g. AC-SP-010"
+                      className={`${fieldCls('sku')} font-mono uppercase flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={generateAutoSku}
+                      className="mt-1 px-3 py-2.5 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/10 text-purple text-xs font-bold shrink-0 transition-colors flex items-center space-x-1.5"
+                      title="Auto generate unique SKU"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" />
+                      <span>Auto SKU</span>
+                    </button>
+                  </div>
                   {fieldErrors.sku && (
                     <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.sku}</p>
                   )}
@@ -504,25 +560,35 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                   </div>
                   <div>
                     <label className="font-bold text-navy">Brand</label>
-                    <select
-                      value={form.brandId || ''}
-                      onChange={(e) => {
-                        const brand = brands.find((b) => b.id === e.target.value);
-                        setForm((prev) => ({
-                          ...prev,
-                          brandId: e.target.value || undefined,
-                          brandName: brand?.name
-                        }));
-                      }}
-                      className={inputCls}
-                    >
-                      <option value="">Select Brand</option>
-                      {brands.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={form.brandId || ''}
+                        onChange={(e) => {
+                          const brand = brands.find((b) => b.id === e.target.value);
+                          setForm((prev) => ({
+                            ...prev,
+                            brandId: e.target.value || undefined,
+                            brandName: brand?.name
+                          }));
+                        }}
+                        className={`${inputCls} flex-1`}
+                      >
+                        <option value="">Select Brand</option>
+                        {brands.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddBrandModal(true)}
+                        className="mt-1 p-2.5 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/15 text-purple shadow-2xs shrink-0 transition-colors"
+                        title="Add new Brand dynamically"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -560,6 +626,38 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                       onChange={(e) => setField('hsnCode', e.target.value)}
                       placeholder="e.g. 3604"
                       className={`${inputCls} font-mono`}
+                    />
+                  </div>
+                </div>
+
+                {/* Primary Pricing Section Directly on General Tab */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-purple/5 border border-purple/15">
+                  <div>
+                    <label className="font-bold text-navy flex items-center justify-between">
+                      <span>Selling Price (₹) <RequiredMark /></span>
+                    </label>
+                    <input
+                      ref={priceRef}
+                      type="number"
+                      min={0}
+                      value={form.price ? form.price : ''}
+                      placeholder="e.g. 300"
+                      onChange={(e) => setField('price', e.target.value === '' ? ('' as any) : Number(e.target.value))}
+                      className={`${fieldCls('price')} font-bold text-navy bg-white`}
+                    />
+                    {fieldErrors.price && (
+                      <p className="text-[10px] font-bold text-red-500 mt-1">{fieldErrors.price}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="font-bold text-navy">MRP / Compare at Price (₹)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.compareAtPrice ? form.compareAtPrice : ''}
+                      placeholder="e.g. 500"
+                      onChange={(e) => setField('compareAtPrice', e.target.value === '' ? ('' as any) : Number(e.target.value))}
+                      className={`${inputCls} bg-white`}
                     />
                   </div>
                 </div>
@@ -816,8 +914,9 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     ref={priceRef}
                     type="number"
                     min={0}
-                    value={form.price ?? 0}
-                    onChange={(e) => setField('price', Number(e.target.value))}
+                    value={form.price ? form.price : ''}
+                    placeholder="e.g. 300"
+                    onChange={(e) => setField('price', e.target.value === '' ? ('' as any) : Number(e.target.value))}
                     className={`${fieldCls('price')} font-bold`}
                   />
                   {fieldErrors.price && (
@@ -829,8 +928,9 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                   <input
                     type="number"
                     min={0}
-                    value={form.compareAtPrice ?? 0}
-                    onChange={(e) => setField('compareAtPrice', Number(e.target.value))}
+                    value={form.compareAtPrice ? form.compareAtPrice : ''}
+                    placeholder="e.g. 500"
+                    onChange={(e) => setField('compareAtPrice', e.target.value === '' ? ('' as any) : Number(e.target.value))}
                     className={inputCls}
                   />
                 </div>
@@ -842,21 +942,17 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                   <input
                     type="number"
                     min={0}
-                    value={form.costPrice ?? 0}
-                    onChange={(e) => setField('costPrice', Number(e.target.value))}
+                    value={form.costPrice ? form.costPrice : ''}
+                    placeholder="e.g. 200"
+                    onChange={(e) => setField('costPrice', e.target.value === '' ? ('' as any) : Number(e.target.value))}
                     className={inputCls}
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-navy">GST Rate (%)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={form.taxRate ?? 18}
-                    onChange={(e) => setField('taxRate', Number(e.target.value))}
-                    className={inputCls}
-                  />
+                  <label className="font-bold text-navy">GST Rate</label>
+                  <div className="px-3 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-xs font-medium">
+                    0% (GST Inclusive / No Separate Tax)
+                  </div>
                 </div>
               </div>
 
@@ -1105,6 +1201,66 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
           </button>
         </div>
       </div>
+
+      {/* Dynamic Add Brand Modal */}
+      {showAddBrandModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black text-navy">Create New Brand</h3>
+              <button
+                type="button"
+                onClick={() => setShowAddBrandModal(false)}
+                className="w-7 h-7 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-navy transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-navy block mb-1">
+                  Brand Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newBrandName}
+                  onChange={(e) => setNewBrandName(e.target.value)}
+                  placeholder="e.g. Standard Fireworks, Sony Fireworks"
+                  className={inputCls}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="font-bold text-navy block mb-1">Description (Optional)</label>
+                <textarea
+                  rows={3}
+                  value={newBrandDesc}
+                  onChange={(e) => setNewBrandDesc(e.target.value)}
+                  placeholder="Brand details, manufacturer info..."
+                  className={inputCls}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddBrandModal(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateBrand}
+                disabled={isCreatingBrand || !newBrandName.trim()}
+                className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 transition-all disabled:opacity-50"
+              >
+                {isCreatingBrand ? 'Creating...' : 'Create Brand'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

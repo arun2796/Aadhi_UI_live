@@ -20,7 +20,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
 
   const inWish = isInWishlist(product.id);
   const cartItem = items.find(i => i.productId === product.id);
-  const isOutOfStock = product.availableQuantity <= 0;
+  const isOutOfStock = product.isActive === false;
 
   const discountPct =
     product.discountPercentage && product.discountPercentage > 0
@@ -120,12 +120,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
               <RatingStars rating={product.rating || 0} reviewCount={product.reviewCount || 0} size="w-3.5 h-3.5" />
             </div>
           ) : null}
-
-          {product.availableQuantity <= 5 && product.availableQuantity > 0 && (
-            <span className="text-[10px] text-red-600 font-semibold">
-              Only {product.availableQuantity} left!
-            </span>
-          )}
         </div>
 
         {/* Purple-outline Add to Cart */}

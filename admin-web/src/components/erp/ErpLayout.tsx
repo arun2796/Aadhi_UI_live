@@ -7,6 +7,7 @@ import {
   Layers,
   FolderTree,
   Package,
+  Award,
   Boxes,
   Truck,
   TrendingUp,
@@ -16,16 +17,11 @@ import {
   CreditCard,
   Tag,
   BarChart3,
-  FileText,
   Receipt,
   Gift,
   Star,
   Image as ImageIcon,
-  Warehouse,
-  ArrowLeftRight,
   AlertTriangle,
-  PackageCheck,
-  DollarSign,
   Wallet,
   Clock,
   Banknote,
@@ -59,7 +55,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLocation } from 'react-router-dom';
 import { GlobalSearchModal } from '../common/GlobalSearchModal';
 import { api } from '../../services/api';
-import { Order, StockItem } from '../../types';
+import { Order, LowStockAlert } from '../../types';
 
 interface ErpLayoutProps {
   currentTab: string;
@@ -208,6 +204,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'catalog-category', label: 'Category', icon: Layers, to: 'categories' },
       { key: 'catalog-sub-categories', label: 'Sub Categories', icon: FolderTree, to: 'sub-categories', indent: true },
+      { key: 'catalog-brand', label: 'Brands', icon: Award, to: 'brands' },
       { key: 'catalog-product', label: 'Product', icon: Package, to: 'products' },
       { key: 'catalog-discount', label: 'Discount', icon: Tag, to: 'marketing/coupons?tab=discounts' },
       { key: 'catalog-promo-code', label: 'Promotion Code', icon: Ticket, to: 'marketing/coupons?tab=codes' }
@@ -272,16 +269,10 @@ const NAV_GROUPS: NavGroup[] = [
 const SHOW_DEVELOPER_NAV = false;
 
 const DEVELOPER_NAV: NavLeaf[] = [
-  { key: 'dev-quotes', label: 'Quotes (B2B)', icon: FileText, to: 'quotes' },
   { key: 'dev-combos', label: 'Gift Boxes / Combos', icon: Gift, to: 'combos' },
   { key: 'dev-reviews', label: 'Reviews', icon: Star, to: 'reviews' },
-  { key: 'dev-warehouses', label: 'Warehouses', icon: Warehouse, to: 'warehouses' },
-  { key: 'dev-transfers', label: 'Stock Transfers', icon: ArrowLeftRight, to: 'transfers' },
-  { key: 'dev-grn', label: 'Goods Received', icon: PackageCheck, to: 'grn' },
-  { key: 'dev-bills', label: 'Supplier Bills', icon: DollarSign, to: 'bills' },
   { key: 'dev-expenses', label: 'Expenses', icon: Wallet, to: 'expenses' },
   { key: 'dev-receivables', label: 'Receivables', icon: Clock, to: 'receivables' },
-  { key: 'dev-payables', label: 'Payables', icon: Banknote, to: 'payables' },
   { key: 'dev-audit-logs', label: 'Audit Logs', icon: ShieldAlert, to: 'audit-logs' },
   { key: 'dev-sessions', label: 'Login History', icon: History, to: 'sessions' },
   { key: 'dev-rate-limits', label: 'Rate Limits', icon: Activity, to: 'rate-limit-logs' },
@@ -306,7 +297,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
   );
 
   // Real notification data — fetched on demand when the bell drawer opens (no polling)
-  const [notifLowStock, setNotifLowStock] = useState<StockItem[]>([]);
+  const [notifLowStock, setNotifLowStock] = useState<LowStockAlert[]>([]);
   const [notifPendingOrders, setNotifPendingOrders] = useState<Order[]>([]);
   const [isNotifLoading, setIsNotifLoading] = useState(false);
   const [hasNotifFetched, setHasNotifFetched] = useState(false);
@@ -336,7 +327,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
     if (opening) {
       setIsNotifLoading(true);
       Promise.all([
-        api.getLowStockAlerts(5).catch(() => [] as StockItem[]),
+        api.getLowStockAlerts(5).catch(() => [] as LowStockAlert[]),
         api
           .getOrders({ status: 'Pending', pageSize: 5 })
           .then((res) => [...res] as Order[])
@@ -618,7 +609,7 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
                           <div
                             key={item.id}
                             onClick={() => {
-                              onNavigateTab('inventory');
+                              onNavigateTab('products');
                               setIsNotificationsOpen(false);
                             }}
                             className="p-2.5 rounded-xl bg-red-50/80 border border-red-200 cursor-pointer hover:bg-red-100/60 transition-colors"
@@ -628,9 +619,8 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
                               <span>Low Stock Alert</span>
                             </div>
                             <p className="text-[11px] text-red-700 mt-0.5">
-                              <span className="font-bold">{item.productName}</span> down to{' '}
-                              {item.quantityAvailable} units
-                              {item.warehouseName ? ` in ${item.warehouseName}` : ''} (reorder at{' '}
+                              <span className="font-bold">{item.productName || item.name}</span> down to{' '}
+                              {item.availableQuantity ?? item.stockQuantity ?? 0} units (reorder at{' '}
                               {item.reorderLevel}).
                             </p>
                           </div>

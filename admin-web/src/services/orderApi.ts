@@ -1,21 +1,6 @@
 import { apiClient, wrapPagedResult } from './apiClient';
 import { Order, OrderStatus } from '../types';
 
-/** Refund record returned by GET /refunds (backend RefundDto — Accountant/Admin only). */
-export interface RefundRecord {
-  id: string;
-  refundNumber: string;
-  orderId: string;
-  orderNumber: string;
-  paymentId?: string;
-  amount: number;
-  reason?: string;
-  method: string;
-  status: string;
-  reference?: string;
-  processedAtUtc: string;
-}
-
 export const orderApi = {
   getOrders: async (params?: {
     status?: OrderStatus;
@@ -97,16 +82,5 @@ export const orderApi = {
     // Backend contract: POST /orders/{id}/reject-payment { reason } → order cancelled.
     const res = await apiClient.post<{ data: Order }>(`/orders/${orderId}/reject-payment`, { reason });
     return res.data?.data;
-  },
-
-  /** GET /refunds — paged refund history for the Payments → Refunds tab. */
-  getRefunds: async (params?: { page?: number; pageSize?: number; orderId?: string }) => {
-    const searchParams = new URLSearchParams();
-    if (params?.page) searchParams.append('page', params.page.toString());
-    if (params?.pageSize) searchParams.append('pageSize', params.pageSize.toString());
-    if (params?.orderId) searchParams.append('orderId', params.orderId);
-
-    const res = await apiClient.get(`/refunds?${searchParams.toString()}`);
-    return wrapPagedResult<RefundRecord>(res.data?.data);
   }
 };

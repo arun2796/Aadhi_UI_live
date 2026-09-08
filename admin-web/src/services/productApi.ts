@@ -51,5 +51,11 @@ export const productApi = {
   deleteProduct: async (id: string) => {
     const res = await apiClient.delete(`/products/${id}`);
     return res.data?.data;
+  },
+
+  getLowStockProducts: async (count = 10) => {
+    const res = await apiClient.get<{ data: Product[] }>(`/products/low-stock?count=${count}`);
+    return res.data?.data || [];
   }
 };
+

@@ -43,11 +43,16 @@ const pctOff = (p: Product): number => {
 const productImage = (p: Product): string =>
   p.primaryImageUrl || (p as any).imageUrl || productPlaceholder;
 
-const prettifySlug = (slug: string) =>
-  slug
+const prettifySlug = (slug: string) => {
+  if (!slug) return 'Products';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(slug)) {
+    return 'Products';
+  }
+  return slug
     .split('-')
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(' ');
+};
 
 /* ══════════════════════════════════════════════════════════════════════════════
    SCREEN 1 — HOME  (design 02_Customer_HD_Clear/01_home.png)
@@ -374,8 +379,21 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
   const categoryName = useMemo(() => {
     if (categorySlug === 'best-sellers') return 'Best Sellers';
     const found = categories.find((c) => c.slug === categorySlug || c.id === categorySlug);
-    return found ? found.name : prettifySlug(categorySlug);
-  }, [categories, categorySlug]);
+    if (found) return found.name;
+    for (const top of categories) {
+      if (top.subCategories) {
+        const sub = top.subCategories.find((s) => s.slug === categorySlug || s.id === categorySlug);
+        if (sub) return sub.name;
+      }
+    }
+    const prodMatch = products.find(
+      (p) =>
+        p.categoryId === categorySlug ||
+        (p.categoryName || '').toLowerCase().replace(/\s+/g, '-') === categorySlug.toLowerCase()
+    );
+    if (prodMatch?.categoryName) return prodMatch.categoryName;
+    return prettifySlug(categorySlug);
+  }, [categories, categorySlug, products]);
 
   /* Client-side filtering (categorySlug + filters prop) and sorting */
   const visible = useMemo(() => {
@@ -545,7 +563,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
           {visible.map((p) => {
             const real = realRatingOf(p);
             const off = pctOff(p);
-            const inStock = (p.availableQuantity ?? 1) > 0;
+            const inStock = p.isActive !== false;
             return (
               <div
                 key={p.id}

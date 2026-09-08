@@ -76,7 +76,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   }
 
   const inWish = isInWishlist(product.id);
-  const isOutOfStock = product.availableQuantity <= 0;
+  const isOutOfStock = product.isActive === false;
   const youSave = product.compareAtPrice ? product.compareAtPrice - product.price : 0;
   const discountPct =
     product.discountPercentage && product.discountPercentage > 0
@@ -140,9 +140,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
     { label: 'Category', value: product.categoryName },
     { label: 'Brand', value: product.brandName || 'Aadhi' },
     { label: 'Unit', value: product.unit },
-    { label: 'GST', value: `${product.taxRate}%` },
+    { label: 'GST', value: 'Inclusive' },
     { label: 'Net Weight', value: `${product.weightKg} kg` },
-    { label: 'Stock', value: isOutOfStock ? 'Out of Stock' : `${product.availableQuantity} units available` }
+    { label: 'Stock', value: isOutOfStock ? 'Out of Stock' : 'In Stock' }
   ];
 
   return (
@@ -270,7 +270,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
               {isOutOfStock ? (
                 <span className="text-red-600">Out of Stock</span>
               ) : (
-                <span className="text-emerald-600">In Stock ({product.availableQuantity} units available)</span>
+                <span className="text-emerald-600">In Stock</span>
               )}
             </div>
 
@@ -286,7 +286,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                 </button>
                 <span className="px-4 font-bold text-sm text-navy">{quantity}</span>
                 <button
-                  onClick={() => setQuantity(Math.min(product.availableQuantity || 99, quantity + 1))}
+                  onClick={() => setQuantity(Math.min(999, quantity + 1))}
                   aria-label="Increase quantity"
                   className="p-2 text-slate-500 hover:text-navy hover:bg-slate-100 rounded-lg transition-colors"
                 >
