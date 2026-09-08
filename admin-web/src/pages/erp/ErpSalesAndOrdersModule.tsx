@@ -93,6 +93,143 @@ const matchesDateRange = (iso: string | undefined, f: ListFilterState): boolean 
   return true;
 };
 
+interface OrderProofThumbnailProps {
+  url?: string;
+  orderNumber: string;
+  onClick: (e: React.MouseEvent) => void;
+}
+
+const OrderProofThumbnail: React.FC<OrderProofThumbnailProps> = ({ url, orderNumber, onClick }) => {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [url]);
+
+  if (!url) {
+    return (
+      <div className="w-9 h-9 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0">
+        <CreditCard className="w-4 h-4 text-slate-300" />
+      </div>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-9 h-9 rounded-lg border border-purple/30 bg-purple/10 hover:bg-purple/20 flex flex-col items-center justify-center flex-shrink-0 transition cursor-zoom-in group shadow-xs"
+        title="Payment proof attached (Click to view or replace)"
+      >
+        <span className="text-[9px] font-black text-purple tracking-tight leading-none">UPI</span>
+        <Eye className="w-2.5 h-2.5 text-purple/80 mt-0.5 opacity-70 group-hover:opacity-100" />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-slate-900 group flex-shrink-0 cursor-zoom-in"
+      title="Click to view payment proof in high resolution"
+    >
+      <img
+        src={normalizeImageUrl(url)}
+        alt={`Proof ${orderNumber}`}
+        onError={() => setHasError(true)}
+        className="w-full h-full object-cover group-hover:scale-105 transition"
+      />
+      <div className="absolute inset-0 bg-navy/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition">
+        <Eye className="w-3.5 h-3.5" />
+      </div>
+    </button>
+  );
+};
+
+interface OrderDetailsProofPreviewProps {
+  url: string;
+  orderNumber: string;
+  customerName: string;
+  onOpenViewer: () => void;
+  onUploadClick: () => void;
+}
+
+const OrderDetailsProofPreview: React.FC<OrderDetailsProofPreviewProps> = ({
+  url,
+  orderNumber,
+  customerName,
+  onOpenViewer,
+  onUploadClick
+}) => {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [url]);
+
+  if (hasError) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-center space-y-2.5">
+        <div className="flex items-center justify-center gap-2 text-amber-800 font-bold text-xs">
+          <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <span>Image Not Found on Server (404)</span>
+        </div>
+        <p className="text-[11px] text-amber-800/80 leading-relaxed max-w-sm mx-auto">
+          Previous ephemeral file storage was cleared during a cloud restart. You can attach or re-upload the screenshot now to permanently save it in the database.
+        </p>
+        <div className="flex items-center justify-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onUploadClick}
+            className="px-3 py-1.5 rounded-lg bg-purple hover:bg-purple-dark text-white text-[11px] font-bold inline-flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Re-upload Proof</span>
+          </button>
+          <button
+            type="button"
+            onClick={onOpenViewer}
+            className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-navy text-[11px] font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Eye className="w-3.5 h-3.5 text-slate-500" />
+            <span>Details</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group">
+      <img
+        src={normalizeImageUrl(url)}
+        alt="Payment Screenshot"
+        onError={() => setHasError(true)}
+        className="w-full h-36 object-contain cursor-pointer transition-transform group-hover:scale-105"
+        onClick={onOpenViewer}
+      />
+      <div
+        onClick={onOpenViewer}
+        className="absolute inset-0 bg-navy/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer"
+      >
+        <Eye className="w-6 h-6 mb-1 text-orange" />
+        <span className="text-xs font-bold">Click to Zoom Proof</span>
+      </div>
+      <a
+        href={normalizeImageUrl(url)}
+        target="_blank"
+        rel="noreferrer"
+        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
+        title="Open in new tab"
+      >
+        <ExternalLink className="w-3.5 h-3.5" />
+      </a>
+    </div>
+  );
+};
+
 /** Outline "Filters" button + simple popover (payment method + date range, client-side). */
 const FiltersButton: React.FC<{
   filters: ListFilterState;
@@ -1043,37 +1180,21 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                       <td className="py-3 px-3">
                         {o.paymentMethod !== 'COD' ? (
                           <div className="flex items-center gap-2">
-                            {o.paymentScreenshotUrl ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setViewerImage({
-                                    url: o.paymentScreenshotUrl!,
-                                    title: `Payment Proof - ${o.orderNumber}`,
-                                    subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))} • ${o.customerName}`,
-                                    orderId: o.id,
-                                    orderNumber: o.orderNumber,
-                                    utrNumber: o.utrNumber
-                                  });
-                                }}
-                                className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-slate-900 group flex-shrink-0 cursor-zoom-in"
-                                title="Click to view payment proof in high resolution"
-                              >
-                                <img
-                                  src={normalizeImageUrl(o.paymentScreenshotUrl)}
-                                  alt="Payment proof"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition"
-                                />
-                                <div className="absolute inset-0 bg-navy/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition">
-                                  <Eye className="w-3.5 h-3.5" />
-                                </div>
-                              </button>
-                            ) : (
-                              <div className="w-9 h-9 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0">
-                                <CreditCard className="w-4 h-4 text-slate-300" />
-                              </div>
-                            )}
+                            <OrderProofThumbnail
+                              url={o.paymentScreenshotUrl}
+                              orderNumber={o.orderNumber}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setViewerImage({
+                                  url: o.paymentScreenshotUrl || '',
+                                  title: `Payment Proof - ${o.orderNumber}`,
+                                  subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))} • ${o.customerName}`,
+                                  orderId: o.id,
+                                  orderNumber: o.orderNumber,
+                                  utrNumber: o.utrNumber
+                                });
+                              }}
+                            />
                             <div className="min-w-0">
                               <div className="font-mono font-bold text-navy text-[11px] truncate max-w-[120px]">
                                 {o.utrNumber || 'No UTR'}
@@ -1260,48 +1381,31 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                         </button>
                       </div>
                       {selectedOrder.paymentScreenshotUrl ? (
-                        <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group">
-                          <img
-                            src={normalizeImageUrl(selectedOrder.paymentScreenshotUrl)}
-                            alt="Payment Screenshot"
-                            className="w-full h-36 object-contain cursor-pointer transition-transform group-hover:scale-105"
-                            onClick={() =>
-                              setViewerImage({
-                                url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
-                                title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}`,
-                                orderId: selectedOrder.id,
-                                orderNumber: selectedOrder.orderNumber,
-                                utrNumber: selectedOrder.utrNumber
-                              })
-                            }
-                          />
-                          <div
-                            onClick={() =>
-                              setViewerImage({
-                                url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
-                                title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}`,
-                                orderId: selectedOrder.id,
-                                orderNumber: selectedOrder.orderNumber,
-                                utrNumber: selectedOrder.utrNumber
-                              })
-                            }
-                            className="absolute inset-0 bg-navy/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer"
-                          >
-                            <Eye className="w-6 h-6 mb-1 text-orange" />
-                            <span className="text-xs font-bold">Click to Zoom Proof</span>
-                          </div>
-                          <a
-                            href={normalizeImageUrl(selectedOrder.paymentScreenshotUrl)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
-                            title="Open in new tab"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
+                        <OrderDetailsProofPreview
+                          url={selectedOrder.paymentScreenshotUrl}
+                          orderNumber={selectedOrder.orderNumber}
+                          customerName={selectedOrder.customerName}
+                          onOpenViewer={() =>
+                            setViewerImage({
+                              url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
+                              title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                              subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}`,
+                              orderId: selectedOrder.id,
+                              orderNumber: selectedOrder.orderNumber,
+                              utrNumber: selectedOrder.utrNumber
+                            })
+                          }
+                          onUploadClick={() =>
+                            setViewerImage({
+                              url: selectedOrder.paymentScreenshotUrl || '',
+                              title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                              subtitle: `Customer: ${selectedOrder.customerName}`,
+                              orderId: selectedOrder.id,
+                              orderNumber: selectedOrder.orderNumber,
+                              utrNumber: selectedOrder.utrNumber
+                            })
+                          }
+                        />
                       ) : (
                         <div
                           onClick={() =>
