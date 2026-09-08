@@ -144,7 +144,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const totalItems = items.reduce((acc, i) => acc + i.quantity, 0);
   const subtotal = items.reduce((acc, i) => acc + (i.lineTotal || (i.unitPrice * i.quantity)), 0);
   const discount = serverDiscount;
-  const shippingCharge = subtotal >= 3000 || subtotal === 0 ? 0 : (serverShipping || 150);
+  const shippingCharge = subtotal === 0 ? 0 : (serverShipping !== null && serverShipping !== undefined ? serverShipping : 0);
   const grandTotal = Math.max(0, subtotal - discount + shippingCharge);
 
   return (

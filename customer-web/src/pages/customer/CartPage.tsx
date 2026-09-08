@@ -181,10 +181,12 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                 </div>
               )}
 
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span>Delivery Charges</span>
                 {shippingCharge === 0 ? (
-                  <span className="font-bold text-emerald-600">FREE</span>
+                  <span className="font-bold text-emerald-600 text-xs bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    ₹0 (To-Pay at Transport)
+                  </span>
                 ) : (
                   <span className="font-bold text-slate-800">{inr(shippingCharge)}</span>
                 )}

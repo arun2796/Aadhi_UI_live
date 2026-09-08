@@ -11,6 +11,9 @@ export const normalizeImageUrl = (url?: string | null): string | undefined => {
   if (trimmed.startsWith('/storage/')) {
     return `${API_ORIGIN}${trimmed}`;
   }
+  if (trimmed.startsWith('storage/')) {
+    return `${API_ORIGIN}/${trimmed}`;
+  }
   if (!/drive\.google\.com/i.test(trimmed)) return trimmed;
   if (/drive\.google\.com\/thumbnail/i.test(trimmed)) return trimmed;
   const match =

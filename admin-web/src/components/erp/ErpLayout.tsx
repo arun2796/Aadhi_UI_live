@@ -223,8 +223,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Order Management',
     items: [
-      { key: 'om-order', label: 'Order', icon: ShoppingBag, to: 'orders' },
-      { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm', badge: 'NEW' }
+      { key: 'om-order', label: 'All Orders', icon: ShoppingBag, to: 'orders' },
+      { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm' }
     ]
   },
   /*
@@ -249,7 +249,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Sales',
     items: [
       { key: 'sales-sales', label: 'Sales', icon: TrendingUp, to: 'finance' },
-      { key: 'sales-orders', label: 'Sales Orders', icon: ShoppingCart, to: 'orders', match: null },
       { key: 'sales-invoices', label: 'Invoices', icon: Receipt, to: 'invoices' },
       { key: 'sales-payments', label: 'Payments', icon: CreditCard, to: 'payments' },
       { key: 'sales-history', label: 'Sales History', icon: BarChart3, to: 'reports' }

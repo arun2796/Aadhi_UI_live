@@ -370,7 +370,7 @@ const buildInvoiceHtml = (o: OrderView): string => {
   <div class="totals">
     <div class="row"><span>Subtotal</span><span>${inr(o.subtotal)}</span></div>
     <div class="row"><span>Discount</span><span class="discount">${o.discount > 0 ? '-' + inr(o.discount) : inr(0)}</span></div>
-    <div class="row"><span>Delivery Charges</span><span>${inr(o.shipping)}</span></div>
+    <div class="row"><span>Delivery Charges</span><span>${o.shipping > 0 ? inr(o.shipping) : '₹0 (To-Pay)'}</span></div>
     <div class="row grand"><span>Total Amount</span><span>${inr(o.total)}</span></div>
   </div>
   <div class="footer">

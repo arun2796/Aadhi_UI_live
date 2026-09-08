@@ -5,6 +5,7 @@ import {
   CreditCard,
   Search,
   CheckCircle,
+  CheckCircle2,
   XCircle,
   Printer,
   RefreshCw,
@@ -17,7 +18,10 @@ import {
   Clock,
   ArrowLeft,
   Filter,
-  Plus
+  Plus,
+  Truck,
+  Eye,
+  AlertCircle
 } from 'lucide-react';
 import { Order, Customer, Invoice, Payment, OrderStatus, OrderStatusHistory } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
@@ -27,6 +31,8 @@ import { useToast } from '../../context/ToastContext';
 import { Pagination } from '../../components/common/Pagination';
 import { StatusBadge } from '../../components/common/CommonComponents';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
+import { normalizeImageUrl } from '../../utils/imageUrl';
+import { ImageViewerModal } from '../../components/common/ImageViewerModal';
 
 type SalesSubTab = 'orders' | 'customers' | 'invoices' | 'payments';
 
@@ -48,17 +54,17 @@ const SCREEN_HEADERS: Record<SalesSubTab, { title: string; subtitle: string }> =
 
 const PAGE_SIZE = 10;
 
-type OrderStatusTab = 'all' | 'Pending' | 'Confirmed' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'confirm';
+type OrderStatusTab = 'all' | 'pending_verification' | 'Confirmed' | 'Shipped' | 'Delivered' | 'Cancelled';
 type PaymentTab = 'all' | 'Received' | 'Pending';
 
 /** Valid next statuses per current status — mirrors Order.CanTransitionTo on the backend,
-    so only transitions the API will accept are offered (prevents 409 Conflict). */
+    allowing direct dispatch to Shipped from Confirmed. */
 const NEXT_TRANSITIONS: Record<string, OrderStatus[]> = {
   Pending: ['Confirmed', 'Cancelled'],
-  Confirmed: ['Processing', 'Cancelled'],
-  Processing: ['Packed', 'Cancelled'],
+  Confirmed: ['Shipped', 'Processing', 'Packed', 'Cancelled'],
+  Processing: ['Shipped', 'Packed', 'Cancelled'],
   Packed: ['Shipped', 'Cancelled'],
-  Shipped: ['OutForDelivery', 'Delivered'],
+  Shipped: ['Delivered', 'OutForDelivery'],
   OutForDelivery: ['Delivered'],
   Delivered: [],
   Cancelled: []
@@ -290,7 +296,7 @@ const buildOrderInvoiceHtml = (o: Order): string => {
     <div class="row"><span>Subtotal</span><span>${formatINR(o.itemsSubtotal)}</span></div>
     <div class="row"><span>Discount</span><span class="discount">${o.discount > 0 ? '-' + formatINR(o.discount) : formatINR(0)}</span></div>
     ${o.tax > 0 ? `<div class="row"><span>Tax (GST)</span><span>${formatINR(o.tax)}</span></div>` : ''}
-    <div class="row"><span>Delivery Charges</span><span>${formatINR(o.shippingCharge)}</span></div>
+    <div class="row"><span>Delivery Charges</span><span>${o.shippingCharge > 0 ? formatINR(o.shippingCharge) : '₹0 (To-Pay at Transport)'}</span></div>
     <div class="row grand"><span>Total Amount</span><span>${formatINR(o.grandTotal)}</span></div>
   </div>
   <div class="footer">
@@ -385,20 +391,20 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const [payments, setPayments] = useState<Payment[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
-
-  // ORDERS — list filters + detail
   const [searchQuery, setSearchQuery] = useState('');
   const [orderStatusTab, setOrderStatusTab] = useState<OrderStatusTab>('all');
   const [orderPage, setOrderPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [utrInput, setUtrInput] = useState('');
   const [verificationNotes, setVerificationNotes] = useState('');
+  const [trackingInput, setTrackingInput] = useState('');
+  const [dispatchTargetOrder, setDispatchTargetOrder] = useState<Order | null>(null);
+  const [dispatchLrInput, setDispatchLrInput] = useState('');
+  const [viewerImage, setViewerImage] = useState<{ url: string; title: string; subtitle?: string } | null>(null);
   const [rejectPaymentTarget, setRejectPaymentTarget] = useState<Order | null>(null);
   const [orderFilters, setOrderFilters] = useState<ListFilterState>(EMPTY_LIST_FILTERS);
   const [statusDraft, setStatusDraft] = useState<OrderStatus | ''>('');
   const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null);
-  // Order Confirm queue sub-filter chips (design 06 split)
-  const [confirmChip, setConfirmChip] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
 
   // CUSTOMERS — list + detail
   const [customerSearch, setCustomerSearch] = useState('');
@@ -423,8 +429,8 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     setIsLoading(true);
     try {
       const [ords, custs, invs, pays] = await Promise.all([
-        api.getOrders({ pageSize: 200 }),
-        api.getCustomers({ pageSize: 200 }),
+        api.getOrders(),
+        customerApi.getCustomers(),
         api.getInvoices(),
         api.getPayments()
       ]);
@@ -432,9 +438,8 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       setCustomers(custs);
       setInvoices(invs);
       setPayments(pays);
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to load sales data', 'error');
+    } catch {
+      showToast('Could not load ERP data', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -444,30 +449,26 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     loadData();
   }, []);
 
-  // Each sidebar item is its own screen: when the route swaps the initialSubTab prop on this
-  // already-mounted component, follow it and land on that screen's list view (clearing detail
-  // views that belong to OTHER screens — deep-linked details of the target screen are opened
-  // by their own effects below).
+  // Sync subTab with the initialSubTab prop whenever the sidebar switches screens
   useEffect(() => {
-    setSubTab(initialSubTab);
-    if (initialSubTab !== 'orders') setSelectedOrder(null);
-    if (initialSubTab !== 'customers') {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+      setSelectedOrder(null);
       setSelectedCustomer(null);
-      setCustomerOrders([]);
     }
   }, [initialSubTab]);
 
-  // ?tab=confirm deep link (sidebar "Order Confirm") — reacts to in-app navigation too
+  // ?tab=confirm deep link (sidebar "Order Confirm") — maps to pending_verification
   useEffect(() => {
-    if (searchParams.get('tab') === 'confirm') {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'confirm' || tabParam === 'pending') {
       setSubTab('orders');
-      setOrderStatusTab('confirm');
-      setConfirmChip('pending');
+      setOrderStatusTab('pending_verification');
       setSelectedOrder(null);
-    } else {
-      setOrderStatusTab((prev) => (prev === 'confirm' ? 'all' : prev));
+    } else if (subTab === 'orders' && !tabParam) {
+      setOrderStatusTab('all');
     }
-  }, [searchParams]);
+  }, [searchParams, subTab]);
 
   // /admin/orders/:id deep link — open the order detail directly
   useEffect(() => {
@@ -505,19 +506,25 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const matchesOrderSearch = (o: Order) =>
     o.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
     o.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (o.customerPhone || '').includes(searchQuery);
+    (o.customerPhone || '').includes(searchQuery) ||
+    (o.utrNumber || '').toLowerCase().includes(searchQuery.toLowerCase());
 
   const matchesStatusTab = (o: Order, tab: OrderStatusTab) => {
     switch (tab) {
       case 'all':
-      case 'confirm':
         return true;
-      case 'Processing':
-        return o.orderStatus === 'Processing' || o.orderStatus === 'Packed';
+      case 'pending_verification':
+        return o.orderStatus === 'Pending' || (o.paymentStatus !== 'Paid' && o.orderStatus !== 'Cancelled');
+      case 'Confirmed':
+        return o.orderStatus === 'Confirmed' || o.orderStatus === 'Processing' || o.orderStatus === 'Packed';
       case 'Shipped':
         return o.orderStatus === 'Shipped' || o.orderStatus === 'OutForDelivery';
+      case 'Delivered':
+        return o.orderStatus === 'Delivered';
+      case 'Cancelled':
+        return o.orderStatus === 'Cancelled';
       default:
-        return o.orderStatus === tab;
+        return true;
     }
   };
 
@@ -532,53 +539,39 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   const pagedOrders = filteredOrders.slice((orderPage - 1) * PAGE_SIZE, orderPage * PAGE_SIZE);
 
-  /** Orders awaiting payment verification / confirmation (design 06). */
-  const awaitingConfirmation = useMemo(
-    () => orders.filter((o) => o.orderStatus === 'Pending' && o.paymentStatus !== 'Paid' && matchesOrderSearch(o)),
-    [orders, searchQuery]
+  /** Orders needing payment verification or confirmation */
+  const pendingVerificationCount = useMemo(
+    () => orders.filter((o) => o.orderStatus === 'Pending' || (o.paymentStatus !== 'Paid' && o.orderStatus !== 'Cancelled')).length,
+    [orders]
   );
 
-  /** Confirm queue chip: orders whose payment was verified (paymentStatus Paid), most recent first. */
-  const verifiedPaymentOrders = useMemo(
-    () =>
-      orders
-        .filter((o) => o.paymentStatus === 'Paid' && matchesOrderSearch(o))
-        .sort(
-          (a, b) =>
-            new Date(b.paymentVerifiedAtUtc || b.placedAtUtc).getTime() -
-            new Date(a.paymentVerifiedAtUtc || a.placedAtUtc).getTime()
-        ),
-    [orders, searchQuery]
-  );
-
-  /** Confirm queue chip: cancelled orders whose payment was rejected / never verified, most recent first. */
-  const rejectedPaymentOrders = useMemo(
-    () =>
-      orders
-        .filter((o) => o.orderStatus === 'Cancelled' && o.paymentStatus !== 'Paid' && matchesOrderSearch(o))
-        .sort((a, b) => new Date(b.placedAtUtc).getTime() - new Date(a.placedAtUtc).getTime()),
-    [orders, searchQuery]
-  );
-
-  const confirmQueueOrders =
-    confirmChip === 'pending'
-      ? awaitingConfirmation
-      : confirmChip === 'confirmed'
-      ? verifiedPaymentOrders
-      : rejectedPaymentOrders;
-
-  const orderTabs: { id: OrderStatusTab; label: string; count: number }[] = [
+  const orderTabs: { id: OrderStatusTab; label: string; count: number; alert?: boolean }[] = [
     { id: 'all', label: 'All Orders', count: orders.length },
-    { id: 'Pending', label: 'Pending', count: orders.filter((o) => o.orderStatus === 'Pending').length },
-    { id: 'Confirmed', label: 'Confirmed', count: orders.filter((o) => o.orderStatus === 'Confirmed').length },
-    { id: 'Processing', label: 'Processing', count: orders.filter((o) => matchesStatusTab(o, 'Processing') && o.orderStatus !== 'Pending').length },
-    { id: 'Shipped', label: 'Shipped', count: orders.filter((o) => o.orderStatus === 'Shipped' || o.orderStatus === 'OutForDelivery').length },
-    { id: 'Delivered', label: 'Delivered', count: orders.filter((o) => o.orderStatus === 'Delivered').length },
-    { id: 'Cancelled', label: 'Cancelled', count: orders.filter((o) => o.orderStatus === 'Cancelled').length },
     {
-      id: 'confirm',
-      label: 'Order Confirm',
-      count: orders.filter((o) => o.orderStatus === 'Pending' && o.paymentStatus !== 'Paid').length
+      id: 'pending_verification',
+      label: 'Pending Verification',
+      count: pendingVerificationCount,
+      alert: pendingVerificationCount > 0
+    },
+    {
+      id: 'Confirmed',
+      label: 'Confirmed',
+      count: orders.filter((o) => o.orderStatus === 'Confirmed' || o.orderStatus === 'Processing' || o.orderStatus === 'Packed').length
+    },
+    {
+      id: 'Shipped',
+      label: 'Shipped',
+      count: orders.filter((o) => o.orderStatus === 'Shipped' || o.orderStatus === 'OutForDelivery').length
+    },
+    {
+      id: 'Delivered',
+      label: 'Delivered',
+      count: orders.filter((o) => o.orderStatus === 'Delivered').length
+    },
+    {
+      id: 'Cancelled',
+      label: 'Cancelled',
+      count: orders.filter((o) => o.orderStatus === 'Cancelled').length
     }
   ];
 
@@ -686,6 +679,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     setSelectedOrder(o);
     setUtrInput(o.utrNumber || '');
     setVerificationNotes('');
+    setTrackingInput(o.trackingNumber || '');
     // Hydrate with the full detail (items, status history) in the background
     api
       .getOrderById(o.id)
@@ -693,6 +687,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         if (full) {
           setSelectedOrder((prev) => (prev && prev.id === o.id ? full : prev));
           setUtrInput(full.utrNumber || '');
+          setTrackingInput(full.trackingNumber || '');
         }
       })
       .catch(() => {});
@@ -706,6 +701,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         setSelectedOrder(full);
         setUtrInput(full.utrNumber || '');
         setVerificationNotes('');
+        setTrackingInput(full.trackingNumber || '');
       } else {
         showToast('Order not found', 'warning');
       }
@@ -771,17 +767,29 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     }
   };
 
-  // Handle Verify Payment & Move to Packing (order detail view)
+  // 1-Click Approve & Confirm Order (order detail view)
   const handleConfirmPayment = async () => {
     if (!selectedOrder) return;
     try {
-      const updated = await api.verifyPayment(selectedOrder.id, {
-        verifiedUtrNumber: utrInput || selectedOrder.utrNumber || 'MANUAL-CONFIRM',
-        verificationNotes: verificationNotes || 'UPI payment confirmed by Admin',
-        autoMoveToPacking: true
-      });
-      showToast('Payment verified & Order moved to Packing screen!', 'success');
-      setSelectedOrder(updated);
+      if (selectedOrder.paymentMethod === 'COD') {
+        const updated = await api.updateOrderStatus(selectedOrder.id, 'Confirmed', 'COD order confirmed by Admin');
+        showToast(`Order ${selectedOrder.orderNumber} Confirmed!`, 'success');
+        if (updated) {
+          setSelectedOrder(updated);
+          setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? updated : o)));
+        }
+      } else {
+        const updated = await api.verifyPayment(selectedOrder.id, {
+          verifiedUtrNumber: utrInput.trim() || selectedOrder.utrNumber || 'MANUAL-CONFIRM',
+          verificationNotes: verificationNotes.trim() || 'UPI payment confirmed by Admin',
+          autoMoveToPacking: false
+        });
+        showToast(`Payment verified & Order ${selectedOrder.orderNumber} Confirmed!`, 'success');
+        if (updated) {
+          setSelectedOrder(updated);
+          setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? updated : o)));
+        }
+      }
       loadData();
     } catch (error) {
       const { message } = getApiErrorDetails(error);
@@ -789,29 +797,90 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     }
   };
 
-  // Verify & Confirm from the Order Confirm queue (design 06)
-  const handleQueueVerify = async (order: Order) => {
+  // Dispatch Order to Transport (Confirmed -> Shipped)
+  const handleDispatchOrder = async () => {
+    if (!selectedOrder) return;
     try {
-      if (order.paymentMethod === 'COD') {
-        const updated = await api.updateOrderStatus(order.id, 'Confirmed', 'COD order confirmed via Order Confirm queue');
-        if (updated) {
-          setOrders((prev) => prev.map((o) => (o.id === order.id ? updated : o)));
-        } else {
-          loadData();
-        }
-        showToast(`Order ${order.orderNumber} confirmed`, 'success');
-      } else {
-        await api.verifyPayment(order.id, {
-          verifiedUtrNumber: order.utrNumber || 'MANUAL-CONFIRM',
-          verificationNotes: 'UPI payment confirmed by Admin',
-          autoMoveToPacking: true
-        });
-        showToast(`Payment verified — ${order.orderNumber} moved to Packing!`, 'success');
-        loadData();
+      const trackingNo = trackingInput.trim();
+      const reason = trackingNo ? `Dispatched via transport: ${trackingNo}` : 'Dispatched to transport office';
+      const updated = await api.updateOrderStatus(selectedOrder.id, 'Shipped', reason, trackingNo || undefined);
+      showToast(`Order ${selectedOrder.orderNumber} marked as Dispatched / Shipped!`, 'success');
+      if (updated) {
+        setSelectedOrder(updated);
+        setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? updated : o)));
       }
+      loadData();
     } catch (error) {
       const { message } = getApiErrorDetails(error);
-      showToast(message || 'Payment verification failed', 'error');
+      showToast(message || 'Failed to dispatch order', 'error');
+    }
+  };
+
+  // Quick Dispatch from Table Row modal
+  const handleQuickDispatch = async () => {
+    if (!dispatchTargetOrder) return;
+    try {
+      const trackingNo = dispatchLrInput.trim();
+      const reason = trackingNo ? `Dispatched via transport: ${trackingNo}` : 'Dispatched to transport office';
+      const updated = await api.updateOrderStatus(dispatchTargetOrder.id, 'Shipped', reason, trackingNo || undefined);
+      showToast(`Order ${dispatchTargetOrder.orderNumber} marked as Dispatched!`, 'success');
+      if (updated) {
+        setOrders((prev) => prev.map((o) => (o.id === dispatchTargetOrder.id ? updated : o)));
+        if (selectedOrder?.id === dispatchTargetOrder.id) {
+          setSelectedOrder(updated);
+        }
+      }
+      setDispatchTargetOrder(null);
+      setDispatchLrInput('');
+      loadData();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to dispatch order', 'error');
+    }
+  };
+
+  // Mark as Delivered
+  const handleMarkDelivered = async (orderId?: string) => {
+    const targetId = orderId || selectedOrder?.id;
+    if (!targetId) return;
+    try {
+      const updated = await api.updateOrderStatus(targetId, 'Delivered', 'Parcel collected by customer at transport office');
+      showToast('Order marked as Delivered!', 'success');
+      if (updated) {
+        if (selectedOrder?.id === targetId) setSelectedOrder(updated);
+        setOrders((prev) => prev.map((o) => (o.id === targetId ? updated : o)));
+      }
+      loadData();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Failed to mark as delivered', 'error');
+    }
+  };
+
+  // Direct confirm from list row
+  const handleDirectConfirm = async (order: Order) => {
+    try {
+      if (order.paymentMethod === 'COD') {
+        const updated = await api.updateOrderStatus(order.id, 'Confirmed', 'COD order confirmed by Admin');
+        if (updated) {
+          setOrders((prev) => prev.map((o) => (o.id === order.id ? updated : o)));
+        }
+        showToast(`Order ${order.orderNumber} confirmed!`, 'success');
+      } else {
+        const updated = await api.verifyPayment(order.id, {
+          verifiedUtrNumber: order.utrNumber || 'MANUAL-CONFIRM',
+          verificationNotes: 'UPI payment verified & confirmed by Admin',
+          autoMoveToPacking: false
+        });
+        if (updated) {
+          setOrders((prev) => prev.map((o) => (o.id === order.id ? updated : o)));
+        }
+        showToast(`Payment verified — Order ${order.orderNumber} Confirmed!`, 'success');
+      }
+      loadData();
+    } catch (error) {
+      const { message } = getApiErrorDetails(error);
+      showToast(message || 'Order confirmation failed', 'error');
     }
   };
 
@@ -845,9 +914,17 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
-            <span>{SCREEN_HEADERS[subTab].title}</span>
+            <span>
+              {subTab === 'orders' && (orderStatusTab === 'pending_verification' || searchParams.get('tab') === 'confirm')
+                ? 'Order Confirm'
+                : SCREEN_HEADERS[subTab].title}
+            </span>
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">{SCREEN_HEADERS[subTab].subtitle}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {subTab === 'orders' && (orderStatusTab === 'pending_verification' || searchParams.get('tab') === 'confirm')
+              ? 'Review pending customer payments and 1-click confirm orders for fulfillment.'
+              : SCREEN_HEADERS[subTab].subtitle}
+          </p>
         </div>
 
         <div className="flex items-center space-x-2">
@@ -873,7 +950,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       {/* ============ 1. ORDERS TAB ============ */}
       {subTab === 'orders' && !selectedOrder && (
         <div className="space-y-4">
-          {/* Status Tab Bar (design 02) — internal to the Orders screen */}
+          {/* Status Tab Bar */}
           <div className="flex items-center gap-6 border-b border-slate-200 overflow-x-auto">
             {orderTabs.map((t) => {
               const isActive = orderStatusTab === t.id;
@@ -881,25 +958,38 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 <button
                   key={t.id}
                   onClick={() => setOrderStatusTab(t.id)}
-                  className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                  className={`pb-2.5 pt-1 text-xs font-bold whitespace-nowrap border-b-2 -mb-px transition-colors flex items-center space-x-1.5 ${
                     isActive
                       ? 'border-purple text-purple'
                       : 'border-transparent text-slate-500 hover:text-navy'
-                  } ${t.id === 'confirm' ? 'ml-auto' : ''}`}
+                  }`}
                 >
-                  {t.label} {t.count > 0 && <span className={isActive ? 'text-purple' : 'text-slate-400'}>({t.count})</span>}
+                  <span>{t.label}</span>
+                  {t.count > 0 && (
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                        t.alert
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : isActive
+                          ? 'bg-purple/10 text-purple'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {t.count}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
 
-          {/* Search bar + Filters (design 02) */}
+          {/* Search bar + Filters */}
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-2">
             <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-xs">
               <Search className="w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search order ID, customer or phone..."
+                placeholder="Search order ID, customer, phone, or UTR..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-transparent outline-none text-navy placeholder-slate-400"
@@ -908,246 +998,177 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
             <FiltersButton filters={orderFilters} onChange={setOrderFilters} />
           </div>
 
-          {orderStatusTab !== 'confirm' ? (
-            /* ORDERS LIST (design 02) */
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                    <tr>
-                      <th className="py-3 px-4">Order ID</th>
-                      <th className="py-3 px-3">Customer</th>
-                      <th className="py-3 px-3">Amount</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3">Payment</th>
-                      <th className="py-3 px-3">Date</th>
-                      <th className="py-3 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                    {pagedOrders.map((o) => (
-                      <tr
-                        key={o.id}
-                        onClick={() => openOrder(o)}
-                        className="hover:bg-slate-50/60 transition-colors cursor-pointer"
-                      >
-                        <td className="py-3 px-4">
-                          <span className="font-mono font-bold text-navy text-xs">{o.orderNumber}</span>
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="font-bold text-navy text-xs">{o.customerName}</div>
-                          <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
-                        </td>
-                        <td className="py-3 px-3 font-black text-navy">{formatINR(o.grandTotal)}</td>
-                        <td className="py-3 px-3">
-                          <StatusBadge status={o.orderStatus} />
-                        </td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`font-bold ${
-                              paymentLabel(o) === 'Paid' ? 'text-emerald-600' : 'text-slate-600'
-                            }`}
-                          >
-                            {paymentLabel(o)}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-500">{formatDate(o.placedAtUtc)}</td>
-                        <td className="py-3 px-4 text-right">
+          {/* UNIFIED ORDERS LIST */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3 px-4">Order ID</th>
+                    <th className="py-3 px-3">Customer</th>
+                    <th className="py-3 px-3">Amount</th>
+                    <th className="py-3 px-3">Proof & UTR</th>
+                    <th className="py-3 px-3">Status</th>
+                    <th className="py-3 px-3">Payment</th>
+                    <th className="py-3 px-3">Date</th>
+                    <th className="py-3 px-4 text-right">Quick Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {pagedOrders.map((o) => (
+                    <tr
+                      key={o.id}
+                      onClick={() => openOrder(o)}
+                      className="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                    >
+                      <td className="py-3 px-4">
+                        <span className="font-mono font-bold text-navy text-xs hover:text-purple">{o.orderNumber}</span>
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {o.items?.length || 1} item{o.items?.length === 1 ? '' : 's'}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-navy text-xs">{o.customerName}</div>
+                        <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
+                      </td>
+                      <td className="py-3 px-3 font-black text-navy">{formatINR(o.grandTotal)}</td>
+                      <td className="py-3 px-3">
+                        {o.paymentMethod !== 'COD' ? (
+                          <div className="flex items-center gap-2">
+                            {o.paymentScreenshotUrl ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewerImage({
+                                    url: o.paymentScreenshotUrl!,
+                                    title: `Payment Proof - ${o.orderNumber}`,
+                                    subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(o.grandTotal)} • ${o.customerName}`
+                                  });
+                                }}
+                                className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-slate-900 group flex-shrink-0 cursor-zoom-in"
+                                title="Click to view payment proof in high resolution"
+                              >
+                                <img
+                                  src={normalizeImageUrl(o.paymentScreenshotUrl)}
+                                  alt="Payment proof"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition"
+                                />
+                                <div className="absolute inset-0 bg-navy/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition">
+                                  <Eye className="w-3.5 h-3.5" />
+                                </div>
+                              </button>
+                            ) : (
+                              <div className="w-9 h-9 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0">
+                                <CreditCard className="w-4 h-4 text-slate-300" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-mono font-bold text-navy text-[11px] truncate max-w-[120px]">
+                                {o.utrNumber || 'No UTR'}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {o.paymentScreenshotUrl ? 'Proof attached' : 'Awaiting proof'}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 font-medium">Cash on Delivery</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <StatusBadge status={o.orderStatus} />
+                      </td>
+                      <td className="py-3 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            paymentLabel(o) === 'Paid'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {paymentLabel(o)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">{formatDate(o.placedAtUtc)}</td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end space-x-1.5" onClick={(e) => e.stopPropagation()}>
+                          {o.orderStatus === 'Pending' && (
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => handleDirectConfirm(o)}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center space-x-1 shadow-xs transition-transform active:scale-95"
+                                title="1-Click Approve & Confirm Order"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Confirm</span>
+                              </button>
+                              <button
+                                onClick={() => setRejectPaymentTarget(o)}
+                                className="p-1.5 rounded-xl border border-red-200 text-red-500 hover:bg-red-50"
+                                title="Reject Payment"
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                          {(o.orderStatus === 'Confirmed' || o.orderStatus === 'Processing' || o.orderStatus === 'Packed') && (
+                            <button
+                              onClick={() => {
+                                setDispatchTargetOrder(o);
+                                setDispatchLrInput(o.trackingNumber || '');
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs flex items-center space-x-1 shadow-xs transition-transform active:scale-95"
+                              title="Enter LR and dispatch order"
+                            >
+                              <Truck className="w-3.5 h-3.5" />
+                              <span>Dispatch</span>
+                            </button>
+                          )}
+                          {o.orderStatus === 'Shipped' && (
+                            <button
+                              onClick={() => handleMarkDelivered(o.id)}
+                              className="px-3 py-1.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-black text-xs flex items-center space-x-1 shadow-xs transition-transform active:scale-95"
+                              title="Mark order as delivered"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Delivered</span>
+                            </button>
+                          )}
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openOrder(o);
-                            }}
+                            onClick={() => openOrder(o)}
                             className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-purple hover:bg-purple/5"
                             title="View order details"
                           >
                             <ChevronRight className="w-4 h-4" />
                           </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {pagedOrders.length === 0 && !isLoading && (
-                      <tr>
-                        <td colSpan={7} className="py-10 text-center text-slate-400 text-xs font-bold">
-                          No orders match this view.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-4 pb-4">
-                <Pagination
-                  page={orderPage}
-                  pageSize={PAGE_SIZE}
-                  total={filteredOrders.length}
-                  onPageChange={setOrderPage}
-                />
-              </div>
-            </div>
-          ) : (
-            /* ORDER CONFIRM QUEUE (design 06) */
-            <div className="space-y-3">
-              {/* Sub-filter chips: Pending Confirmation | Confirmed | Rejected */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {(
-                  [
-                    { id: 'pending', label: 'Pending Confirmation', count: awaitingConfirmation.length },
-                    { id: 'confirmed', label: 'Confirmed', count: verifiedPaymentOrders.length },
-                    { id: 'rejected', label: 'Rejected', count: rejectedPaymentOrders.length }
-                  ] as { id: 'pending' | 'confirmed' | 'rejected'; label: string; count: number }[]
-                ).map((chip) => {
-                  const isActive = confirmChip === chip.id;
-                  return (
-                    <button
-                      key={chip.id}
-                      onClick={() => setConfirmChip(chip.id)}
-                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
-                        isActive
-                          ? 'bg-navy text-white shadow-sm'
-                          : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                      }`}
-                    >
-                      {chip.label}{' '}
-                      <span className={isActive ? 'text-white/70' : 'text-slate-400'}>({chip.count})</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {confirmQueueOrders.length === 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-10 text-center">
-                  <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
-                  <div className="font-black text-sm text-navy">
-                    {confirmChip === 'pending' ? 'All caught up!' : 'Nothing here yet'}
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {confirmChip === 'pending'
-                      ? 'No orders are awaiting payment verification right now.'
-                      : confirmChip === 'confirmed'
-                      ? 'No orders with verified payments match your search.'
-                      : 'No cancelled orders with rejected payments match your search.'}
-                  </p>
-                </div>
-              )}
-
-              {confirmQueueOrders.map((o) => (
-                <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5">
-                  <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                    {/* Order summary */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center flex-wrap gap-2">
-                        <button
-                          onClick={() => openOrder(o)}
-                          className="font-mono font-bold text-purple text-xs hover:underline"
-                        >
-                          {o.orderNumber}
-                        </button>
-                        <StatusBadge status={o.orderStatus} />
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            o.paymentMethod === 'COD'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-purple/10 text-purple'
-                          }`}
-                        >
-                          {o.paymentMethod}
-                        </span>
-                      </div>
-                      <div className="mt-1.5 text-xs font-bold text-navy">{o.customerName}</div>
-                      <div className="text-[10px] text-slate-400">
-                        {o.customerPhone} • {formatDate(o.placedAtUtc)} • {o.items?.length || 1} item(s)
-                      </div>
-                      <div className="mt-1 font-black text-navy text-sm">{formatINR(o.grandTotal)}</div>
-                    </div>
-
-                    {/* UPI proof */}
-                    {o.paymentMethod !== 'COD' && (
-                      <div className="flex items-center gap-3 lg:w-72">
-                        {o.paymentScreenshotUrl ? (
-                          <a
-                            href={o.paymentScreenshotUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex-shrink-0"
-                            title="Open payment screenshot"
-                          >
-                            <img
-                              src={o.paymentScreenshotUrl}
-                              alt="UPI payment proof"
-                              className="w-full h-full object-cover hover:opacity-90"
-                            />
-                          </a>
-                        ) : (
-                          <div className="w-16 h-16 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0">
-                            <CreditCard className="w-5 h-5 text-slate-300" />
-                          </div>
-                        )}
-                        <div className="text-xs min-w-0">
-                          <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">UPI Proof</div>
-                          <div className="font-mono text-navy truncate">{o.utrNumber || 'UTR not submitted'}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {o.paymentSubmittedAtUtc ? `Submitted ${formatDateTime(o.paymentSubmittedAtUtc)}` : 'Awaiting proof'}
-                          </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Actions (verify/reject only for the pending queue) */}
-                    {confirmChip === 'pending' ? (
-                      <div className="flex items-center gap-2 lg:flex-col lg:items-stretch lg:w-44">
-                        <button
-                          onClick={() => handleQueueVerify(o)}
-                          className="flex-1 px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>Verify & Confirm</span>
-                        </button>
-                        <button
-                          onClick={() => setRejectPaymentTarget(o)}
-                          className="flex-1 px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-bold flex items-center justify-center space-x-1.5"
-                        >
-                          <XCircle className="w-3.5 h-3.5" />
-                          <span>Reject Payment</span>
-                        </button>
-                      </div>
-                    ) : confirmChip === 'confirmed' ? (
-                      <div className="lg:w-44 text-right lg:text-left">
-                        <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>Payment Verified</span>
-                        </span>
-                        {o.paymentVerifiedAtUtc && (
-                          <div className="text-[10px] text-slate-400 mt-1.5">
-                            {formatDateTime(o.paymentVerifiedAtUtc)}
-                            {o.paymentVerifiedBy ? ` by ${o.paymentVerifiedBy}` : ''}
-                          </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {pagedOrders.length === 0 && !isLoading && (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400 text-xs font-bold">
+                        <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <div>No orders found in this view.</div>
+                        {orderStatusTab === 'pending_verification' && (
+                          <p className="text-[11px] text-slate-400 font-normal mt-1">All orders have been verified and confirmed!</p>
                         )}
-                      </div>
-                    ) : (
-                      <div className="lg:w-44 text-right lg:text-left">
-                        <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">
-                          <XCircle className="w-3.5 h-3.5" />
-                          <span>Payment Rejected</span>
-                        </span>
-                        {o.paymentVerificationNotes && (
-                          <div className="text-[10px] text-slate-400 mt-1.5 line-clamp-2">
-                            "{o.paymentVerificationNotes}"
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {confirmQueueOrders.length > 0 && (
-                <p className="text-sm text-slate-500">
-                  Showing 1 to {confirmQueueOrders.length} of {confirmQueueOrders.length} entries
-                </p>
-              )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-          )}
+            <div className="px-4 pb-4">
+              <Pagination
+                page={orderPage}
+                pageSize={PAGE_SIZE}
+                total={filteredOrders.length}
+                onPageChange={setOrderPage}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -1161,6 +1182,199 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
               Placed on {new Date(selectedOrder.placedAtUtc).toLocaleString('en-IN')}
             </span>
           </div>
+
+          {/* Smart Workflow Action Banner */}
+          {selectedOrder.orderStatus !== 'Cancelled' && (
+            <div className="rounded-2xl border p-4 shadow-2xs transition-all bg-white">
+              {selectedOrder.orderStatus === 'Pending' || selectedOrder.paymentStatus !== 'Paid' ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-200/60 bg-amber-50/50 -m-4 mb-0 p-4 rounded-t-2xl">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                        <CreditCard className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="font-black text-sm text-navy flex items-center gap-2">
+                          <span>Action Required: Verify Payment & Confirm</span>
+                          <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                            {selectedOrder.paymentStatus}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Check customer's UPI screenshot and UTR below. Click "Approve & Confirm Order" to confirm immediately.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        onClick={() => setRejectPaymentTarget(selectedOrder)}
+                        className="px-3.5 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 transition-colors"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        <span>Reject</span>
+                      </button>
+                      <button
+                        onClick={handleConfirmPayment}
+                        className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-emerald-600/20 transition-transform active:scale-95"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Approve & Confirm Order</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-1">
+                    {/* Proof preview with click to zoom lightbox */}
+                    <div className="md:col-span-4">
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">
+                        Payment Proof Screenshot
+                      </label>
+                      {selectedOrder.paymentScreenshotUrl ? (
+                        <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 group">
+                          <img
+                            src={normalizeImageUrl(selectedOrder.paymentScreenshotUrl)}
+                            alt="Payment Screenshot"
+                            className="w-full h-36 object-contain cursor-pointer transition-transform group-hover:scale-105"
+                            onClick={() =>
+                              setViewerImage({
+                                url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
+                                title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(selectedOrder.grandTotal)}`
+                              })
+                            }
+                          />
+                          <div
+                            onClick={() =>
+                              setViewerImage({
+                                url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
+                                title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                                subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(selectedOrder.grandTotal)}`
+                              })
+                            }
+                            className="absolute inset-0 bg-navy/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white cursor-pointer"
+                          >
+                            <Eye className="w-6 h-6 mb-1 text-orange" />
+                            <span className="text-xs font-bold">Click to Zoom Proof</span>
+                          </div>
+                          <a
+                            href={normalizeImageUrl(selectedOrder.paymentScreenshotUrl)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
+                            title="Open in new tab"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="h-36 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-slate-400 p-3 text-center">
+                          <AlertCircle className="w-6 h-6 mb-1 text-slate-300" />
+                          <span className="text-xs font-bold">No Screenshot Uploaded</span>
+                          <span className="text-[10px] text-slate-400">Customer placed order with reference UTR</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Inputs */}
+                    <div className="md:col-span-8 flex flex-col justify-between space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-navy mb-1">UTR / Transaction Ref ID</label>
+                          <input
+                            type="text"
+                            value={utrInput}
+                            onChange={(e) => setUtrInput(e.target.value)}
+                            placeholder="e.g. 423588991204"
+                            className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold text-navy text-xs outline-none focus:border-purple focus:bg-white transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-navy mb-1">Verification Notes</label>
+                          <input
+                            type="text"
+                            value={verificationNotes}
+                            onChange={(e) => setVerificationNotes(e.target.value)}
+                            placeholder="e.g. Verified in GPay business statement"
+                            className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-navy text-xs outline-none focus:border-purple focus:bg-white transition-all"
+                          />
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                        <span className="text-slate-500">Order Payable Total:</span>
+                        <span className="font-black text-sm text-navy">{formatINR(selectedOrder.grandTotal)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : selectedOrder.orderStatus === 'Confirmed' || selectedOrder.orderStatus === 'Processing' || selectedOrder.orderStatus === 'Packed' ? (
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-1">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <Truck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-black text-sm text-navy">Order Confirmed & Ready for Transport Dispatch</div>
+                      <div className="text-xs text-slate-500">
+                        Pack the cracker cartons and enter the transport LR or tracking number.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={trackingInput}
+                      onChange={(e) => setTrackingInput(e.target.value)}
+                      placeholder="LR / Tracking # (e.g. VRL-90821)"
+                      className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 font-mono text-xs font-bold text-navy outline-none focus:border-purple focus:bg-white w-52"
+                    />
+                    <button
+                      onClick={handleDispatchOrder}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-blue-600/20 whitespace-nowrap transition-transform active:scale-95"
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>Mark Dispatched</span>
+                    </button>
+                  </div>
+                </div>
+              ) : selectedOrder.orderStatus === 'Shipped' || selectedOrder.orderStatus === 'OutForDelivery' ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-1">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-2xl bg-purple text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <Truck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-black text-sm text-navy flex items-center gap-2">
+                        <span>Parcel Dispatched / In Transit</span>
+                        {selectedOrder.trackingNumber && (
+                          <span className="text-[10px] font-mono bg-purple/10 text-purple font-bold px-2 py-0.5 rounded-md">
+                            LR #{selectedOrder.trackingNumber}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500">Customer will collect the parcel at the transport office.</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleMarkDelivered()}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-emerald-600/20 whitespace-nowrap transition-transform active:scale-95"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Mark as Delivered</span>
+                  </button>
+                </div>
+              ) : selectedOrder.orderStatus === 'Delivered' ? (
+                <div className="flex items-center space-x-3 p-1">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-black text-sm text-emerald-800">Order Completed & Delivered</div>
+                    <div className="text-xs text-slate-500">Parcel was successfully collected by customer.</div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
 
           {/* Left: Customer Information + Delivery Address cards | Right: Order Summary (design 03) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1215,7 +1429,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500">Delivery Method</span>
-                  <span className="font-bold text-navy">Standard Delivery</span>
+                  <span className="font-bold text-navy">Standard Transport Delivery</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500">Order Status</span>
@@ -1251,91 +1465,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
               </div>
             </div>
           </div>
-
-          {/* UPI Payment Verification (kept from existing flow) */}
-          {(selectedOrder.paymentStatus !== 'Paid' || selectedOrder.paymentScreenshotUrl) && (
-            <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="font-black text-xs text-amber-900 uppercase tracking-wider flex items-center space-x-1.5">
-                  <CreditCard className="w-4 h-4 text-amber-600" />
-                  <span>UPI Payment Verification</span>
-                </div>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    selectedOrder.paymentStatus === 'Paid'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  Payment: {selectedOrder.paymentStatus}
-                </span>
-              </div>
-
-              {selectedOrder.paymentScreenshotUrl && (
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-bold text-amber-800">Submitted Payment Screenshot:</div>
-                  <a
-                    href={selectedOrder.paymentScreenshotUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block relative rounded-xl overflow-hidden border border-amber-200 max-h-48 group cursor-zoom-in"
-                  >
-                    <img
-                      src={selectedOrder.paymentScreenshotUrl}
-                      alt="Payment Screenshot"
-                      className="w-full h-44 object-contain bg-slate-900 group-hover:opacity-90"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-navy/40 opacity-0 group-hover:opacity-100 transition-opacity text-white font-bold text-xs space-x-1">
-                      <ExternalLink className="w-4 h-4" />
-                      <span>Click to Expand Full Screenshot</span>
-                    </div>
-                  </a>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
-                <div>
-                  <label className="font-bold text-amber-900">UTR / Reference Number</label>
-                  <input
-                    type="text"
-                    value={utrInput}
-                    onChange={(e) => setUtrInput(e.target.value)}
-                    placeholder="e.g. 423588991204"
-                    className="w-full mt-1 p-2 rounded-xl bg-white border border-amber-300 font-mono text-navy outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-amber-900">Verification Notes</label>
-                  <input
-                    type="text"
-                    value={verificationNotes}
-                    onChange={(e) => setVerificationNotes(e.target.value)}
-                    placeholder="e.g. Verified in GPay business statement"
-                    className="w-full mt-1 p-2 rounded-xl bg-white border border-amber-300 text-navy outline-none"
-                  />
-                </div>
-              </div>
-
-              {selectedOrder.paymentStatus !== 'Paid' && selectedOrder.orderStatus !== 'Cancelled' && (
-                <div className="pt-2 flex justify-end space-x-2">
-                  <button
-                    onClick={() => setRejectPaymentTarget(selectedOrder)}
-                    className="px-4 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs font-black uppercase tracking-wider flex items-center space-x-1.5"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    <span>Reject Payment</span>
-                  </button>
-                  <button
-                    onClick={handleConfirmPayment}
-                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-emerald-600/20"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    <span>Confirm Payment & Move to Packing</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Items + Totals */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1402,9 +1531,15 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                     <span className="font-bold text-navy">{formatINR(selectedOrder.tax)}</span>
                   </div>
                 )}
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span>Delivery Charges</span>
-                  <span className="font-bold text-navy">{formatINR(selectedOrder.shippingCharge)}</span>
+                  {selectedOrder.shippingCharge > 0 ? (
+                    <span className="font-bold text-navy">{formatINR(selectedOrder.shippingCharge)}</span>
+                  ) : (
+                    <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-bold border border-emerald-200">
+                      ₹0 (To-Pay at Transport Office)
+                    </span>
+                  )}
                 </div>
                 <div className="pt-2.5 border-t border-slate-200 flex justify-between font-black text-sm text-navy">
                   <span>Total Amount</span>
@@ -2042,7 +2177,9 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
               </div>
               <div className="flex justify-between">
                 <span>Delivery & Handling:</span>
-                <span className="font-bold">{formatINR(selectedInvoice.shipping)}</span>
+                <span className="font-bold">
+                  {selectedInvoice.shipping > 0 ? formatINR(selectedInvoice.shipping) : '₹0 (To-Pay)'}
+                </span>
               </div>
               <div className="pt-2 border-t border-slate-200 flex justify-between font-black text-sm text-navy">
                 <span>Total Amount Paid:</span>
@@ -2063,6 +2200,80 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
           </div>
         </div>
       )}
+
+      {/* QUICK DISPATCH MODAL */}
+      {dispatchTargetOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-navy">Dispatch Order #{dispatchTargetOrder.orderNumber}</h3>
+                  <p className="text-[11px] text-slate-500">Enter lorry transport LR / tracking details</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDispatchTargetOrder(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-navy mb-1">Customer</label>
+                <div className="p-2.5 bg-slate-50 rounded-xl text-slate-700">
+                  <span className="font-bold text-navy">{dispatchTargetOrder.customerName}</span> • {dispatchTargetOrder.customerPhone}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-navy mb-1">Transport Lorry / LR Number (Optional)</label>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="e.g. VRL-90821 or Rathimeena LR-442"
+                  value={dispatchLrInput}
+                  onChange={(e) => setDispatchLrInput(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 font-mono text-xs font-bold text-navy outline-none focus:border-purple"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Customer will see this LR number on their order tracking page.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setDispatchTargetOrder(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleQuickDispatch}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-blue-600/20"
+              >
+                <Truck className="w-4 h-4" />
+                <span>Confirm Dispatch</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LIGHTBOX IMAGE VIEWER MODAL */}
+      <ImageViewerModal
+        isOpen={!!viewerImage}
+        onClose={() => setViewerImage(null)}
+        imageUrl={viewerImage?.url}
+        title={viewerImage?.title}
+        subtitle={viewerImage?.subtitle}
+      />
     </div>
   );
 };
