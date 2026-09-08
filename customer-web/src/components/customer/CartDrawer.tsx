@@ -206,15 +206,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onNavigate }) => {
             )}
 
             <div className="flex justify-between items-center">
-              <span>Estimated Shipping:</span>
-              <span>
-                {shippingCharge === 0 ? (
-                  <span className="text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    ₹0 (To-Pay)
-                  </span>
-                ) : (
-                  `₹${shippingCharge.toLocaleString('en-IN')}`
-                )}
+              <span>Delivery Charges:</span>
+              <span className="text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                ₹0 (Transport To-Pay)
               </span>
             </div>
 

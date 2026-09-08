@@ -296,8 +296,8 @@ const buildOrderInvoiceHtml = (o: Order): string => {
     <div class="row"><span>Subtotal</span><span>${formatINR(o.itemsSubtotal)}</span></div>
     <div class="row"><span>Discount</span><span class="discount">${o.discount > 0 ? '-' + formatINR(o.discount) : formatINR(0)}</span></div>
     ${o.tax > 0 ? `<div class="row"><span>Tax (GST)</span><span>${formatINR(o.tax)}</span></div>` : ''}
-    <div class="row"><span>Delivery Charges</span><span>${o.shippingCharge > 0 ? formatINR(o.shippingCharge) : '₹0 (To-Pay at Transport)'}</span></div>
-    <div class="row grand"><span>Total Amount</span><span>${formatINR(o.grandTotal)}</span></div>
+    <div class="row"><span>Delivery Charges</span><span>₹0 (Transport To-Pay)</span></div>
+    <div class="row grand"><span>Total Amount</span><span>${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))}</span></div>
   </div>
   <div class="footer">
     This is a computer-generated invoice from AADHI CRACKERS and does not require a signature.<br />
@@ -1031,7 +1031,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                         <div className="font-bold text-navy text-xs">{o.customerName}</div>
                         <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
                       </td>
-                      <td className="py-3 px-3 font-black text-navy">{formatINR(o.grandTotal)}</td>
+                      <td className="py-3 px-3 font-black text-navy">{formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))}</td>
                       <td className="py-3 px-3">
                         {o.paymentMethod !== 'COD' ? (
                           <div className="flex items-center gap-2">
@@ -1043,7 +1043,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                                   setViewerImage({
                                     url: o.paymentScreenshotUrl!,
                                     title: `Payment Proof - ${o.orderNumber}`,
-                                    subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(o.grandTotal)} • ${o.customerName}`
+                                    subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))} • ${o.customerName}`
                                   });
                                 }}
                                 className="relative w-9 h-9 rounded-lg overflow-hidden border border-slate-200 bg-slate-900 group flex-shrink-0 cursor-zoom-in"
@@ -1301,7 +1301,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                       </div>
                       <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
                         <span className="text-slate-500">Order Payable Total:</span>
-                        <span className="font-black text-sm text-navy">{formatINR(selectedOrder.grandTotal)}</span>
+                        <span className="font-black text-sm text-navy">{formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}</span>
                       </div>
                     </div>
                   </div>
@@ -1533,17 +1533,15 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 )}
                 <div className="flex justify-between items-center">
                   <span>Delivery Charges</span>
-                  {selectedOrder.shippingCharge > 0 ? (
-                    <span className="font-bold text-navy">{formatINR(selectedOrder.shippingCharge)}</span>
-                  ) : (
-                    <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-bold border border-emerald-200">
-                      ₹0 (To-Pay at Transport Office)
-                    </span>
-                  )}
+                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-bold border border-emerald-200">
+                    ₹0 (Transport To-Pay)
+                  </span>
                 </div>
                 <div className="pt-2.5 border-t border-slate-200 flex justify-between font-black text-sm text-navy">
                   <span>Total Amount</span>
-                  <span className="text-orange">{formatINR(selectedOrder.grandTotal)}</span>
+                  <span className="text-orange">
+                    {formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}
+                  </span>
                 </div>
               </div>
             </div>

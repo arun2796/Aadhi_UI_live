@@ -238,9 +238,8 @@ const normalizeOrder = (raw: any, fallbackNumber?: string): OrderView => {
     Number(raw?.itemsSubtotal ?? raw?.subtotal) ||
     items.reduce((sum, it) => sum + it.lineTotal, 0);
   const discount = Number(raw?.discount) || 0;
-  const shipping = Number(raw?.shippingCharge ?? raw?.deliveryCharge ?? raw?.shipping) || 0;
-  const total =
-    Number(raw?.grandTotal ?? raw?.totalAmount ?? raw?.total) || subtotal - discount + shipping;
+  const shipping = 0; // Sivakasi cracker deliveries are strictly Transport To-Pay on delivery
+  const total = Math.max(0, subtotal - discount);
   return {
     id: raw?.id ?? raw?.orderId,
     orderNumber: raw?.orderNumber ?? fallbackNumber ?? '',

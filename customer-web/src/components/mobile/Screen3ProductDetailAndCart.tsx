@@ -616,18 +616,8 @@ export const Screen4Cart: React.FC<{
 
           <div className="flex justify-between">
             <span className="text-slate-600">Delivery Charges</span>
-            {shippingCharge === 0 ? (
-              <span className="font-black text-emerald-600">FREE</span>
-            ) : (
-              <span className="font-bold text-slate-800">{inr(shippingCharge)}</span>
-            )}
+            <span className="font-bold text-emerald-600 text-xs">₹0 (Transport To-Pay)</span>
           </div>
-
-          {shippingCharge > 0 && freeShippingThreshold > 0 && (
-            <div className="text-[10px] text-slate-400 font-medium">
-              Free delivery on orders above {inr(freeShippingThreshold)}
-            </div>
-          )}
 
           <div className="flex justify-between items-baseline pt-2.5 border-t border-slate-100">
             <span className="text-sm font-black text-navy">Total</span>
