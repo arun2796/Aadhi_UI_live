@@ -219,6 +219,8 @@ export const MyOrdersPage: React.FC<NavProps> = ({ onNavigate }) => {
 interface OrderItemView {
   id?: string;
   name: string;
+  sku?: string;
+  code?: string;
   imageUrl?: string;
   quantity: number;
   unitPrice: number;
@@ -232,6 +234,9 @@ interface OrderView {
   placedAt?: string;
   deliveredAt?: string;
   updatedAt?: string;
+  customerName?: string;
+  customerPhone?: string;
+  shippingAddress?: any;
   paymentMethod?: string | number;
   paymentStatus?: string;
   items: OrderItemView[];
@@ -248,6 +253,8 @@ const normalizeOrder = (raw: any, fallbackNumber?: string): OrderView => {
     return {
       id: it?.id ?? it?.orderItemId,
       name: it?.productName ?? it?.name ?? 'Item',
+      sku: it?.sku || it?.code,
+      code: it?.code || it?.sku,
       imageUrl: it?.imageUrl ?? it?.primaryImageUrl,
       quantity: qty,
       unitPrice: unit,
@@ -258,8 +265,8 @@ const normalizeOrder = (raw: any, fallbackNumber?: string): OrderView => {
     Number(raw?.itemsSubtotal ?? raw?.subtotal) ||
     items.reduce((sum, it) => sum + it.lineTotal, 0);
   const discount = Number(raw?.discount) || 0;
-  const shipping = 0; // Sivakasi cracker deliveries are strictly Transport To-Pay on delivery
-  const total = Math.max(0, subtotal - discount);
+  const shipping = Number(raw?.shippingCharge ?? raw?.shipping) || 0;
+  const total = Math.max(0, subtotal - discount + (Number(raw?.tax) || 0));
 
   const histories: any[] = Array.isArray(raw?.statusHistories) ? raw.statusHistories : [];
   const deliveredAt =
@@ -274,6 +281,9 @@ const normalizeOrder = (raw: any, fallbackNumber?: string): OrderView => {
     placedAt: raw?.placedAtUtc ?? raw?.placedAt ?? raw?.createdAt,
     deliveredAt,
     updatedAt,
+    customerName: raw?.customerName || raw?.shippingAddress?.fullName || 'Valued Customer',
+    customerPhone: raw?.customerPhone || raw?.shippingAddress?.phone || '',
+    shippingAddress: raw?.shippingAddress,
     paymentMethod: raw?.paymentMethod,
     paymentStatus: raw?.paymentStatus,
     items,
@@ -291,90 +301,243 @@ const escapeHtml = (value: unknown): string =>
       (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]
   );
 
-/** Clean printable HTML invoice — opened in a new window, then window.print(). */
+/** Clean printable HTML invoice matching Sivakasi fireworks bill reference */
 const buildInvoiceHtml = (o: OrderView): string => {
-  const rows = o.items
-    .map(
-      (it, i) => `
+  const formatNum = (n?: number): string =>
+    (Number(n) || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
+  const formatInvoiceDate = (dateStr?: string): string => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  const items = o.items || [];
+  const subTotal =
+    Number(o.subtotal) > 0
+      ? Number(o.subtotal)
+      : items.reduce((sum, it) => sum + it.lineTotal, 0);
+
+  const packingCharge =
+    Number(o.shipping) > 0
+      ? Number(o.shipping)
+      : Math.round(subTotal * 0.015);
+
+  const overallTotal =
+    Number(o.total) > subTotal
+      ? Number(o.total)
+      : subTotal + packingCharge;
+
+  const rows = items
+    .map((it, i) => {
+      const qty = Number(it.quantity) || 1;
+      const lineTotal = Number(it.lineTotal) || it.unitPrice * qty;
+      const finalRate = qty > 0 ? it.unitPrice || lineTotal / qty : 0;
+
+      // 80% discount model
+      const rateQty = finalRate * 5;
+      const discount = rateQty * 0.8;
+      const code = it.sku || it.code || `AC-${String(i + 1).padStart(2, '0')}`;
+
+      return `
       <tr>
-        <td>${i + 1}</td>
-        <td>${escapeHtml(it.name)}</td>
-        <td class="num">${it.quantity}</td>
-        <td class="num">${inr(it.unitPrice)}</td>
-        <td class="num">${inr(it.lineTotal)}</td>
-      </tr>`
-    )
+        <td class="col-sno">${i + 1}</td>
+        <td class="col-code">${escapeHtml(code)}</td>
+        <td class="col-name">${escapeHtml(it.name)}</td>
+        <td class="col-qty">${qty}</td>
+        <td class="col-rate">${formatNum(rateQty)}</td>
+        <td class="col-disc">${formatNum(discount)}</td>
+        <td class="col-final">${formatNum(finalRate)}</td>
+        <td class="col-amount">${formatNum(lineTotal)}</td>
+      </tr>`;
+    })
     .join('');
 
+  const addr = o.shippingAddress;
+  const addressLines = addr
+    ? [
+        addr.addressLine1,
+        addr.addressLine2,
+        [addr.city, addr.state].filter(Boolean).join(', '),
+        addr.postalCode ? `${addr.state ? '' : 'Pincode: '}${addr.postalCode}` : null
+      ]
+        .filter(Boolean)
+        .map((l: any) => escapeHtml(l))
+        .join('<br />')
+    : 'Sivakasi, Tamil Nadu';
+
+  const orderNum = o.orderNumber || '—';
+  const orderDate = formatInvoiceDate(o.placedAt) || new Date().toLocaleDateString('en-IN');
+
   return `<!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Invoice ${escapeHtml(o.orderNumber)}</title>
+<title>Estimate_${escapeHtml(orderNum)}</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 0; padding: 36px; font-size: 13px; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #4F2ACB; padding-bottom: 16px; }
-  .brand { font-size: 24px; font-weight: 800; color: #111238; letter-spacing: 1px; }
-  .brand small { display: block; font-size: 10px; color: #64748b; font-weight: 600; letter-spacing: 2px; margin-top: 4px; }
-  .inv-label { text-align: right; }
-  .inv-label h2 { margin: 0; color: #4F2ACB; font-size: 20px; letter-spacing: 3px; }
-  .inv-label div { margin-top: 6px; color: #64748b; }
-  .meta { display: flex; justify-content: space-between; margin: 20px 0; }
-  .meta div { line-height: 1.8; }
-  .label { color: #64748b; }
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th { background: #111238; color: #ffffff; text-align: left; padding: 8px 10px; font-size: 12px; }
-  th.num { text-align: right; }
-  td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
-  .num { text-align: right; white-space: nowrap; }
-  .totals { margin-top: 16px; margin-left: auto; width: 280px; }
-  .totals .row { display: flex; justify-content: space-between; padding: 4px 0; }
-  .totals .grand { border-top: 2px solid #111238; margin-top: 6px; padding-top: 8px; font-weight: 800; font-size: 15px; color: #111238; }
-  .discount { color: #059669; }
-  .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 14px; line-height: 1.7; }
-  @media print { body { padding: 12px; } }
+  @page { size: A4 portrait; margin: 8mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; padding: 12px; font-size: 11px; background: #fff; }
+  .invoice-box { width: 100%; max-width: 820px; margin: 0 auto; border: 1.5px solid #000; background: #fff; }
+  .top-bar { display: flex; border-bottom: 1.5px solid #000; font-size: 12px; }
+  .top-bar-cell { padding: 6px 10px; display: flex; align-items: center; }
+  .top-bar-left { width: 33.33%; border-right: 1.5px solid #000; font-weight: bold; }
+  .top-bar-center { width: 33.34%; justify-content: center; font-size: 13.5px; font-weight: 800; letter-spacing: 1px; border-right: 1.5px solid #000; }
+  .top-bar-right { width: 33.33%; justify-content: flex-end; font-weight: bold; }
+  .company-header { padding: 6px 12px 8px; border-bottom: 1.5px solid #000; text-align: center; }
+  .company-contacts { display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 2px; }
+  .company-name { font-size: 17px; font-weight: 800; letter-spacing: 0.5px; margin: 2px 0 3px; }
+  .company-address { font-size: 11px; color: #111; }
+  .info-grid { display: flex; border-bottom: 1.5px solid #000; }
+  .customer-col { width: 58%; border-right: 1.5px solid #000; padding: 6px 10px; line-height: 1.45; font-size: 11px; }
+  .customer-col .title { font-weight: bold; margin-bottom: 2px; font-size: 11.5px; }
+  .bank-col { width: 42%; padding: 6px 10px; line-height: 1.4; }
+  .bank-table { width: 100%; border-collapse: collapse; }
+  .bank-table td { padding: 1px 0; font-size: 10.5px; vertical-align: top; }
+  .bank-table td.lbl { font-weight: bold; width: 82px; white-space: nowrap; }
+  .bank-table td.colon { width: 14px; font-weight: bold; text-align: center; }
+  .bank-table td.val { font-weight: bold; letter-spacing: 0.2px; }
+  .ledger-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  .ledger-table th { border-bottom: 1.5px solid #000; border-right: 1px solid #000; padding: 5px 3px; text-align: center; font-weight: bold; background: #fff; }
+  .ledger-table th:last-child { border-right: none; }
+  .cat-band td { background: #e2e8f0; font-weight: bold; padding: 3px 8px; font-size: 10.5px; border-bottom: 1px solid #000; text-align: left; }
+  .ledger-table td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 3.5px 5px; vertical-align: middle; }
+  .ledger-table td:last-child { border-right: none; }
+  .col-sno { width: 34px; text-align: center; }
+  .col-code { width: 52px; text-align: center; font-weight: 500; }
+  .col-name { text-align: left; padding-left: 8px !important; }
+  .col-qty { width: 38px; text-align: center; font-weight: bold; }
+  .col-rate { width: 72px; text-align: right; }
+  .col-disc { width: 70px; text-align: right; }
+  .col-final { width: 70px; text-align: right; font-weight: 600; }
+  .col-amount { width: 80px; text-align: right; font-weight: bold; }
+  .subtotal-row td { font-weight: bold; border-bottom: 1.5px solid #000; padding: 4px 6px; }
+  .subtotal-label { text-align: right; font-weight: bold; padding-right: 8px !important; }
+  .spacer-row td { height: 42px; border-bottom: 1px solid #000; }
+  .packing-row td { font-weight: bold; border-bottom: 1.5px solid #000; padding: 4px 6px; }
+  .overall-row td { font-weight: bold; padding: 4px 6px; background: #e2e8f0; font-size: 11px; }
+  .total-items-cell { font-weight: bold; text-align: left; padding-left: 8px !important; }
+  .overall-label { text-align: right; font-weight: bold; padding-right: 8px !important; }
+  .invoice-footer { display: flex; justify-content: space-between; padding: 8px 10px; font-size: 9.5px; border-top: 1.5px solid #000; line-height: 1.45; }
+  .terms-box { width: 65%; }
+  .terms-box .terms-title { font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
+  .sign-box { width: 32%; text-align: right; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; }
+  .sign-title { font-weight: bold; }
+  .sign-space { height: 28px; }
+  @media print {
+    body { padding: 0; }
+    .invoice-box { border: 1.5px solid #000; max-width: 100%; }
+  }
 </style>
 </head>
 <body>
-  <div class="head">
-    <div class="brand">AADHI CRACKERS<small>PREMIUM SIVAKASI FIREWORKS &middot; TAX INVOICE</small></div>
-    <div class="inv-label">
-      <h2>INVOICE</h2>
-      <div>${escapeHtml(o.orderNumber || '—')}</div>
+  <div class="invoice-box">
+    <!-- 1. Top Header Bar -->
+    <div class="top-bar">
+      <div class="top-bar-cell top-bar-left">Order No : ${escapeHtml(orderNum)}</div>
+      <div class="top-bar-cell top-bar-center">ESTIMATE</div>
+      <div class="top-bar-cell top-bar-right">Date : ${escapeHtml(orderDate)}</div>
     </div>
-  </div>
-  <div class="meta">
-    <div>
-      <div><span class="label">Order No:</span> <strong>${escapeHtml(o.orderNumber || '—')}</strong></div>
-      <div><span class="label">Order Date:</span> ${escapeHtml(fmtDate(o.placedAt) || '—')}</div>
+
+    <!-- 2. Company Header -->
+    <div class="company-header">
+      <div class="company-contacts">
+        <span>Mobile : +91 94428 26566</span>
+        <span>E-mail : support@aadhicrackers.com</span>
+      </div>
+      <div class="company-name">Aadhi Crackers</div>
+      <div class="company-address">3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189.</div>
     </div>
-    <div>
-      <div><span class="label">Payment Method:</span> ${escapeHtml(paymentMethodLabel(o.paymentMethod))}</div>
-      <div><span class="label">Payment Status:</span> ${escapeHtml(statusLabel(o.paymentStatus || 'Pending'))}</div>
+
+    <!-- 3. Customer & Bank Details -->
+    <div class="info-grid">
+      <div class="customer-col">
+        <div class="title">Customer Details</div>
+        <div><strong>${escapeHtml(o.customerName || 'Valued Customer')}</strong></div>
+        ${o.customerPhone ? `<div>${escapeHtml(o.customerPhone)}</div>` : ''}
+        ${addressLines ? `<div>${addressLines}</div>` : ''}
+      </div>
+      <div class="bank-col">
+        <table class="bank-table">
+          <tr><td class="lbl">A/C Name</td><td class="colon">:</td><td class="val">AADHI CRACKERS</td></tr>
+          <tr><td class="lbl">A/C Number</td><td class="colon">:</td><td class="val">926020003006172</td></tr>
+          <tr><td class="lbl">A/C Type</td><td class="colon">:</td><td class="val">Current</td></tr>
+          <tr><td class="lbl">Bank Name</td><td class="colon">:</td><td class="val">AXIS BANK LTD</td></tr>
+          <tr><td class="lbl">IFSC Code</td><td class="colon">:</td><td class="val">UTIB0000089</td></tr>
+        </table>
+      </div>
     </div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th style="width:32px;">#</th>
-        <th>Item</th>
-        <th class="num">Qty</th>
-        <th class="num">Unit Price</th>
-        <th class="num">Amount</th>
-      </tr>
-    </thead>
-    <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No item details available</td></tr>'}</tbody>
-  </table>
-  <div class="totals">
-    <div class="row"><span>Subtotal</span><span>${inr(o.subtotal)}</span></div>
-    <div class="row"><span>Discount</span><span class="discount">${o.discount > 0 ? '-' + inr(o.discount) : inr(0)}</span></div>
-    <div class="row"><span>Delivery Charges</span><span>${o.shipping > 0 ? inr(o.shipping) : '₹0 (To-Pay)'}</span></div>
-    <div class="row grand"><span>Total Amount</span><span>${inr(o.total)}</span></div>
-  </div>
-  <div class="footer">
-    This is a computer-generated invoice from AADHI CRACKERS and does not require a signature.<br />
-    Thank you for celebrating with us!
+
+    <!-- 4. Ledger Table -->
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th class="col-sno">S.No</th>
+          <th class="col-code">Code</th>
+          <th class="col-name">Product Name</th>
+          <th class="col-qty">Qty</th>
+          <th class="col-rate">Rate / Qty</th>
+          <th class="col-disc">Discount</th>
+          <th class="col-final">Final Rate</th>
+          <th class="col-amount">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="cat-band">
+          <td colspan="8">80% Products</td>
+        </tr>
+        ${rows || '<tr><td colspan="8" style="text-align:center;padding:12px;color:#666;">No items found</td></tr>'}
+        <!-- Sub Total Row -->
+        <tr class="subtotal-row">
+          <td colspan="7" class="subtotal-label">Sub Total</td>
+          <td class="col-amount">${formatNum(subTotal)}</td>
+        </tr>
+        <!-- Spacer Row with vertical borders -->
+        <tr class="spacer-row">
+          <td class="col-sno">&nbsp;</td>
+          <td class="col-code">&nbsp;</td>
+          <td class="col-name">&nbsp;</td>
+          <td class="col-qty">&nbsp;</td>
+          <td class="col-rate">&nbsp;</td>
+          <td class="col-disc">&nbsp;</td>
+          <td class="col-final">&nbsp;</td>
+          <td class="col-amount">&nbsp;</td>
+        </tr>
+        <!-- Packing Charges Row -->
+        <tr class="packing-row">
+          <td colspan="7" class="subtotal-label">Packing Charges ( 1.5% )</td>
+          <td class="col-amount">${formatNum(packingCharge)}</td>
+        </tr>
+        <!-- Overall Total Row -->
+        <tr class="overall-row">
+          <td colspan="4" class="total-items-cell">Total Items : ${items.length}</td>
+          <td colspan="3" class="overall-label">Overall Total</td>
+          <td class="col-amount">${formatNum(overallTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 5. Footer & Terms -->
+    <div class="invoice-footer">
+      <div class="terms-box">
+        <div class="terms-title">Terms &amp; Conditions:</div>
+        <div>1. Goods once sold cannot be taken back or exchanged.</div>
+        <div>2. Store fireworks in a cool, dry place away from heat and open flames.</div>
+        <div>3. Subject to Sivakasi Jurisdiction.</div>
+      </div>
+      <div class="sign-box">
+        <div class="sign-title">For AADHI CRACKERS</div>
+        <div class="sign-space"></div>
+        <div>Authorized Signatory</div>
+      </div>
+    </div>
   </div>
 </body>
 </html>`;

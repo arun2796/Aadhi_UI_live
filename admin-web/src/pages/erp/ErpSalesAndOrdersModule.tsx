@@ -344,102 +344,253 @@ const escapeHtml = (value: unknown): string =>
 
 /** Clean printable HTML invoice for an order — opened in a new window, then window.print()
     (mirrors the customer-web invoice pattern). */
+/** Clean printable HTML invoice for an order matching Sivakasi fireworks bill reference */
 const buildOrderInvoiceHtml = (o: Order): string => {
-  const rows = (o.items || [])
-    .map(
-      (it, i) => `
+  const formatNum = (n?: number): string =>
+    (Number(n) || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
+  const formatInvoiceDate = (dateStr?: string): string => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  const items = o.items || [];
+  const subTotal =
+    Number(o.itemsSubtotal) > 0
+      ? Number(o.itemsSubtotal)
+      : items.reduce(
+          (sum, it) =>
+            sum + (Number(it.lineTotal) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1)),
+          0
+        );
+
+  const packingCharge =
+    Number(o.shippingCharge) > 0
+      ? Number(o.shippingCharge)
+      : Math.round(subTotal * 0.015);
+
+  const overallTotal =
+    Number(o.grandTotal) > subTotal
+      ? Number(o.grandTotal)
+      : subTotal + packingCharge;
+
+  const rows = items
+    .map((it, i) => {
+      const qty = Number(it.quantity) || 1;
+      const lineTotal = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
+      const finalRate = qty > 0 ? Number(it.unitPrice) || lineTotal / qty : 0;
+
+      // Sivakasi Cracker 80% discount model
+      let rateQty = finalRate * 5;
+      let discount = rateQty * 0.8;
+      if (Number(it.discount) > 0) {
+        const unitDisc = Number(it.discount) / qty;
+        rateQty = finalRate + unitDisc;
+        discount = unitDisc;
+      }
+
+      const code = it.sku || `AC-${String(i + 1).padStart(2, '0')}`;
+
+      return `
       <tr>
-        <td>${i + 1}</td>
-        <td>${escapeHtml(it.productName)}</td>
-        <td class="num">${it.quantity}</td>
-        <td class="num">${formatINR(it.unitPrice)}</td>
-        <td class="num">${formatINR(it.lineTotal)}</td>
-      </tr>`
-    )
+        <td class="col-sno">${i + 1}</td>
+        <td class="col-code">${escapeHtml(code)}</td>
+        <td class="col-name">${escapeHtml(it.productName)}</td>
+        <td class="col-qty">${qty}</td>
+        <td class="col-rate">${formatNum(rateQty)}</td>
+        <td class="col-disc">${formatNum(discount)}</td>
+        <td class="col-final">${formatNum(finalRate)}</td>
+        <td class="col-amount">${formatNum(lineTotal)}</td>
+      </tr>`;
+    })
     .join('');
 
   const addr = o.shippingAddress;
   const addressLines = addr
-    ? [addr.addressLine1, addr.addressLine2, [addr.city, addr.state].filter(Boolean).join(', '), addr.postalCode]
+    ? [
+        addr.addressLine1,
+        addr.addressLine2,
+        [addr.city, addr.state].filter(Boolean).join(', '),
+        addr.postalCode ? `${addr.state ? '' : 'Pincode: '}${addr.postalCode}` : null
+      ]
         .filter(Boolean)
         .map((l) => escapeHtml(l))
         .join('<br />')
-    : '&mdash;';
+    : 'Sivakasi, Tamil Nadu';
+
+  const orderNum = o.orderNumber || '—';
+  const orderDate = formatInvoiceDate(o.placedAtUtc) || new Date().toLocaleDateString('en-IN');
 
   return `<!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Invoice ${escapeHtml(o.orderNumber)}</title>
+<title>Estimate_${escapeHtml(orderNum)}</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 0; padding: 36px; font-size: 13px; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #4F2ACB; padding-bottom: 16px; }
-  .brand { font-size: 24px; font-weight: 800; color: #111238; letter-spacing: 1px; }
-  .brand small { display: block; font-size: 10px; color: #64748b; font-weight: 600; letter-spacing: 2px; margin-top: 4px; }
-  .inv-label { text-align: right; }
-  .inv-label h2 { margin: 0; color: #4F2ACB; font-size: 20px; letter-spacing: 3px; }
-  .inv-label div { margin-top: 6px; color: #64748b; }
-  .meta { display: flex; justify-content: space-between; margin: 20px 0; gap: 24px; }
-  .meta div { line-height: 1.8; }
-  .label { color: #64748b; }
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th { background: #111238; color: #ffffff; text-align: left; padding: 8px 10px; font-size: 12px; }
-  th.num { text-align: right; }
-  td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
-  .num { text-align: right; white-space: nowrap; }
-  .totals { margin-top: 16px; margin-left: auto; width: 280px; }
-  .totals .row { display: flex; justify-content: space-between; padding: 4px 0; }
-  .totals .grand { border-top: 2px solid #111238; margin-top: 6px; padding-top: 8px; font-weight: 800; font-size: 15px; color: #111238; }
-  .discount { color: #059669; }
-  .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 14px; line-height: 1.7; }
-  @media print { body { padding: 12px; } }
+  @page { size: A4 portrait; margin: 8mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; padding: 12px; font-size: 11px; background: #fff; }
+  .invoice-box { width: 100%; max-width: 820px; margin: 0 auto; border: 1.5px solid #000; background: #fff; }
+  .top-bar { display: flex; border-bottom: 1.5px solid #000; font-size: 12px; }
+  .top-bar-cell { padding: 6px 10px; display: flex; align-items: center; }
+  .top-bar-left { width: 33.33%; border-right: 1.5px solid #000; font-weight: bold; }
+  .top-bar-center { width: 33.34%; justify-content: center; font-size: 13.5px; font-weight: 800; letter-spacing: 1px; border-right: 1.5px solid #000; }
+  .top-bar-right { width: 33.33%; justify-content: flex-end; font-weight: bold; }
+  .company-header { padding: 6px 12px 8px; border-bottom: 1.5px solid #000; text-align: center; }
+  .company-contacts { display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 2px; }
+  .company-name { font-size: 17px; font-weight: 800; letter-spacing: 0.5px; margin: 2px 0 3px; }
+  .company-address { font-size: 11px; color: #111; }
+  .info-grid { display: flex; border-bottom: 1.5px solid #000; }
+  .customer-col { width: 58%; border-right: 1.5px solid #000; padding: 6px 10px; line-height: 1.45; font-size: 11px; }
+  .customer-col .title { font-weight: bold; margin-bottom: 2px; font-size: 11.5px; }
+  .bank-col { width: 42%; padding: 6px 10px; line-height: 1.4; }
+  .bank-table { width: 100%; border-collapse: collapse; }
+  .bank-table td { padding: 1px 0; font-size: 10.5px; vertical-align: top; }
+  .bank-table td.lbl { font-weight: bold; width: 82px; white-space: nowrap; }
+  .bank-table td.colon { width: 14px; font-weight: bold; text-align: center; }
+  .bank-table td.val { font-weight: bold; letter-spacing: 0.2px; }
+  .ledger-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  .ledger-table th { border-bottom: 1.5px solid #000; border-right: 1px solid #000; padding: 5px 3px; text-align: center; font-weight: bold; background: #fff; }
+  .ledger-table th:last-child { border-right: none; }
+  .cat-band td { background: #e2e8f0; font-weight: bold; padding: 3px 8px; font-size: 10.5px; border-bottom: 1px solid #000; text-align: left; }
+  .ledger-table td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 3.5px 5px; vertical-align: middle; }
+  .ledger-table td:last-child { border-right: none; }
+  .col-sno { width: 34px; text-align: center; }
+  .col-code { width: 52px; text-align: center; font-weight: 500; }
+  .col-name { text-align: left; padding-left: 8px !important; }
+  .col-qty { width: 38px; text-align: center; font-weight: bold; }
+  .col-rate { width: 72px; text-align: right; }
+  .col-disc { width: 70px; text-align: right; }
+  .col-final { width: 70px; text-align: right; font-weight: 600; }
+  .col-amount { width: 80px; text-align: right; font-weight: bold; }
+  .subtotal-row td { font-weight: bold; border-bottom: 1.5px solid #000; padding: 4px 6px; }
+  .subtotal-label { text-align: right; font-weight: bold; padding-right: 8px !important; }
+  .spacer-row td { height: 42px; border-bottom: 1px solid #000; }
+  .packing-row td { font-weight: bold; border-bottom: 1.5px solid #000; padding: 4px 6px; }
+  .overall-row td { font-weight: bold; padding: 4px 6px; background: #e2e8f0; font-size: 11px; }
+  .total-items-cell { font-weight: bold; text-align: left; padding-left: 8px !important; }
+  .overall-label { text-align: right; font-weight: bold; padding-right: 8px !important; }
+  .invoice-footer { display: flex; justify-content: space-between; padding: 8px 10px; font-size: 9.5px; border-top: 1.5px solid #000; line-height: 1.45; }
+  .terms-box { width: 65%; }
+  .terms-box .terms-title { font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
+  .sign-box { width: 32%; text-align: right; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; }
+  .sign-title { font-weight: bold; }
+  .sign-space { height: 28px; }
+  @media print {
+    body { padding: 0; }
+    .invoice-box { border: 1.5px solid #000; max-width: 100%; }
+  }
 </style>
 </head>
 <body>
-  <div class="head">
-    <div class="brand">AADHI CRACKERS<small>PREMIUM SIVAKASI FIREWORKS &middot; TAX INVOICE</small></div>
-    <div class="inv-label">
-      <h2>INVOICE</h2>
-      <div>${escapeHtml(o.orderNumber || '—')}</div>
+  <div class="invoice-box">
+    <!-- 1. Top Header Bar -->
+    <div class="top-bar">
+      <div class="top-bar-cell top-bar-left">Order No : ${escapeHtml(orderNum)}</div>
+      <div class="top-bar-cell top-bar-center">ESTIMATE</div>
+      <div class="top-bar-cell top-bar-right">Date : ${escapeHtml(orderDate)}</div>
     </div>
-  </div>
-  <div class="meta">
-    <div>
-      <div class="label">Billed To</div>
-      <div><strong>${escapeHtml(o.customerName)}</strong></div>
-      <div>${addressLines}</div>
-      <div>Ph. ${escapeHtml(o.customerPhone || '—')}</div>
+
+    <!-- 2. Company Header -->
+    <div class="company-header">
+      <div class="company-contacts">
+        <span>Mobile : +91 94428 26566</span>
+        <span>E-mail : support@aadhicrackers.com</span>
+      </div>
+      <div class="company-name">Aadhi Crackers</div>
+      <div class="company-address">3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189.</div>
     </div>
-    <div>
-      <div><span class="label">Order No:</span> <strong>${escapeHtml(o.orderNumber || '—')}</strong></div>
-      <div><span class="label">Order Date:</span> ${escapeHtml(formatDate(o.placedAtUtc))}</div>
-      <div><span class="label">Payment Method:</span> ${escapeHtml(o.paymentMethod)}</div>
-      <div><span class="label">Payment Status:</span> ${escapeHtml(o.paymentStatus)}</div>
+
+    <!-- 3. Customer & Bank Details -->
+    <div class="info-grid">
+      <div class="customer-col">
+        <div class="title">Customer Details</div>
+        <div><strong>${escapeHtml(o.customerName || 'Valued Customer')}</strong></div>
+        ${o.customerPhone ? `<div>${escapeHtml(o.customerPhone)}</div>` : ''}
+        ${addressLines ? `<div>${addressLines}</div>` : ''}
+      </div>
+      <div class="bank-col">
+        <table class="bank-table">
+          <tr><td class="lbl">A/C Name</td><td class="colon">:</td><td class="val">AADHI CRACKERS</td></tr>
+          <tr><td class="lbl">A/C Number</td><td class="colon">:</td><td class="val">926020003006172</td></tr>
+          <tr><td class="lbl">A/C Type</td><td class="colon">:</td><td class="val">Current</td></tr>
+          <tr><td class="lbl">Bank Name</td><td class="colon">:</td><td class="val">AXIS BANK LTD</td></tr>
+          <tr><td class="lbl">IFSC Code</td><td class="colon">:</td><td class="val">UTIB0000089</td></tr>
+        </table>
+      </div>
     </div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th style="width:32px;">#</th>
-        <th>Item</th>
-        <th class="num">Qty</th>
-        <th class="num">Unit Price</th>
-        <th class="num">Amount</th>
-      </tr>
-    </thead>
-    <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No item details available</td></tr>'}</tbody>
-  </table>
-  <div class="totals">
-    <div class="row"><span>Subtotal</span><span>${formatINR(o.itemsSubtotal)}</span></div>
-    <div class="row"><span>Discount</span><span class="discount">${o.discount > 0 ? '-' + formatINR(o.discount) : formatINR(0)}</span></div>
-    ${o.tax > 0 ? `<div class="row"><span>Tax (GST)</span><span>${formatINR(o.tax)}</span></div>` : ''}
-    <div class="row"><span>Delivery Charges</span><span>₹0 (Transport To-Pay)</span></div>
-    <div class="row grand"><span>Total Amount</span><span>${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))}</span></div>
-  </div>
-  <div class="footer">
-    This is a computer-generated invoice from AADHI CRACKERS and does not require a signature.<br />
-    GSTIN: 33ABCDE1234F1Z5 &middot; Sivakasi, Tamil Nadu
+
+    <!-- 4. Ledger Table -->
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th class="col-sno">S.No</th>
+          <th class="col-code">Code</th>
+          <th class="col-name">Product Name</th>
+          <th class="col-qty">Qty</th>
+          <th class="col-rate">Rate / Qty</th>
+          <th class="col-disc">Discount</th>
+          <th class="col-final">Final Rate</th>
+          <th class="col-amount">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="cat-band">
+          <td colspan="8">80% Products</td>
+        </tr>
+        ${rows || '<tr><td colspan="8" style="text-align:center;padding:12px;color:#666;">No items found</td></tr>'}
+        <!-- Sub Total Row -->
+        <tr class="subtotal-row">
+          <td colspan="7" class="subtotal-label">Sub Total</td>
+          <td class="col-amount">${formatNum(subTotal)}</td>
+        </tr>
+        <!-- Spacer Row with vertical borders -->
+        <tr class="spacer-row">
+          <td class="col-sno">&nbsp;</td>
+          <td class="col-code">&nbsp;</td>
+          <td class="col-name">&nbsp;</td>
+          <td class="col-qty">&nbsp;</td>
+          <td class="col-rate">&nbsp;</td>
+          <td class="col-disc">&nbsp;</td>
+          <td class="col-final">&nbsp;</td>
+          <td class="col-amount">&nbsp;</td>
+        </tr>
+        <!-- Packing Charges Row -->
+        <tr class="packing-row">
+          <td colspan="7" class="subtotal-label">Packing Charges ( 1.5% )</td>
+          <td class="col-amount">${formatNum(packingCharge)}</td>
+        </tr>
+        <!-- Overall Total Row -->
+        <tr class="overall-row">
+          <td colspan="4" class="total-items-cell">Total Items : ${items.length}</td>
+          <td colspan="3" class="overall-label">Overall Total</td>
+          <td class="col-amount">${formatNum(overallTotal)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 5. Footer & Terms -->
+    <div class="invoice-footer">
+      <div class="terms-box">
+        <div class="terms-title">Terms &amp; Conditions:</div>
+        <div>1. Goods once sold cannot be taken back or exchanged.</div>
+        <div>2. Store fireworks in a cool, dry place away from heat and open flames.</div>
+        <div>3. Subject to Sivakasi Jurisdiction.</div>
+      </div>
+      <div class="sign-box">
+        <div class="sign-title">For AADHI CRACKERS</div>
+        <div class="sign-space"></div>
+        <div>Authorized Signatory</div>
+      </div>
+    </div>
   </div>
 </body>
 </html>`;
@@ -774,13 +925,24 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   // ===================== Handlers =====================
 
   /** Print Invoice (design 03) — opens a clean invoice window and triggers window.print(). */
-  const handlePrintInvoice = (order: Order) => {
-    const w = window.open('', '_blank', 'width=820,height=940');
+  const handlePrintInvoice = async (order: Order) => {
+    let orderToPrint = order;
+    if (!orderToPrint.items || orderToPrint.items.length === 0) {
+      try {
+        const full = await api.getOrderById(order.id);
+        if (full && full.items && full.items.length > 0) {
+          orderToPrint = full;
+        }
+      } catch {
+        /* fallback to current order */
+      }
+    }
+    const w = window.open('', '_blank', 'width=880,height=960');
     if (!w) {
       showToast('Please allow pop-ups to print the invoice.', 'warning');
       return;
     }
-    w.document.write(buildOrderInvoiceHtml(order));
+    w.document.write(buildOrderInvoiceHtml(orderToPrint));
     w.document.close();
     w.focus();
     setTimeout(() => {
@@ -2288,68 +2450,85 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       )}
 
       {/* PRINTABLE TAX INVOICE MODAL */}
-      {selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center space-x-2">
-                <div className="font-black text-base text-navy">AADHI CRACKERS</div>
-                <span className="text-[10px] font-mono bg-purple/10 text-purple px-2 py-0.2 rounded font-bold">
-                  ORIGINAL TAX INVOICE
-                </span>
-              </div>
-              <button onClick={() => setSelectedInvoice(null)} className="text-slate-400 hover:text-slate-600">
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
+      {selectedInvoice && (() => {
+        const invOrder = orders.find(
+          (o) => o.orderNumber === selectedInvoice.orderNumber || o.id === selectedInvoice.orderId
+        );
+        const printableOrder: Order = invOrder || {
+          id: selectedInvoice.orderId || selectedInvoice.id,
+          orderNumber: selectedInvoice.orderNumber || selectedInvoice.invoiceNumber,
+          customerId: selectedInvoice.customerId,
+          customerName: selectedInvoice.customerName,
+          customerEmail: '',
+          customerPhone: '',
+          orderStatus: 'Delivered',
+          paymentStatus: 'Paid',
+          paymentMethod: 'UPI',
+          fulfillmentStatus: 'Delivered',
+          itemsSubtotal: selectedInvoice.subtotal,
+          discount: selectedInvoice.discount || 0,
+          tax: selectedInvoice.tax || 0,
+          shippingCharge: selectedInvoice.shipping || 0,
+          grandTotal: selectedInvoice.grandTotal,
+          placedAtUtc: selectedInvoice.issuedAtUtc,
+          shippingAddress: {
+            fullName: selectedInvoice.customerName,
+            phone: '',
+            addressLine1: 'Sivakasi Delivery',
+            city: 'Sivakasi',
+            state: 'Tamil Nadu',
+            postalCode: '626123',
+            country: 'India'
+          },
+          items: invOrder?.items || [],
+          statusHistories: []
+        };
 
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div>
-                <div className="text-[10px] font-bold text-slate-400 uppercase">Invoice To:</div>
-                <div className="font-bold text-navy">{selectedInvoice.customerName}</div>
-                <div className="text-slate-500">Order: {selectedInvoice.orderNumber}</div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs animate-fade-in">
+            <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] flex flex-col">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div className="flex items-center space-x-2">
+                  <div className="font-black text-base text-navy">AADHI CRACKERS</div>
+                  <span className="text-[10px] font-mono bg-purple/10 text-purple px-2.5 py-0.5 rounded-full font-bold">
+                    ESTIMATE / INVOICE #{selectedInvoice.invoiceNumber}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePrintInvoice(printableOrder)}
+                    className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-colors"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Invoice</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedInvoice(null)}
+                    className="text-slate-400 hover:text-slate-600"
+                    title="Close"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-[10px] font-bold text-slate-400 uppercase">Invoice Number:</div>
-                <div className="font-mono font-bold text-navy">{selectedInvoice.invoiceNumber}</div>
-                <div className="text-slate-500">{new Date(selectedInvoice.issuedAtUtc).toLocaleDateString('en-IN')}</div>
-              </div>
-            </div>
 
-            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span>Items Subtotal:</span>
-                <span className="font-bold">{formatINR(selectedInvoice.subtotal)}</span>
+              {/* Formatted Reference Invoice Live Preview */}
+              <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 min-h-[440px]">
+                <iframe
+                  title={`Invoice ${selectedInvoice.invoiceNumber}`}
+                  srcDoc={buildOrderInvoiceHtml(printableOrder)}
+                  className="w-full h-full border-none bg-white"
+                />
               </div>
-              <div className="flex justify-between">
-                <span>CGST (9%) + SGST (9%):</span>
-                <span className="font-bold">{formatINR(selectedInvoice.tax)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Delivery & Handling:</span>
-                <span className="font-bold">
-                  {selectedInvoice.shipping > 0 ? formatINR(selectedInvoice.shipping) : '₹0 (To-Pay)'}
-                </span>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between font-black text-sm text-navy">
-                <span>Total Amount Paid:</span>
-                <span className="text-orange">{formatINR(selectedInvoice.grandTotal)}</span>
-              </div>
-            </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-[10px] text-slate-400">GSTIN: 33ABCDE1234F1Z5 • Sivakasi, Tamil Nadu</span>
-              <button
-                onClick={() => window.print()}
-                className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Document</span>
-              </button>
+              <div className="pt-2 flex items-center justify-between text-xs text-slate-500 border-t border-slate-100">
+                <span>GSTIN: 33ABCDE1234F1Z5 • Sivakasi, Tamil Nadu</span>
+                <span className="font-bold text-navy">Total: {formatINR(selectedInvoice.grandTotal)}</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* QUICK DISPATCH MODAL */}
       {dispatchTargetOrder && (
