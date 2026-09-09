@@ -35,10 +35,6 @@ import {
   Building2,
   UserCheck,
   Ticket,
-  UserPlus,
-  MessageSquare,
-  MessageCircle,
-  FileDown,
   ShoppingCart,
   Smartphone,
   Search,
@@ -120,17 +116,7 @@ const isItemActive = (
     targetPath !== '/admin' &&
     targetPath !== '/admin/'
   ) {
-    // Avoid false matches when a sibling route is more specific (e.g. enquiries/customers)
-    if (targetPath === '/admin/enquiries') {
-      const rest = currentPath.slice('/admin/enquiries/'.length);
-      if (rest === 'customers' || rest === 'direct') {
-        isPathMatch = false;
-      } else {
-        isPathMatch = true;
-      }
-    } else {
-      isPathMatch = true;
-    }
+    isPathMatch = true;
   }
 
   if (!isPathMatch) {
@@ -167,10 +153,6 @@ const isItemActive = (
 
   if (targetPath === '/admin/settings') {
     return currentSearch.get('section') !== 'company';
-  }
-
-  if (targetPath === '/admin/enquiries') {
-    return currentSearch.get('pdf') !== '1';
   }
 
   if (targetPath === '/admin/users') {
@@ -211,13 +193,9 @@ const NAV_GROUPS: NavGroup[] = [
     ]
   },
   {
-    label: 'Customer & Enquiry',
+    label: 'Customer',
     items: [
-      { key: 'ce-customer', label: 'Customer', icon: Users, to: 'customers' },
-      { key: 'ce-enquiry-customer', label: 'Enquiry Customer', icon: UserPlus, to: 'enquiries/customers' },
-      { key: 'ce-direct-enquiry', label: 'Direct Enquiry', icon: MessageCircle, to: 'enquiries/direct' },
-      { key: 'ce-enquiry', label: 'Enquiry', icon: MessageSquare, to: 'enquiries' },
-      { key: 'ce-enquiry-pdf', label: 'Enquiry To PDF', icon: FileDown, to: 'enquiries?pdf=1' }
+      { key: 'ce-customer', label: 'Customer', icon: Users, to: 'customers' }
     ]
   },
   {
