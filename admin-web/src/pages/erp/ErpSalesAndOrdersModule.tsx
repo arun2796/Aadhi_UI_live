@@ -22,9 +22,10 @@ import {
   Truck,
   Eye,
   AlertCircle,
-  Upload
+  Upload,
+  Loader2
 } from 'lucide-react';
-import { Order, Customer, Invoice, Payment, OrderStatus, OrderStatusHistory } from '../../types';
+import { Order, OrderItem, Customer, Invoice, Payment, OrderStatus, OrderStatusHistory } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
 import { orderApi } from '../../services/orderApi';
 import { customerApi, CustomerDetail } from '../../services/customerApi';
@@ -344,7 +345,6 @@ const escapeHtml = (value: unknown): string =>
 
 /** Clean printable HTML invoice for an order — opened in a new window, then window.print()
     (mirrors the customer-web invoice pattern). */
-/** Clean printable HTML invoice for an order matching Sivakasi fireworks bill reference */
 const buildOrderInvoiceHtml = (o: Order): string => {
   const formatNum = (n?: number): string =>
     (Number(n) || 0).toLocaleString('en-IN', {
@@ -382,36 +382,39 @@ const buildOrderInvoiceHtml = (o: Order): string => {
       ? Number(o.grandTotal)
       : subTotal + packingCharge;
 
-  const rows = items
-    .map((it, i) => {
-      const qty = Number(it.quantity) || 1;
-      const lineTotal = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
-      const finalRate = qty > 0 ? Number(it.unitPrice) || lineTotal / qty : 0;
+  const rows =
+    items.length === 0
+      ? '<tr><td colspan="8" style="text-align:center;padding:24px 12px;color:#64748b;font-weight:bold;border-bottom:1px solid #000;">No items found for this invoice.</td></tr>'
+      : items
+          .map((it, i) => {
+            const qty = Number(it.quantity) || 1;
+            const lineTotal = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
+            const finalRate = qty > 0 ? Number(it.unitPrice) || lineTotal / qty : 0;
 
-      // Sivakasi Cracker 80% discount model
-      let rateQty = finalRate * 5;
-      let discount = rateQty * 0.8;
-      if (Number(it.discount) > 0) {
-        const unitDisc = Number(it.discount) / qty;
-        rateQty = finalRate + unitDisc;
-        discount = unitDisc;
-      }
+            // Sivakasi Cracker 80% discount model
+            let rateQty = finalRate * 5;
+            let discount = rateQty * 0.8;
+            if (Number(it.discount) > 0) {
+              const unitDisc = Number(it.discount) / qty;
+              rateQty = finalRate + unitDisc;
+              discount = unitDisc;
+            }
 
-      const code = it.sku || `AC-${String(i + 1).padStart(2, '0')}`;
+            const code = it.sku || `AC-${String(i + 1).padStart(2, '0')}`;
 
-      return `
-      <tr>
-        <td class="col-sno">${i + 1}</td>
-        <td class="col-code">${escapeHtml(code)}</td>
-        <td class="col-name">${escapeHtml(it.productName)}</td>
-        <td class="col-qty">${qty}</td>
-        <td class="col-rate">${formatNum(rateQty)}</td>
-        <td class="col-disc">${formatNum(discount)}</td>
-        <td class="col-final">${formatNum(finalRate)}</td>
-        <td class="col-amount">${formatNum(lineTotal)}</td>
-      </tr>`;
-    })
-    .join('');
+            return `
+            <tr>
+              <td class="col-sno">${i + 1}</td>
+              <td class="col-code">${escapeHtml(code)}</td>
+              <td class="col-name">${escapeHtml(it.productName)}</td>
+              <td class="col-qty">${qty}</td>
+              <td class="col-rate">${formatNum(rateQty)}</td>
+              <td class="col-disc">${formatNum(discount)}</td>
+              <td class="col-final">${formatNum(finalRate)}</td>
+              <td class="col-amount">${formatNum(lineTotal)}</td>
+            </tr>`;
+          })
+          .join('');
 
   const addr = o.shippingAddress;
   const addressLines = addr
@@ -438,7 +441,7 @@ const buildOrderInvoiceHtml = (o: Order): string => {
   @page { size: A4 portrait; margin: 8mm; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; padding: 12px; font-size: 11px; background: #fff; }
-  .invoice-box { width: 100%; max-width: 820px; margin: 0 auto; border: 1.5px solid #000; background: #fff; }
+  .invoice-box { width: 100%; max-width: 800px; margin: 0 auto; border: 1.5px solid #000; background: #fff; box-sizing: border-box; }
   .top-bar { display: flex; border-bottom: 1.5px solid #000; font-size: 12px; }
   .top-bar-cell { padding: 6px 10px; display: flex; align-items: center; }
   .top-bar-left { width: 33.33%; border-right: 1.5px solid #000; font-weight: bold; }
@@ -546,7 +549,7 @@ const buildOrderInvoiceHtml = (o: Order): string => {
         <tr class="cat-band">
           <td colspan="8">80% Products</td>
         </tr>
-        ${rows || '<tr><td colspan="8" style="text-align:center;padding:12px;color:#666;">No items found</td></tr>'}
+        ${rows}
         <!-- Sub Total Row -->
         <tr class="subtotal-row">
           <td colspan="7" class="subtotal-label">Sub Total</td>
@@ -570,7 +573,7 @@ const buildOrderInvoiceHtml = (o: Order): string => {
         </tr>
         <!-- Overall Total Row -->
         <tr class="overall-row">
-          <td colspan="4" class="total-items-cell">Total Items : ${items.length}</td>
+          <td colspan="4" class="total-items-cell">Total Items : <strong>${items.reduce((s, it) => s + (Number(it.quantity) || 1), 0)}</strong></td>
           <td colspan="3" class="overall-label">Overall Total</td>
           <td class="col-amount">${formatNum(overallTotal)}</td>
         </tr>
@@ -580,9 +583,9 @@ const buildOrderInvoiceHtml = (o: Order): string => {
     <!-- 5. Footer & Terms -->
     <div class="invoice-footer">
       <div class="terms-box">
-        <div class="terms-title">Terms &amp; Conditions:</div>
-        <div>1. Goods once sold cannot be taken back or exchanged.</div>
-        <div>2. Store fireworks in a cool, dry place away from heat and open flames.</div>
+        <div class="terms-title">Terms &amp; Conditions</div>
+        <div>1. Goods once sold will not be taken back or exchanged.</div>
+        <div>2. Our responsibility ceases immediately after delivering goods to carriers.</div>
         <div>3. Subject to Sivakasi Jurisdiction.</div>
       </div>
       <div class="sign-box">
@@ -594,6 +597,257 @@ const buildOrderInvoiceHtml = (o: Order): string => {
   </div>
 </body>
 </html>`;
+};
+
+/** React Component: High-Fidelity Paper Preview matching Sivakasi physical estimate reference */
+interface InvoicePaperPreviewProps {
+  order: Order;
+  invoiceNumber?: string;
+  invoiceDate?: string;
+  invoiceSubtotal?: number;
+  invoiceGrandTotal?: number;
+}
+
+const InvoicePaperPreview: React.FC<InvoicePaperPreviewProps> = ({
+  order,
+  invoiceNumber,
+  invoiceDate,
+  invoiceSubtotal,
+  invoiceGrandTotal
+}) => {
+  const formatNum = (n?: number): string =>
+    (Number(n) || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+
+  const formatInvoiceDate = (dateStr?: string): string => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  const items = order.items || [];
+
+  const subTotal =
+    Number(invoiceSubtotal) > 0
+      ? Number(invoiceSubtotal)
+      : Number(order.itemsSubtotal) > 0
+      ? Number(order.itemsSubtotal)
+      : items.reduce(
+          (sum, it) =>
+            sum + (Number(it.lineTotal) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1)),
+          0
+        );
+
+  const packingCharge =
+    Number(order.shippingCharge) > 0
+      ? Number(order.shippingCharge)
+      : Math.round(subTotal * 0.015);
+
+  const overallTotal =
+    Number(invoiceGrandTotal) > 0
+      ? Number(invoiceGrandTotal)
+      : Number(order.grandTotal) > subTotal
+      ? Number(order.grandTotal)
+      : subTotal + packingCharge;
+
+  const totalQty = items.reduce((sum, it) => sum + (Number(it.quantity) || 1), 0);
+
+  const orderNum = order.orderNumber || invoiceNumber || '—';
+  const displayDate =
+    formatInvoiceDate(invoiceDate || order.placedAtUtc) || new Date().toLocaleDateString('en-IN');
+
+  const addr = order.shippingAddress;
+  const addressLines = addr
+    ? [
+        addr.addressLine1,
+        addr.addressLine2,
+        [addr.city, addr.state].filter(Boolean).join(', '),
+        addr.postalCode ? `${addr.state ? '' : 'Pincode: '}${addr.postalCode}` : null
+      ].filter(Boolean)
+    : ['Sivakasi, Tamil Nadu'];
+
+  return (
+    <div className="w-full max-w-[800px] bg-white border-[1.5px] border-black text-black font-sans text-[11px] shadow-sm select-text">
+      {/* 1. Top Header Bar: Order No | ESTIMATE | Date */}
+      <div className="flex border-b-[1.5px] border-black text-xs font-bold">
+        <div className="w-1/3 p-2 border-r-[1.5px] border-black flex items-center">
+          Order No : <span className="ml-1 font-extrabold">{orderNum}</span>
+        </div>
+        <div className="w-1/3 p-2 border-r-[1.5px] border-black flex items-center justify-center font-black tracking-widest text-[13.5px] uppercase">
+          ESTIMATE
+        </div>
+        <div className="w-1/3 p-2 flex items-center justify-end">
+          Date : <span className="ml-1 font-extrabold">{displayDate}</span>
+        </div>
+      </div>
+
+      {/* 2. Company Header */}
+      <div className="p-2.5 text-center border-b-[1.5px] border-black">
+        <div className="flex justify-between text-[11px] font-bold">
+          <span>Mobile : +91 94428 26566</span>
+          <span>E-mail : support@aadhicrackers.com</span>
+        </div>
+        <div className="text-lg font-black tracking-wide my-0.5">Aadhi Crackers</div>
+        <div className="text-[11px] text-neutral-800">
+          3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189.
+        </div>
+      </div>
+
+      {/* 3. Customer & Bank Details */}
+      <div className="flex border-b-[1.5px] border-black">
+        <div className="w-[58%] border-r-[1.5px] border-black p-2.5 leading-tight">
+          <div className="font-bold text-xs mb-1">Customer Details</div>
+          <div className="font-bold text-[12px]">{order.customerName || 'Valued Customer'}</div>
+          {order.customerPhone && <div className="text-neutral-800">{order.customerPhone}</div>}
+          <div className="text-neutral-700 mt-0.5">
+            {addressLines.map((line, idx) => (
+              <div key={idx}>{line}</div>
+            ))}
+          </div>
+        </div>
+        <div className="w-[42%] p-2.5 text-[10.5px] leading-snug">
+          <table className="w-full">
+            <tbody>
+              <tr>
+                <td className="font-bold whitespace-nowrap w-24">A/C Name</td>
+                <td className="w-3 font-bold text-center">:</td>
+                <td className="font-bold">AADHI CRACKERS</td>
+              </tr>
+              <tr>
+                <td className="font-bold whitespace-nowrap">A/C Number</td>
+                <td className="font-bold text-center">:</td>
+                <td className="font-bold tracking-wider">926020003006172</td>
+              </tr>
+              <tr>
+                <td className="font-bold whitespace-nowrap">A/C Type</td>
+                <td className="font-bold text-center">:</td>
+                <td className="font-bold">Current</td>
+              </tr>
+              <tr>
+                <td className="font-bold whitespace-nowrap">Bank Name</td>
+                <td className="font-bold text-center">:</td>
+                <td className="font-bold">AXIS BANK LTD</td>
+              </tr>
+              <tr>
+                <td className="font-bold whitespace-nowrap">IFSC Code</td>
+                <td className="font-bold text-center">:</td>
+                <td className="font-bold">UTIB0000089</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 4. Ledger Table */}
+      <table className="w-full border-collapse text-[10.5px]">
+        <thead>
+          <tr className="border-b-[1.5px] border-black font-bold">
+            <th className="w-9 border-r border-black p-1 text-center">S.No</th>
+            <th className="w-14 border-r border-black p-1 text-center">Code</th>
+            <th className="border-r border-black p-1 pl-2 text-left">Product Name</th>
+            <th className="w-10 border-r border-black p-1 text-center">Qty</th>
+            <th className="w-20 border-r border-black p-1 text-right">Rate / Qty</th>
+            <th className="w-20 border-r border-black p-1 text-right">Discount</th>
+            <th className="w-20 border-r border-black p-1 text-right">Final Rate</th>
+            <th className="w-24 p-1 text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="bg-slate-200 border-b border-black font-bold">
+            <td colSpan={8} className="p-1 px-2 text-left">80% Products</td>
+          </tr>
+          {items.length === 0 ? (
+            <tr className="border-b border-black">
+              <td colSpan={8} className="text-center py-6 text-slate-500 font-bold">
+                No items found for this invoice.
+              </td>
+            </tr>
+          ) : (
+            items.map((it, i) => {
+              const qty = Number(it.quantity) || 1;
+              const lineTotal = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
+              const finalRate = qty > 0 ? Number(it.unitPrice) || lineTotal / qty : 0;
+              let rateQty = finalRate * 5;
+              let discount = rateQty * 0.8;
+              if (Number(it.discount) > 0) {
+                const unitDisc = Number(it.discount) / qty;
+                rateQty = finalRate + unitDisc;
+                discount = unitDisc;
+              }
+              const code = it.sku || `AC-${String(i + 1).padStart(2, '0')}`;
+
+              return (
+                <tr key={it.id || i} className="border-b border-black">
+                  <td className="border-r border-black p-1 text-center">{i + 1}</td>
+                  <td className="border-r border-black p-1 text-center font-medium">{code}</td>
+                  <td className="border-r border-black p-1 pl-2 text-left">{it.productName}</td>
+                  <td className="border-r border-black p-1 text-center font-bold">{qty}</td>
+                  <td className="border-r border-black p-1 text-right">{formatNum(rateQty)}</td>
+                  <td className="border-r border-black p-1 text-right">{formatNum(discount)}</td>
+                  <td className="border-r border-black p-1 text-right font-medium">{formatNum(finalRate)}</td>
+                  <td className="p-1 text-right font-bold">{formatNum(lineTotal)}</td>
+                </tr>
+              );
+            })
+          )}
+
+          {/* Sub Total */}
+          <tr className="border-b-[1.5px] border-black font-bold">
+            <td colSpan={7} className="p-1.5 pr-3 text-right">Sub Total</td>
+            <td className="p-1.5 text-right font-bold">{formatNum(subTotal)}</td>
+          </tr>
+
+          {/* Spacer row maintaining vertical column lines */}
+          <tr className="border-b border-black h-9">
+            <td className="border-r border-black">&nbsp;</td>
+            <td className="border-r border-black">&nbsp;</td>
+            <td className="border-r border-black">&nbsp;</td>
+            <td className="border-r border-black">&nbsp;</td>
+            <td className="border-r border-black">&nbsp;</td>
+            <td className="border-r border-black">&nbsp;</td>
+            <td className="border-r border-black">&nbsp;</td>
+            <td>&nbsp;</td>
+          </tr>
+
+          {/* Packing Charges (1.5%) */}
+          <tr className="border-b-[1.5px] border-black font-bold">
+            <td colSpan={7} className="p-1.5 pr-3 text-right">Packing Charges ( 1.5% )</td>
+            <td className="p-1.5 text-right font-bold">{formatNum(packingCharge)}</td>
+          </tr>
+
+          {/* Overall Total Row */}
+          <tr className="bg-slate-200 font-bold text-[11px]">
+            <td colSpan={4} className="p-1.5 pl-2 text-left">
+              Total Items : <span className="font-extrabold">{totalQty}</span>
+            </td>
+            <td colSpan={3} className="p-1.5 pr-3 text-right">Overall Total</td>
+            <td className="p-1.5 text-right font-black">{formatNum(overallTotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* 5. Footer */}
+      <div className="p-2.5 border-t-[1.5px] border-black flex justify-between text-[10px] leading-relaxed">
+        <div className="w-[65%]">
+          <div className="font-bold underline mb-0.5">Terms & Conditions</div>
+          <div>1. Goods once sold will not be taken back or exchanged.</div>
+          <div>2. Our responsibility ceases immediately after delivering goods to carriers.</div>
+          <div>3. Subject to Sivakasi Jurisdiction.</div>
+        </div>
+        <div className="w-[32%] text-right flex flex-col justify-between items-end">
+          <div className="font-bold">For AADHI CRACKERS</div>
+          <div className="h-7"></div>
+          <div className="font-bold">Authorized Signatory</div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 /** Payments status pill per design 15: Paid green, Pending amber, Refunded orange. */
@@ -720,6 +974,44 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   // Selected Invoice for Printable View Modal
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
+  const [isInvoiceOrderLoading, setIsInvoiceOrderLoading] = useState(false);
+
+  // Automatically fetch full order details (items, addresses) when an invoice is opened
+  useEffect(() => {
+    if (!selectedInvoice) {
+      setSelectedInvoiceOrder(null);
+      return;
+    }
+    let active = true;
+    const hydrateOrder = async () => {
+      setIsInvoiceOrderLoading(true);
+      try {
+        if (selectedInvoice.orderId) {
+          const full = await api.getOrderById(selectedInvoice.orderId);
+          if (active && full) {
+            setSelectedInvoiceOrder(full);
+            return;
+          }
+        }
+        const found = orders.find(
+          (o) => o.orderNumber === selectedInvoice.orderNumber || o.id === selectedInvoice.orderId
+        );
+        if (active) setSelectedInvoiceOrder(found || null);
+      } catch {
+        const found = orders.find(
+          (o) => o.orderNumber === selectedInvoice.orderNumber || o.id === selectedInvoice.orderId
+        );
+        if (active) setSelectedInvoiceOrder(found || null);
+      } finally {
+        if (active) setIsInvoiceOrderLoading(false);
+      }
+    };
+    hydrateOrder();
+    return () => {
+      active = false;
+    };
+  }, [selectedInvoice, orders]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -2451,10 +2743,13 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
       {/* PRINTABLE TAX INVOICE MODAL */}
       {selectedInvoice && (() => {
-        const invOrder = orders.find(
-          (o) => o.orderNumber === selectedInvoice.orderNumber || o.id === selectedInvoice.orderId
-        );
-        const printableOrder: Order = invOrder || {
+        const invOrder =
+          selectedInvoiceOrder ||
+          orders.find(
+            (o) => o.orderNumber === selectedInvoice.orderNumber || o.id === selectedInvoice.orderId
+          );
+
+        const baseOrder: Order = invOrder || {
           id: selectedInvoice.orderId || selectedInvoice.id,
           orderNumber: selectedInvoice.orderNumber || selectedInvoice.invoiceNumber,
           customerId: selectedInvoice.customerId,
@@ -2480,13 +2775,18 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
             postalCode: '626123',
             country: 'India'
           },
-          items: invOrder?.items || [],
+          items: [],
           statusHistories: []
         };
 
+        const printableOrder: Order = {
+          ...baseOrder,
+          items: baseOrder.items || []
+        };
+
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs animate-fade-in">
-            <div className="bg-white rounded-3xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] flex flex-col">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-navy/75 backdrop-blur-xs animate-fade-in">
+            <div className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-3 max-h-[95vh] flex flex-col">
               <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <div className="flex items-center space-x-2">
                   <div className="font-black text-base text-navy">AADHI CRACKERS</div>
@@ -2497,14 +2797,17 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handlePrintInvoice(printableOrder)}
-                    className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-colors"
+                    className="px-4 py-2 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-colors cursor-pointer"
                   >
                     <Printer className="w-3.5 h-3.5" />
                     <span>Print Invoice</span>
                   </button>
                   <button
-                    onClick={() => setSelectedInvoice(null)}
-                    className="text-slate-400 hover:text-slate-600"
+                    onClick={() => {
+                      setSelectedInvoice(null);
+                      setSelectedInvoiceOrder(null);
+                    }}
+                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
                     title="Close"
                   >
                     <XCircle className="w-5 h-5" />
@@ -2512,13 +2815,22 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 </div>
               </div>
 
-              {/* Formatted Reference Invoice Live Preview */}
-              <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 min-h-[440px]">
-                <iframe
-                  title={`Invoice ${selectedInvoice.invoiceNumber}`}
-                  srcDoc={buildOrderInvoiceHtml(printableOrder)}
-                  className="w-full h-full border-none bg-white"
-                />
+              {/* Formatted Reference Invoice Live Preview (Native High-Fidelity Paper Canvas) */}
+              <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-200/60 p-3 sm:p-6 flex justify-center shadow-inner">
+                {isInvoiceOrderLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 space-y-3 text-slate-500">
+                    <Loader2 className="w-8 h-8 animate-spin text-purple" />
+                    <div className="text-xs font-bold">Loading invoice details...</div>
+                  </div>
+                ) : (
+                  <InvoicePaperPreview
+                    order={printableOrder}
+                    invoiceNumber={selectedInvoice.invoiceNumber}
+                    invoiceDate={selectedInvoice.issuedAtUtc}
+                    invoiceSubtotal={selectedInvoice.subtotal}
+                    invoiceGrandTotal={selectedInvoice.grandTotal}
+                  />
+                )}
               </div>
 
               <div className="pt-2 flex items-center justify-between text-xs text-slate-500 border-t border-slate-100">

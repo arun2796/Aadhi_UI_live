@@ -335,30 +335,33 @@ const buildInvoiceHtml = (o: OrderView): string => {
       ? Number(o.total)
       : subTotal + packingCharge;
 
-  const rows = items
-    .map((it, i) => {
-      const qty = Number(it.quantity) || 1;
-      const lineTotal = Number(it.lineTotal) || it.unitPrice * qty;
-      const finalRate = qty > 0 ? it.unitPrice || lineTotal / qty : 0;
+  const rows =
+    items.length === 0
+      ? '<tr><td colspan="8" style="text-align:center;padding:24px 12px;color:#64748b;font-weight:bold;border-bottom:1px solid #000;">No items found for this order.</td></tr>'
+      : items
+          .map((it, i) => {
+            const qty = Number(it.quantity) || 1;
+            const lineTotal = Number(it.lineTotal) || it.unitPrice * qty;
+            const finalRate = qty > 0 ? it.unitPrice || lineTotal / qty : 0;
 
-      // 80% discount model
-      const rateQty = finalRate * 5;
-      const discount = rateQty * 0.8;
-      const code = it.sku || it.code || `AC-${String(i + 1).padStart(2, '0')}`;
+            // 80% discount model
+            const rateQty = finalRate * 5;
+            const discount = rateQty * 0.8;
+            const code = it.sku || it.code || `AC-${String(i + 1).padStart(2, '0')}`;
 
-      return `
-      <tr>
-        <td class="col-sno">${i + 1}</td>
-        <td class="col-code">${escapeHtml(code)}</td>
-        <td class="col-name">${escapeHtml(it.name)}</td>
-        <td class="col-qty">${qty}</td>
-        <td class="col-rate">${formatNum(rateQty)}</td>
-        <td class="col-disc">${formatNum(discount)}</td>
-        <td class="col-final">${formatNum(finalRate)}</td>
-        <td class="col-amount">${formatNum(lineTotal)}</td>
-      </tr>`;
-    })
-    .join('');
+            return `
+            <tr>
+              <td class="col-sno">${i + 1}</td>
+              <td class="col-code">${escapeHtml(code)}</td>
+              <td class="col-name">${escapeHtml(it.name)}</td>
+              <td class="col-qty">${qty}</td>
+              <td class="col-rate">${formatNum(rateQty)}</td>
+              <td class="col-disc">${formatNum(discount)}</td>
+              <td class="col-final">${formatNum(finalRate)}</td>
+              <td class="col-amount">${formatNum(lineTotal)}</td>
+            </tr>`;
+          })
+          .join('');
 
   const addr = o.shippingAddress;
   const addressLines = addr
