@@ -29,7 +29,7 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
   const { totalItems, setIsCartDrawerOpen } = useCart();
   const { wishlist } = useWishlist();
   const { user, isAdmin, toggleUserRole } = useAuth();
-  const { storePhone, storeEmail, headerPromoText, freeShippingThreshold } = useSettings();
+  const { storePhone, storeEmail, headerPromoText } = useSettings();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -62,11 +62,9 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
                 FESTIVAL SALE
               </span>
             )}
-            {freeShippingThreshold > 0 && (
-              <span className="hidden sm:inline text-slate-200">
-                🎇 Free Express Delivery on orders above ₹{freeShippingThreshold.toLocaleString('en-IN')}
-              </span>
-            )}
+            <span className="hidden sm:inline text-slate-200">
+              🚚 Dispatched by lorry — reaches your transport office in 1–2 weeks
+            </span>
           </div>
 
           <div className="flex items-center space-x-4">

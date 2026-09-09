@@ -73,6 +73,23 @@ export const orderApi = {
     return res.data?.data;
   },
 
+  /**
+   * Quick Dispatch (Phase 6) — hands the parcel to the transport carrier and moves the
+   * order to Shipped. Backend contract: POST /orders/{id}/dispatch
+   * { carrierName, trackingNumber, notes } → updated OrderDto.
+   */
+  dispatchOrder: async (
+    id: string,
+    data: { carrierName?: string; trackingNumber: string; notes?: string }
+  ) => {
+    const res = await apiClient.post<{ data: Order }>(`/orders/${id}/dispatch`, {
+      carrierName: data.carrierName?.trim() || undefined,
+      trackingNumber: data.trackingNumber.trim(),
+      notes: data.notes?.trim() || undefined
+    });
+    return res.data?.data;
+  },
+
   moveToPacking: async (orderId: string) => {
     const res = await apiClient.post<{ data: Order }>(`/orders/${orderId}/move-to-packing`);
     return res.data?.data;

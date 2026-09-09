@@ -42,12 +42,12 @@ const LOGO_HERO_SLIDE: HeroSlide = {
 const TRUST_TILES = [
   { icon: ShieldCheck, title: '100% Original', subtitle: 'Trusted Brands', color: 'text-orange bg-orange/10 border-orange/20' },
   { icon: BadgeCheck, title: 'Safe & Secure', subtitle: 'Quality Assured', color: 'text-purple bg-purple/10 border-purple/20' },
-  { icon: Truck, title: 'Fast Delivery', subtitle: 'On Time Delivery', color: 'text-gold-dark bg-gold/10 border-gold/20' },
+  { icon: Truck, title: 'Transport Delivery', subtitle: 'Arrives in 1–2 weeks', color: 'text-gold-dark bg-gold/10 border-gold/20' },
   { icon: BadgePercent, title: 'Best Prices', subtitle: 'Lowest Guaranteed', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' }
 ];
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
-  const { headerPromoText, freeShippingThreshold, storePhone } = useSettings();
+  const { headerPromoText, storePhone } = useSettings();
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -103,14 +103,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       q: 'Are your fireworks 100% genuine?',
       a: 'Yes, all products are quality-checked and adhere to Indian Fireworks Standards.'
     },
-    ...(freeShippingThreshold > 0
-      ? [
-          {
-            q: 'What is the minimum order amount for free delivery?',
-            a: `Orders above ₹${freeShippingThreshold.toLocaleString('en-IN')} qualify for free express delivery across all serviceable PIN codes.`
-          }
-        ]
-      : []),
+    {
+      q: 'How long does delivery take and what does it cost?',
+      a: 'Your order is dispatched by lorry and typically arrives at the destination transport office in 1–2 weeks. We do not charge anything for delivery — the freight is paid directly to the transport company when you collect the parcel.'
+    },
     {
       q: 'Do you offer bulk wholesale pricing for distributors and apartments?',
       a: `Yes! For bulk bookings, please reach out to our wholesale support team${storePhone ? ` on ${storePhone}` : ''} or via the Contact Us page for customized volume discounts.`
@@ -166,7 +162,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
               {/* ✓ bullet trio */}
               <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2">
-                {['100% Original', 'Safe & Secure', 'Fast Delivery'].map((b) => (
+                {['100% Original', 'Safe & Secure', 'Transport Delivery'].map((b) => (
                   <span key={b} className="inline-flex items-center space-x-1.5 text-xs sm:text-sm font-semibold text-slate-200">
                     <CheckCircle2 className="w-4 h-4 text-gold" />
                     <span>{b}</span>
@@ -336,9 +332,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                 {headerPromoText}
-                {freeShippingThreshold > 0 && (
-                  <> Free doorstep delivery on orders above ₹{freeShippingThreshold.toLocaleString('en-IN')}.</>
-                )}
               </p>
 
               <div className="pt-2 flex items-center space-x-4">

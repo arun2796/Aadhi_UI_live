@@ -5,12 +5,13 @@ import {
   Zap,
   Truck,
   ShieldCheck,
-  RotateCcw,
+  BadgeCheck,
   Package,
   Minus,
   Plus,
   Star,
   AlertTriangle,
+  Gift,
   Plus as PlusIcon
 } from 'lucide-react';
 import { Product } from '../../types';
@@ -20,7 +21,6 @@ import { ProductCard } from '../../components/customer/ProductCard';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useToast } from '../../context/ToastContext';
-import { useSettings } from '../../context/SettingsContext';
 import productPlaceholder from '../../assets/product-placeholder.svg';
 
 interface ProductDetailPageProps {
@@ -43,7 +43,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   const { addToCart, setIsCartDrawerOpen } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { showToast } = useToast();
-  const { freeShippingThreshold } = useSettings();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
@@ -84,6 +83,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
       : product.compareAtPrice && product.compareAtPrice > product.price
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : 0;
+
+  // Combo contents — hidden entirely until the API sends `comboItems`.
+  const comboItems = Array.isArray(product.comboItems) ? product.comboItems : [];
+  const comboItemsTotal = product.comboItemsTotal ?? 0;
 
   // Real review data only — the rating line/summary is omitted when the DTO has none.
   const rating = (product.rating ?? 0) > 0 ? (product.rating as number) : 0;
@@ -244,12 +247,63 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
               </div>
             )}
             <div className="text-[11px] text-slate-500">
-              Inclusive of all GST taxes.
-              {freeShippingThreshold > 0 && (
-                <> Free express shipping on orders over ₹{freeShippingThreshold.toLocaleString('en-IN')}.</>
-              )}
+              Inclusive of all GST taxes. Dispatched by lorry to your transport office in 1–2 weeks;
+              freight paid to the transport company on collection.
             </div>
           </div>
+
+          {/* What's inside this combo — the key selling point for gift boxes */}
+          {comboItems.length > 0 && (
+            <div className="rounded-2xl border border-purple/20 overflow-hidden">
+              <div className="px-5 py-3 flex items-center gap-2 bg-purple-soft">
+                <Gift className="w-4.5 h-4.5 text-purple shrink-0" />
+                <h3 className="text-sm font-black text-navy">What's inside this combo</h3>
+                <span className="ml-auto text-xs font-black text-purple shrink-0">
+                  {comboItems.length} items
+                </span>
+              </div>
+
+              <div className="divide-y divide-slate-100 bg-white">
+                {comboItems.map((c, i) => (
+                  <div
+                    key={c.componentProductId || `${c.sku}-${i}`}
+                    className="flex items-center gap-3 px-5 py-3"
+                  >
+                    <img
+                      src={c.imageUrl || productPlaceholder}
+                      alt={c.productName}
+                      className="w-12 h-12 rounded-xl object-cover border border-slate-100 bg-slate-50 shrink-0"
+                      loading="lazy"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">
+                        {c.productName}
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                        × {c.quantity}
+                      </div>
+                    </div>
+                    {c.unitPrice > 0 && (
+                      <div className="text-xs font-black text-slate-600 shrink-0">
+                        ₹{c.unitPrice.toLocaleString('en-IN')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {comboItemsTotal > 0 && (
+                <div className="px-5 py-3 flex items-center justify-between bg-slate-50 border-t border-slate-100">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Total value inside
+                  </span>
+                  <span className="text-sm font-black text-navy">
+                    ₹{comboItemsTotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Gold-bullet feature list (real description lines only) */}
           {features.length > 0 && (
@@ -340,11 +394,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             </div>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
               <Truck className="w-5 h-5 text-gold-dark mx-auto mb-1" />
-              <div className="text-[11px] font-bold text-slate-800">Fast Delivery</div>
+              <div className="text-[11px] font-bold text-slate-800">Transport Delivery</div>
             </div>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <RotateCcw className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
-              <div className="text-[11px] font-bold text-slate-800">Easy Returns</div>
+              <BadgeCheck className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+              <div className="text-[11px] font-bold text-slate-800">Factory Direct</div>
             </div>
           </div>
         </div>

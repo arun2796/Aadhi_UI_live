@@ -27,6 +27,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings, findDeliveryZone } from '../../context/SettingsContext';
 import { api } from '../../services/api';
+import { BankTransferDetailsCard } from '../../components/common/CommonComponents';
 import { compressImageFile } from '../../utils/imageCompressor';
 
 /* ─────────────────────────────────────────────────────────────
@@ -66,6 +67,37 @@ const addressOneLine = (a: CheckoutAddress): string =>
   [a.addressLine1, a.addressLine2, a.city ? `${a.city} - ${a.pincode}` : a.pincode]
     .filter(Boolean)
     .join(', ');
+
+/** The single delivery method returned by GET /orders/delivery-options.
+ *  There is no charge field: the lorry freight is paid by the customer directly
+ *  to the transport company on collection, so the store never quotes it. */
+interface DeliveryOption {
+  code: string;
+  name: string;
+  note?: string;
+  etaMinDays?: number;
+  etaMaxDays?: number;
+}
+
+/* Fallback copy used whenever the API does not supply a name / note of its own. */
+const TRANSPORT_METHOD_CODE = 'transport';
+const TRANSPORT_METHOD_NAME = 'Transport Delivery';
+const TRANSPORT_METHOD_NOTE =
+  'Your order is dispatched by lorry and typically arrives at the destination transport office in 1–2 weeks. Freight charges are paid directly to the transport company when you collect the parcel.';
+
+/** "12 Sep - 26 Sep 2026" from the API's ETA window; null when the API sends none. */
+const etaRangeLabel = (etaMinDays?: number, etaMaxDays?: number): string | null => {
+  const min = Number(etaMinDays);
+  const max = Number(etaMaxDays);
+  if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
+  const start = Number.isFinite(min) ? min : max;
+  const end = Math.max(start, Number.isFinite(max) ? max : start);
+  const from = new Date();
+  from.setDate(from.getDate() + start);
+  const to = new Date();
+  to.setDate(to.getDate() + end);
+  return `${fmtDayMonth(from)} - ${fmtDayMonthYear(to)}`;
+};
 
 const LABEL_OPTIONS: Array<{ value: string; icon: React.ReactNode }> = [
   { value: 'Home', icon: <Home className="w-3.5 h-3.5" /> },
@@ -136,7 +168,7 @@ interface CheckoutPageProps {
 
 export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const { user } = useAuth();
-  const { items, subtotal, discount, couponCode, shippingCharge, clearCart } = useCart();
+  const { items, subtotal, discount, couponCode, clearCart } = useCart();
   const { showToast } = useToast();
   const { deliveryZones } = useSettings();
 
@@ -336,15 +368,34 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     goToStep(2);
   };
 
-  /* ── Delivery state: Default 1-week transport delivery (To-Pay) ── */
-  const defaultDeliveryEta = useMemo(() => {
-    const from = new Date();
-    from.setDate(from.getDate() + 5);
-    const to = new Date();
-    to.setDate(to.getDate() + 7);
-    return `${fmtDayMonth(from)} - ${fmtDayMonthYear(to)}`;
+  /* ── Delivery method ──
+     There is exactly one method (lorry to the destination transport office), so the
+     API's single option only supplies the wording; nothing here is selectable and
+     no freight is ever added to the order total. */
+  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    api.getDeliveryOptions(subtotal)
+      .then(list => {
+        if (!mounted || !Array.isArray(list)) return;
+        setDeliveryOptions(list);
+      })
+      .catch(() => { /* keep the fallback transport copy when the endpoint is unavailable */ });
+    return () => { mounted = false; };
+    // Fetched once per checkout — nothing about it tracks the subtotal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const deliveryCharge = 0; // Payable directly at transport office on parcel collection
+
+  const deliveryOption = deliveryOptions[0] || null;
+  const deliveryMethodCode = deliveryOption?.code?.trim() || TRANSPORT_METHOD_CODE;
+  const deliveryMethodName = deliveryOption?.name?.trim() || TRANSPORT_METHOD_NAME;
+  const deliveryMethodNote = deliveryOption?.note?.trim() || TRANSPORT_METHOD_NOTE;
+
+  const deliveryEta = useMemo(
+    () => etaRangeLabel(deliveryOption?.etaMinDays, deliveryOption?.etaMaxDays),
+    [deliveryOption]
+  );
 
   /* ── Payment state ── */
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'COD'>('UPI');
@@ -379,8 +430,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     }
   };
 
-  /* ── Totals & Place Order ── */
-  const orderTotal = Math.max(0, subtotal - discount) + deliveryCharge + packingCharges;
+  /* ── Totals & Place Order ──
+     subtotal − discount + packing charges. No freight term: the lorry freight is
+     settled directly with the transport company on collection. */
+  const orderTotal = Math.max(0, subtotal - discount) + packingCharges;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handlePlaceOrder = async () => {
@@ -412,10 +465,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const packingNote = packingCharges > 0
-      ? ` Packing charges ${packingPercent}% = ₹${Math.round(packingCharges)} (collect on delivery).`
-      : '';
-    const transportNote = ' Standard transport delivery (To-Pay service charge at transport office on collection).';
+    // Packing charges are calculated and returned by the server on the created
+    // order — the client only shows an estimate before placing the order.
+    const transportNote = ` Delivery: ${deliveryMethodName} (lorry freight paid by the customer to the transport company on collection).`;
 
     try {
       const order = await api.createOrder({
@@ -458,24 +510,35 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
         })),
         paymentMethod,
         couponCode: couponCode || undefined,
-        deliveryMethod: 'standard',
+        deliveryMethod: deliveryMethodCode,
         utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
         paymentScreenshotBase64: paymentMethod === 'UPI' ? (screenshotPreview || undefined) : undefined,
         notes:
           (paymentMethod === 'UPI'
             ? `UPI Payment Proof Uploaded. UTR: ${utrNumber.trim()}`
-            : 'Cash on Delivery order.') + packingNote + transportNote
+            : 'Cash on Delivery order.') + transportNote
       });
 
-      // Backend grandTotal excludes packing charges (deviation, see packingNote above),
-      // so add them back for the displayed total on the success screen.
-      const finalTotal = order.grandTotal ? order.grandTotal + packingCharges : orderTotal;
+      // The server owns the final numbers (grandTotal already includes the
+      // server-calculated packing charges); the client estimate is only a fallback.
+      const serverPacking = Number(order?.packingCharges);
+      const serverPackingPercent = Number(order?.packingChargePercent);
+      const finalTotal = Number(order?.grandTotal) > 0 ? Number(order.grandTotal) : orderTotal;
 
       // Flag for the success screen (desktop design 9) rendered by TrackOrderPage.
       try {
         sessionStorage.setItem(
           'aadhi_just_placed',
-          JSON.stringify({ orderNumber: order.orderNumber, grandTotal: finalTotal, paymentMethod })
+          JSON.stringify({
+            orderNumber: order.orderNumber,
+            grandTotal: finalTotal,
+            packingCharges: Number.isFinite(serverPacking) && serverPacking > 0 ? serverPacking : undefined,
+            packingChargePercent:
+              Number.isFinite(serverPackingPercent) && serverPackingPercent > 0
+                ? serverPackingPercent
+                : undefined,
+            paymentMethod
+          })
         );
       } catch {
         // Ignore storage failures — tracking view still works.
@@ -778,23 +841,18 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
 
                 {errorBanner}
 
-                {/* Transport Office Delivery Notice */}
-                <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 shadow-xs space-y-2">
+                {/* Single delivery method — informational only, nothing to choose */}
+                <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 shadow-xs">
                   <div className="flex items-start space-x-3">
                     <Truck className="w-6 h-6 text-amber-700 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-black text-sm text-amber-950">Transport Office Delivery (Within 1 Week)</span>
-                        <span className="px-2.5 py-1 rounded-full bg-amber-200/80 text-amber-900 text-xs font-bold uppercase tracking-wider">
-                          To-Pay
-                        </span>
-                      </div>
-                      <p className="text-xs text-amber-800 font-semibold mt-1">
-                        Expected delivery between <strong>{defaultDeliveryEta}</strong> (~7 Days)
-                      </p>
-                      <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                        Parcel will be dispatched via registered transport service to your nearest transport hub. Transport freight/service charges are payable directly to the transport office on parcel collection.
-                      </p>
+                      <h4 className="font-black text-sm text-amber-950">{deliveryMethodName}</h4>
+                      {deliveryEta && (
+                        <p className="text-xs text-amber-800 font-semibold mt-1">
+                          Expected to reach the transport office between <strong>{deliveryEta}</strong>
+                        </p>
+                      )}
+                      <p className="text-xs text-amber-700 mt-1 leading-relaxed">{deliveryMethodNote}</p>
                     </div>
                   </div>
                 </div>
@@ -836,7 +894,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-black text-navy">Payment Methods</h3>
                 <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                  + Transport Charge To-Pay on Pickup
+                  {deliveryMethodName}
                 </span>
               </div>
 
@@ -898,6 +956,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                           </div>
                         </div>
                       </div>
+
+                      {/* Bank transfer alternative to the QR (hidden until the store configures it) */}
+                      <BankTransferDetailsCard />
 
                       {/* UTR + Proof upload */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1053,16 +1114,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
               </div>
             )}
 
-            <div className="flex justify-between items-center">
-              <span>Delivery Charges</span>
-              <span className="font-bold text-amber-800 text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                To-Pay at Transport Office
-              </span>
-            </div>
-
             {packingCharges > 0 && (
               <div className="flex justify-between">
-                <span>Packing Charges ({packingPercent}%)</span>
+                <span>
+                  Packing Charges ({packingPercent}%)
+                  <span className="text-[10px] text-slate-400 font-medium ml-1">estimated</span>
+                </span>
                 <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
               </div>
             )}
@@ -1072,7 +1129,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
               <span className="text-base text-purple">{inr(orderTotal)}</span>
             </div>
             <div className="text-[10px] text-slate-400">
-              * Transport freight charges payable directly at transport office on collection.
+              * Lorry freight is paid directly to the transport company when you collect the parcel.
             </div>
           </div>
 

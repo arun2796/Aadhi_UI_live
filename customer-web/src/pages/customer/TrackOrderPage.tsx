@@ -13,7 +13,7 @@ import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../context/SettingsContext';
-import { triggerFireworksConfetti } from '../../components/common/CommonComponents';
+import { CarrierTrackingCard, triggerFireworksConfetti } from '../../components/common/CommonComponents';
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
@@ -47,6 +47,10 @@ const statusToStepIndex = (status: string): number => {
 interface JustPlacedInfo {
   orderNumber?: string;
   grandTotal?: number;
+  /** Server-calculated packing charges on the created order. */
+  packingCharges?: number;
+  /** Percentage the server used for `packingCharges`. */
+  packingChargePercent?: number;
   paymentMethod?: string;
 }
 
@@ -128,6 +132,10 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
   const totalAmount = Number(order?.grandTotal ?? order?.totalAmount ?? order?.total) || 0;
   const isCancelled = ['cancelled', 'returned'].includes((status || '').toLowerCase());
   const progressIdx = statusToStepIndex(status);
+  const packingCharges = Number(order?.packingCharges ?? order?.packingCharge) || 0;
+  const packingChargePercent = Number(order?.packingChargePercent) || 0;
+  const carrierName: string = order?.carrierName ?? order?.carrier ?? '';
+  const trackingNumber: string = order?.trackingNumber ?? order?.lrNumber ?? '';
 
   /** Date a given timeline node was reached, from the status history. */
   const dateForStep = (stepIdx: number): string => {
@@ -145,6 +153,9 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
 
   const successOrderNumber = justPlaced?.orderNumber || initialOrderNumber || order?.orderNumber || '';
   const successTotal = justPlaced?.grandTotal || totalAmount;
+  // Packing charges as the SERVER calculated them on the created order.
+  const successPacking = Number(justPlaced?.packingCharges ?? packingCharges) || 0;
+  const successPackingPercent = Number(justPlaced?.packingChargePercent ?? packingChargePercent) || 0;
   const rewardPoints = Math.floor(successTotal / 100);
 
   /* ═══════════ Desktop design 9: ORDER SUCCESS ═══════════ */
@@ -167,6 +178,25 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Order ID</div>
             <div className="text-xl sm:text-2xl font-black text-navy mt-0.5">{successOrderNumber}</div>
           </div>
+
+          {/* Server-confirmed amounts for the placed order */}
+          {successTotal > 0 && (
+            <div className="max-w-md mx-auto text-left rounded-2xl border border-slate-200 bg-white p-4 space-y-2 text-xs">
+              {successPacking > 0 && (
+                <div className="flex justify-between text-slate-600">
+                  <span>
+                    Packing Charges
+                    {successPackingPercent > 0 ? ` (${successPackingPercent}%)` : ''}
+                  </span>
+                  <span className="font-bold text-slate-800">{inr(successPacking)}</span>
+                </div>
+              )}
+              <div className="flex justify-between pt-1 border-t border-slate-100">
+                <span className="font-black text-navy text-sm">Order Total</span>
+                <span className="font-black text-purple text-sm">{inr(successTotal)}</span>
+              </div>
+            </div>
+          )}
 
           <div className="max-w-md mx-auto text-left space-y-2.5">
             <div className="flex items-start space-x-2 text-xs text-slate-600">
@@ -327,6 +357,9 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
             </div>
           </div>
 
+          {/* ── Carrier + LR / waybill: how the customer collects the parcel ── */}
+          <CarrierTrackingCard carrierName={carrierName} trackingNumber={trackingNumber} />
+
           {/* ── Delivery Address + Need Help ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-2 text-xs">
@@ -415,6 +448,15 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
                 </div>
               )}
             </div>
+            {packingCharges > 0 && (
+              <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">
+                  Packing Charges
+                  {packingChargePercent > 0 ? ` (${packingChargePercent}%)` : ''}
+                </span>
+                <span className="font-bold text-navy">{inr(packingCharges)}</span>
+              </div>
+            )}
             {totalAmount > 0 && (
               <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
                 <span className="text-sm font-black text-navy">Total Amount</span>

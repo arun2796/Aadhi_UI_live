@@ -25,13 +25,12 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
     couponCode,
     applyCoupon,
     removeCoupon,
-    shippingCharge,
     grandTotal,
     updateQuantity,
     removeFromCart
   } = useCart();
   const { showToast } = useToast();
-  const { promotionCodeEnabled, freeShippingThreshold } = useSettings();
+  const { promotionCodeEnabled } = useSettings();
 
   const [couponInput, setCouponInput] = useState('');
   const [applyingCoupon, setApplyingCoupon] = useState(false);
@@ -180,13 +179,6 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                   <span>-{inr(discount)}</span>
                 </div>
               )}
-
-              <div className="flex justify-between items-center">
-                <span>Delivery Charges</span>
-                <span className="font-bold text-emerald-600 text-xs bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                  ₹0 (Transport To-Pay)
-                </span>
-              </div>
 
               <div className="flex justify-between items-center text-sm font-black text-navy pt-3 border-t border-slate-100">
                 <span>Total</span>

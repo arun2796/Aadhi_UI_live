@@ -28,7 +28,6 @@ import {
 import { CartPage } from './pages/customer/CartPage';
 import { MyOrdersPage, OrderDetailsPage } from './pages/customer/OrdersPages';
 import { WishlistPage, AddressesPage } from './pages/customer/WishlistAddressesPages';
-import { ReturnsPage } from './pages/customer/ReturnsPage';
 
 // Mobile Dedicated Navigation Shell
 import { MobileTopBar } from './components/mobile/MobileTopBar';
@@ -55,7 +54,6 @@ import {
   ScreenResetPassword
 } from './components/mobile/ScreenAuth';
 import { ScreenMyOrders, ScreenOrderDetails } from './components/mobile/ScreenOrdersAndDetails';
-import { ScreenReturnRequest, ScreenReturnStatus, ScreenRefundStatus } from './components/mobile/ScreenReturns';
 import { ScreenPaymentSuccess, ScreenPaymentFailed, ScreenPaymentPending } from './components/mobile/ScreenPaymentResult';
 import { ScreenWishlist } from './components/mobile/ScreenWishlist';
 import { ScreenAddresses } from './components/mobile/ScreenAddresses';
@@ -80,10 +78,7 @@ const MOBILE_TITLES: Record<string, string | undefined> = {
   addresses: 'My Addresses',
   'payment-success': 'Payment Status',
   'payment-failed': 'Payment Status',
-  'payment-pending': 'Payment Status',
-  'return-request': 'Return Request',
-  'return-status': 'Return Status',
-  'refund-status': 'Refund Status'
+  'payment-pending': 'Payment Status'
 };
 
 // Screens that need an authenticated customer — unauthenticated users see Login first.
@@ -93,10 +88,7 @@ const AUTH_REQUIRED_PAGES = new Set([
   'checkout',
   'my-orders',
   'order-details',
-  'addresses',
-  'return-request',
-  'return-status',
-  'refund-status'
+  'addresses'
 ]);
 
 /** Full-page notice shown to customers while the storefront is switched OFF. */
@@ -239,6 +231,8 @@ function CustomerAppRoot() {
                 utrNumber={effectiveParams?.utrNumber}
                 screenshotUrl={effectiveParams?.screenshotUrl}
                 grandTotal={effectiveParams?.grandTotal}
+                packingCharges={effectiveParams?.packingCharges}
+                packingChargePercent={effectiveParams?.packingChargePercent}
                 paymentMethod={effectiveParams?.paymentMethod}
               />
             )}
@@ -349,30 +343,6 @@ function CustomerAppRoot() {
                 orderNumber={effectiveParams?.orderNumber}
                 orderId={effectiveParams?.orderId}
                 amount={effectiveParams?.amount}
-              />
-            )}
-
-            {/* ── Returns cluster (designs 23-25) ── */}
-            {effectivePage === 'return-request' && (
-              <ScreenReturnRequest
-                onNavigate={navigate}
-                orderId={effectiveParams?.orderId}
-                orderNumber={effectiveParams?.orderNumber}
-              />
-            )}
-
-            {effectivePage === 'return-status' && (
-              <ScreenReturnStatus
-                onNavigate={navigate}
-                returnId={effectiveParams?.returnId}
-              />
-            )}
-
-            {effectivePage === 'refund-status' && (
-              <ScreenRefundStatus
-                onNavigate={navigate}
-                returnId={effectiveParams?.returnId}
-                refundId={effectiveParams?.refundId}
               />
             )}
           </main>
@@ -521,30 +491,12 @@ function CustomerAppRoot() {
 
             {effectivePage === 'addresses' && <AddressesPage onNavigate={navigate} />}
 
-            {/* ── Return & Refund (desktop design 18) ── */}
-            {(effectivePage === 'return-request' ||
-              effectivePage === 'return-status' ||
-              effectivePage === 'refund-status') && (
-              <ReturnsPage
-                onNavigate={navigate}
-                mode={
-                  effectivePage === 'return-request' ? 'request' :
-                  effectivePage === 'return-status' ? 'status' : 'refunds'
-                }
-                orderId={effectiveParams?.orderId}
-                orderNumber={effectiveParams?.orderNumber}
-                returnId={effectiveParams?.returnId}
-                refundId={effectiveParams?.refundId}
-              />
-            )}
-
             {effectivePage === 'about' && <AboutUsPage onNavigate={navigate} />}
             {effectivePage === 'contact' && <ContactUsPage />}
             {effectivePage === 'safety' && <PolicyPage title="Fireworks Safety Precautions" type="safety" />}
             {effectivePage === 'terms' && <PolicyPage title="Terms & Conditions" type="terms" />}
             {effectivePage === 'privacy' && <PolicyPage title="Privacy Policy" type="privacy" />}
             {effectivePage === 'shipping-policy' && <PolicyPage title="Shipping Policy" type="shipping" />}
-            {effectivePage === 'refund-policy' && <PolicyPage title="Return Policy" type="refund" />}
           </main>
 
           <CustomerFooter onNavigate={navigate} />

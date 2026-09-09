@@ -62,7 +62,6 @@ function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedA
       customers: '/admin/customers',
       invoices: '/admin/invoices',
       payments: '/admin/payments',
-      returns: '/admin/returns',
       products: '/admin/products',
       categories: '/admin/categories',
       brands: '/admin/brands',
@@ -170,16 +169,6 @@ function AdminAppRoutes() {
       <Route path="/admin/combo-offers/:id" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
       <Route path="/admin/reviews" element={<ProtectedAdminShell currentTab="reviews"><ErpCatalogModule initialSubTab="reviews" /></ProtectedAdminShell>} />
       <Route path="/admin/banners" element={<ProtectedAdminShell currentTab="banners"><ErpCatalogModule initialSubTab="banners" /></ProtectedAdminShell>} />
-
-      {/* Obsolete Module Redirects */}
-      <Route path="/admin/returns/*" element={<Navigate to="/admin/orders" replace />} />
-      <Route path="/admin/inventory/*" element={<Navigate to="/admin/products" replace />} />
-      <Route path="/admin/warehouses/*" element={<Navigate to="/admin/products" replace />} />
-      <Route path="/admin/stock-transfers/*" element={<Navigate to="/admin/products" replace />} />
-      <Route path="/admin/suppliers/*" element={<Navigate to="/admin/dashboard" replace />} />
-      <Route path="/admin/purchases/*" element={<Navigate to="/admin/dashboard" replace />} />
-      <Route path="/admin/goods-received/*" element={<Navigate to="/admin/dashboard" replace />} />
-      <Route path="/admin/supplier-bills" element={<Navigate to="/admin/dashboard" replace />} />
 
       {/* Finance & Expenses (§5) */}
       <Route path="/admin/finance" element={<ProtectedAdminShell currentTab="finance"><ErpFinanceAndPnlModule initialSubTab="pnl" /></ProtectedAdminShell>} />

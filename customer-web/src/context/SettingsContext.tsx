@@ -34,8 +34,18 @@ export interface StorefrontSettings {
   storeAddress: string;
   /** Website.HeaderPromoText */
   headerPromoText: string;
-  /** Shipping.FreeShippingThreshold — 0 when absent/invalid. */
+  /** Shipping.FreeShippingThreshold — 0 when absent/invalid.
+   *  Deliberately unused by the UI: the store charges no delivery fee at all, so
+   *  there is no free-delivery threshold to advertise anywhere on the storefront. */
   freeShippingThreshold: number;
+  /** Payment.BankName — bank the customer transfers to (empty = not configured). */
+  bankName: string;
+  /** Payment.AccountName */
+  accountName: string;
+  /** Payment.AccountNumber */
+  accountNumber: string;
+  /** Payment.IfscCode */
+  ifscCode: string;
   /** True once the settings request has resolved (successfully or not). */
   isLoaded: boolean;
 }
@@ -54,6 +64,10 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
   storeAddress: '',
   headerPromoText: '',
   freeShippingThreshold: 0,
+  bankName: '',
+  accountName: '',
+  accountNumber: '',
+  ifscCode: '',
   isLoaded: false
 };
 
@@ -104,6 +118,10 @@ const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   storeAddress: (values['Store.Address'] || '').trim(),
   headerPromoText: (values['Website.HeaderPromoText'] || '').trim(),
   freeShippingThreshold: parseThreshold(values['Shipping.FreeShippingThreshold']),
+  bankName: (values['Payment.BankName'] || '').trim(),
+  accountName: (values['Payment.AccountName'] || '').trim(),
+  accountNumber: (values['Payment.AccountNumber'] || '').trim(),
+  ifscCode: (values['Payment.IfscCode'] || '').trim(),
   isLoaded: true
 });
 

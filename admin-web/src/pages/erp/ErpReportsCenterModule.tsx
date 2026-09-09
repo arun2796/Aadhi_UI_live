@@ -106,8 +106,6 @@ const parseTrendDate = (label: string, now: Date): Date | null => {
 const EXPORT_TYPES: { id: string; label: string }[] = [
   { id: 'sales', label: 'Sales & Revenue' },
   { id: 'products', label: 'Product Performance' },
-  { id: 'inventory', label: 'Stock Valuation' },
-  { id: 'purchases', label: 'Purchases & Vendors' },
   { id: 'expenses', label: 'Operating Expenses' },
   { id: 'tax', label: 'GST Tax Report' }
 ];

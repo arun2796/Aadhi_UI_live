@@ -73,6 +73,18 @@ export interface ProductImage {
   isPrimary: boolean;
 }
 
+/** One component product inside a combo / gift box (ProductDetailDto.comboItems).
+ *  Optional everywhere on the storefront — the API may not expose it yet. */
+export interface ComboItem {
+  componentProductId: string;
+  productName: string;
+  sku: string;
+  imageUrl?: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
 export interface Product {
   id: string;
   sku: string;
@@ -108,6 +120,14 @@ export interface Product {
   rating?: number;
   reviewCount?: number;
   relatedProducts?: Product[];
+  /** ProductDto.isCombo — true when this product is a combo / gift box. */
+  isCombo?: boolean;
+  /** ProductDto.comboItemCount — how many component products the combo contains. */
+  comboItemCount?: number;
+  /** ProductDetailDto.comboItems — the component products, detail endpoint only. */
+  comboItems?: ComboItem[];
+  /** ProductDetailDto.comboItemsTotal — sum of the component line totals. */
+  comboItemsTotal?: number;
 }
 
 export interface Category {
@@ -192,10 +212,20 @@ export interface Order {
   itemsSubtotal: number;
   discount: number;
   tax: number;
-  shippingCharge: number;
+  /** Server-calculated packing charges (₹) for this order. */
+  packingCharges?: number;
+  /** Percentage the server used to calculate `packingCharges`. */
+  packingChargePercent?: number;
   grandTotal: number;
   couponCode?: string;
   notes?: string;
+  /** Delivery method code; 'transport' is the only method the store offers. */
+  deliveryMethod?: string;
+  /** Human-readable delivery method name supplied by the API. */
+  deliveryMethodName?: string;
+  /** Transport company / parcel service the parcel was handed to. */
+  carrierName?: string;
+  /** LR / waybill number used to collect the parcel. */
   trackingNumber?: string;
   placedAtUtc: string;
   utrNumber?: string;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, ShoppingBag, Eye, Check } from 'lucide-react';
+import { Heart, ShoppingBag, Eye, Check, Gift } from 'lucide-react';
 import { Product } from '../../types';
 import { RatingStars } from '../common/CommonComponents';
 import productPlaceholder from '../../assets/product-placeholder.svg';
@@ -21,6 +21,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
   const inWish = isInWishlist(product.id);
   const cartItem = items.find(i => i.productId === product.id);
   const isOutOfStock = product.isActive === false;
+
+  // Combo / gift-box chip — hidden entirely until the API sends the fields.
+  const comboCount = product.comboItemCount ?? 0;
+  const showComboChip = product.isCombo === true;
 
   const discountPct =
     product.discountPercentage && product.discountPercentage > 0
@@ -93,6 +97,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
             <span>{product.categoryName}</span>
             <span>{product.unit}</span>
           </div>
+
+          {/* COMBO chip — the key selling point for gift boxes */}
+          {showComboChip && (
+            <span className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-md bg-purple-soft text-purple text-[10px] font-black uppercase tracking-wider">
+              <Gift className="w-3 h-3" />
+              Combo{comboCount > 0 ? ` · ${comboCount} items` : ''}
+            </span>
+          )}
 
           {/* Title */}
           <h3 className="font-bold text-slate-800 text-sm sm:text-base group-hover:text-purple transition-colors line-clamp-1 mb-1.5">

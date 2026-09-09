@@ -430,7 +430,7 @@ export const Screen9AboutUs: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
       {/* Description Text */}
       <p className="text-xs text-slate-600 leading-relaxed">
-        Aadhi Crackers is your one-stop destination for premium quality crackers for all your celebrations. We are committed to providing 100% original products, safe packaging and on-time delivery.
+        Aadhi Crackers is your one-stop destination for premium quality crackers for all your celebrations. We are committed to providing 100% original products, safe packaging and reliable transport dispatch.
       </p>
 
       {/* 4 Feature Badges in 2x2 Grid matching Screen 9 */}
@@ -454,8 +454,8 @@ export const Screen9AboutUs: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         <div className="p-3 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center space-x-2.5">
           <Truck className="w-5 h-5 text-gold flex-shrink-0" />
           <div>
-            <div className="font-bold text-xs text-navy">Timely Delivery</div>
-            <div className="text-[9px] text-slate-400">On Time, Every Time</div>
+            <div className="font-bold text-xs text-navy">Transport Delivery</div>
+            <div className="text-[9px] text-slate-400">Arrives in 1–2 weeks</div>
           </div>
         </div>
 

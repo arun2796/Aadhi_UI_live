@@ -8,12 +8,9 @@ import {
   FolderTree,
   Package,
   Award,
-  Boxes,
-  Truck,
   TrendingUp,
   Users,
   Store,
-  RotateCcw,
   CreditCard,
   Tag,
   BarChart3,
@@ -24,7 +21,6 @@ import {
   AlertTriangle,
   Wallet,
   Clock,
-  Banknote,
   ShieldAlert,
   History,
   Activity,
@@ -35,8 +31,6 @@ import {
   Building2,
   UserCheck,
   Ticket,
-  ShoppingCart,
-  Smartphone,
   Search,
   Bell,
   LogOut,
@@ -205,24 +199,6 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'om-order-confirm', label: 'Order Confirm', icon: ClipboardCheck, to: 'orders?tab=confirm' }
     ]
   },
-  /*
-  {
-    label: 'Inventory',
-    items: [
-      { key: 'inv-inventory', label: 'Inventory', icon: Boxes, to: 'inventory' },
-      // Hidden per client menu — Low Stock is a tab inside the Inventory screen
-      // { key: 'inv-low-stock', label: 'Low Stock', icon: AlertTriangle, to: 'low-stock' }
-    ]
-  },
-  {
-    label: 'Purchase',
-    items: [
-      { key: 'pur-purchase', label: 'Purchase', icon: Truck, to: 'purchases' },
-      // Hidden per client menu — Suppliers is a tab inside the Purchase screen
-      // { key: 'pur-suppliers', label: 'Suppliers', icon: Store, to: 'suppliers' }
-    ]
-  },
-  */
   {
     label: 'Sales',
     items: [

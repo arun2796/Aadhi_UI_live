@@ -11,9 +11,7 @@ import {
   Users,
   Package,
   Clock,
-  AlertTriangle,
   TrendingUp,
-  ShieldAlert,
   ArrowUpRight,
   ArrowDownRight,
   Sparkles
@@ -67,8 +65,6 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
   const [salesTrend, setSalesTrend] = useState<{ date: string; sales: number; orders: number }[]>([]);
   const [orderOverview, setOrderOverview] = useState<OrderOverviewSlice[]>([]);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
-  const [outOfStockCount, setOutOfStockCount] = useState<number>(0);
-  const [lowStockFallback, setLowStockFallback] = useState<number>(0);
   const [totalProductCount, setTotalProductCount] = useState<number>(0);
   const [trendPeriod, setTrendPeriod] = useState<string>('month');
   const [isExporting, setIsExporting] = useState(false);
@@ -79,16 +75,10 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
     api.getDashboardKpis().then(setKpis).catch(() => setKpis(null));
     api.getTopProducts(5).then(setTopProducts).catch(() => setTopProducts([]));
 
-    // Stock health + catalogue size derived from the products endpoint (paged result carries totalCount)
+    // Catalogue size derived from the products endpoint (paged result carries totalCount)
     api
       .getProducts()
-      .then((prods) => {
-        setTotalProductCount(prods.totalCount ?? prods.length);
-        setOutOfStockCount(prods.filter((p) => (p.availableQuantity ?? 0) <= 0).length);
-        setLowStockFallback(
-          prods.filter((p) => (p.availableQuantity ?? 0) > 0 && p.availableQuantity <= p.reorderLevel).length
-        );
-      })
+      .then((prods) => setTotalProductCount(prods.totalCount ?? prods.length))
       .catch(() => undefined);
 
     // Order Overview donut — real per-status totals (paged endpoints expose totalCount)
@@ -156,7 +146,8 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
 
   const orderOverviewTotal = orderOverview.reduce((sum, s) => sum + s.value, 0);
 
-  const primaryKpis: {
+  // Six headline KPIs laid out as a 3 x 2 grid (see the KPI grid below).
+  const kpiCards: {
     label: string;
     value: string;
     delta: string | null;
@@ -199,10 +190,7 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
       iconBg: 'bg-amber-500/10 border border-amber-500/20',
       iconColor: 'text-amber-600',
       onClick: () => onNavigateTab('products')
-    }
-  ];
-
-  const secondaryKpis: typeof primaryKpis = [
+    },
     {
       label: 'Pending Orders',
       value: (kpis?.pendingOrders ?? 0).toLocaleString('en-IN'),
@@ -213,27 +201,9 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
       onClick: () => onNavigateTab('orders')
     },
     {
-      label: 'Low Stock Items',
-      value: (kpis?.lowStockItems ?? lowStockFallback).toLocaleString('en-IN'),
-      delta: null,
-      icon: AlertTriangle,
-      iconBg: 'bg-orange-500/10 border border-orange-500/20',
-      iconColor: 'text-orange-600',
-      onClick: () => onNavigateTab('low-stock')
-    },
-    {
-      label: 'Out of Stock',
-      value: outOfStockCount.toLocaleString('en-IN'),
-      delta: null,
-      icon: ShieldAlert,
-      iconBg: 'bg-rose-500/10 border border-rose-500/20',
-      iconColor: 'text-rose-600',
-      onClick: () => onNavigateTab('inventory')
-    },
-    {
-      label: 'Total Revenue',
-      value: `₹${(kpis?.totalSales ?? 0).toLocaleString('en-IN')}`,
-      delta: formatDelta(kpis?.salesChangePercentage),
+      label: 'Total Profit',
+      value: `₹${(kpis?.totalProfit ?? 0).toLocaleString('en-IN')}`,
+      delta: formatDelta(kpis?.profitChangePercentage),
       icon: TrendingUp,
       iconBg: 'bg-indigo-500/10 border border-indigo-500/20',
       iconColor: 'text-indigo-600',
@@ -277,49 +247,48 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
         </div>
       </div>
 
-      {[primaryKpis, secondaryKpis].map((row, rowIdx) => (
-        <div key={rowIdx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {row.map((card) => {
-            const Icon = card.icon;
-            const isNegative = card.delta?.startsWith('-');
-            return (
-              <div
-                key={card.label}
-                onClick={card.onClick}
-                className={`bg-white border border-slate-200 rounded-2xl p-4 shadow-sm transition-all duration-200 ${
-                  card.onClick ? 'cursor-pointer hover:border-purple/40 hover:-translate-y-0.5' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-500 tracking-tight">{card.label}</span>
-                  <div className={`w-8 h-8 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center flex-shrink-0`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                </div>
-
-                <div className="mt-3 flex items-baseline justify-between gap-2">
-                  <div className="text-2xl font-black text-navy tabular-nums font-mono tracking-tight">
-                    {card.value}
-                  </div>
-
-                  {card.delta && (
-                    <span
-                      className={`inline-flex items-center space-x-0.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold flex-shrink-0 ${
-                        isNegative
-                          ? 'bg-red-50 text-red-600 border border-red-200/60'
-                          : 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
-                      }`}
-                    >
-                      {isNegative ? <ArrowDownRight className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                      <span>{card.delta}</span>
-                    </span>
-                  )}
+      {/* Headline KPIs — 6 cards, 3 per row on desktop, 2 on tablet, stacked on mobile */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {kpiCards.map((card) => {
+          const Icon = card.icon;
+          const isNegative = card.delta?.startsWith('-');
+          return (
+            <div
+              key={card.label}
+              onClick={card.onClick}
+              className={`bg-white border border-slate-200 rounded-2xl p-4 shadow-sm transition-all duration-200 ${
+                card.onClick ? 'cursor-pointer hover:border-purple/40 hover:-translate-y-0.5' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 tracking-tight">{card.label}</span>
+                <div className={`w-8 h-8 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center flex-shrink-0`}>
+                  <Icon className="w-4 h-4" />
                 </div>
               </div>
-            );
-          })}
-        </div>
-      ))}
+
+              <div className="mt-3 flex items-baseline justify-between gap-2">
+                <div className="text-2xl font-black text-navy tabular-nums font-mono tracking-tight">
+                  {card.value}
+                </div>
+
+                {card.delta && (
+                  <span
+                    className={`inline-flex items-center space-x-0.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold flex-shrink-0 ${
+                      isNegative
+                        ? 'bg-red-50 text-red-600 border border-red-200/60'
+                        : 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
+                    }`}
+                  >
+                    {isNegative ? <ArrowDownRight className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                    <span>{card.delta}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">

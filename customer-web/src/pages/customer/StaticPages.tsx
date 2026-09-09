@@ -206,13 +206,13 @@ export const PolicyPage: React.FC<{ title: string; type: string }> = ({ title, t
         <p>
           All fireworks consignments are packaged in certified 5-ply corrugated containers marked with hazardous class labels. Dispatch is conducted strictly through licensed surface transport vehicles.
         </p>
-        <h3 className="font-bold text-navy text-sm pt-2">2. Delivery Timelines</h3>
+        <h3 className="font-bold text-navy text-sm pt-2">2. Delivery Timelines &amp; Freight</h3>
         <p>
-          Standard delivery timeline across South India is 2-4 business days. North, West, and East India deliveries typically require 4-7 business days depending on PIN code accessibility.
+          Every order is dispatched by lorry through a licensed transport company and typically reaches the destination transport office in 1–2 weeks. We do not charge any delivery or shipping fee: the freight is paid by you directly to the transport company when you collect the parcel, against the LR / waybill number we share after dispatch.
         </p>
-        <h3 className="font-bold text-navy text-sm pt-2">3. Cancellation & Damaged Goods</h3>
+        <h3 className="font-bold text-navy text-sm pt-2">3. Damaged or Missing Goods</h3>
         <p>
-          In the rare event of transit damage or missing items, please notify our customer care team with unboxing footage within 24 hours of package delivery for replacement or full refund processing.
+          Fireworks are hazardous goods and cannot be taken back once sold. In the rare event of transit damage or missing items, please notify our customer care team with unboxing footage within 24 hours of parcel collection and we will arrange a replacement.
         </p>
       </div>
     </div>

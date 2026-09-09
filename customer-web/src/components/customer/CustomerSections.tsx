@@ -17,8 +17,8 @@ export const TrustIndicators: React.FC = () => {
     },
     {
       icon: Truck,
-      title: 'Fast On-Time Delivery',
-      description: 'Dedicated multi-state transport network ensuring prompt and safe delivery before festival dates.',
+      title: 'Transport Delivery',
+      description: 'Dispatched by lorry to your destination transport office, typically within 1–2 weeks. Freight is paid to the transport company on collection.',
       color: 'text-gold-dark bg-gold/10 border-gold/20'
     },
     {

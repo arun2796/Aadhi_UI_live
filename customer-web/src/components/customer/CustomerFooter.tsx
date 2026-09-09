@@ -47,7 +47,6 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
         { label: 'Track Order', page: 'track-order' },
         { label: 'Contact Us', page: 'contact' },
         { label: 'Shipping Policy', page: 'shipping-policy' },
-        { label: 'Returns & Refunds', page: 'refund-policy' },
         { label: 'Safety Guide', page: 'safety' }
       ]
     },

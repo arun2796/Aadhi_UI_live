@@ -36,16 +36,6 @@ export type FulfillmentStatus =
   | 'Delivered'
   | 'Returned';
 
-export type StockMovementType =
-  | 'OpeningStock'
-  | 'Purchase'
-  | 'Sale'
-  | 'Return'
-  | 'Adjustment'
-  | 'TransferIn'
-  | 'TransferOut'
-  | 'Damage';
-
 export type InvoiceStatus =
   | 'Draft'
   | 'Issued'
@@ -71,6 +61,30 @@ export interface ProductImage {
   altText?: string;
   sortOrder: number;
   isPrimary: boolean;
+}
+
+/**
+ * One component line inside a combo / gift-box product.
+ * `unitPrice` / `lineTotal` are computed server-side from the component's *current*
+ * catalogue price, so they can drift after the combo was assembled.
+ */
+export interface ComboItem {
+  componentProductId: string;
+  productName: string;
+  sku: string;
+  imageUrl?: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+/**
+ * What create/update sends back for a combo: the full list *replaces* the existing
+ * contents, and `[]` clears them (reverting the product to a simple product).
+ */
+export interface ComboItemInput {
+  componentProductId: string;
+  quantity: number;
 }
 
 export interface Product {
@@ -110,6 +124,16 @@ export interface Product {
   rating?: number;
   reviewCount?: number;
   relatedProducts?: Product[];
+
+  // ---- Combo / Gift Box ----------------------------------------------------
+  /** List DTO: true when this product is assembled from other catalogue products. */
+  isCombo?: boolean;
+  /** List DTO: how many component lines the combo holds. */
+  comboItemCount?: number;
+  /** Detail DTO only: the resolved component rows. */
+  comboItems?: ComboItem[];
+  /** Detail DTO only: server-computed sum of the component lines at current prices. */
+  comboItemsTotal?: number;
 }
 
 export interface Category {
@@ -240,7 +264,14 @@ export interface Order {
   grandTotal: number;
   couponCode?: string;
   notes?: string;
+  /** Packing charge applied by the server (Order.PackingChargePercent setting). */
+  packingCharges?: number;
+  packingChargePercent?: number;
+  /** Logistics: transport partner + LR/waybill number captured at dispatch. */
+  carrierName?: string;
   trackingNumber?: string;
+  deliveryMethod?: string;
+  deliveryMethodName?: string;
   placedAtUtc: string;
   utrNumber?: string;
   paymentScreenshotUrl?: string;

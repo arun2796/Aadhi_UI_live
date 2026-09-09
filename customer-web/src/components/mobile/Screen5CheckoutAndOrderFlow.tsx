@@ -27,7 +27,11 @@ import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings, findDeliveryZone } from '../../context/SettingsContext';
-import { triggerFireworksConfetti } from '../common/CommonComponents';
+import {
+  BankTransferDetailsCard,
+  CarrierTrackingCard,
+  triggerFireworksConfetti
+} from '../common/CommonComponents';
 import { api } from '../../services/api';
 import { compressImageFile } from '../../utils/imageCompressor';
 
@@ -68,6 +72,37 @@ const addressOneLine = (a: CheckoutAddress): string =>
   [a.addressLine1, a.addressLine2, a.city ? `${a.city} - ${a.pincode}` : a.pincode]
     .filter(Boolean)
     .join(', ');
+
+/** The single delivery method returned by GET /orders/delivery-options.
+ *  There is no charge field: the lorry freight is paid by the customer directly
+ *  to the transport company on collection, so the store never quotes it. */
+interface DeliveryOption {
+  code: string;
+  name: string;
+  note?: string;
+  etaMinDays?: number;
+  etaMaxDays?: number;
+}
+
+/* Fallback copy used whenever the API does not supply a name / note of its own. */
+const TRANSPORT_METHOD_CODE = 'transport';
+const TRANSPORT_METHOD_NAME = 'Transport Delivery';
+const TRANSPORT_METHOD_NOTE =
+  'Your order is dispatched by lorry and typically arrives at the destination transport office in 1–2 weeks. Freight charges are paid directly to the transport company when you collect the parcel.';
+
+/** "12 Sep - 26 Sep 2026" from the API's ETA window; null when the API sends none. */
+const etaRangeLabel = (etaMinDays?: number, etaMaxDays?: number): string | null => {
+  const min = Number(etaMinDays);
+  const max = Number(etaMaxDays);
+  if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
+  const start = Number.isFinite(min) ? min : max;
+  const end = Math.max(start, Number.isFinite(max) ? max : start);
+  const from = new Date();
+  from.setDate(from.getDate() + start);
+  const to = new Date();
+  to.setDate(to.getDate() + end);
+  return `${fmtDayMonth(from)} - ${fmtDayMonthYear(to)}`;
+};
 
 /* ─────────────────────────────────────────────────────────────
    Design 05-08: CHECKOUT — 4-step flow
@@ -302,15 +337,34 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     setErrorMessage(null);
   };
 
-  /* ── Delivery state: Default 1-week transport delivery (To-Pay) ── */
-  const defaultDeliveryEta = useMemo(() => {
-    const from = new Date();
-    from.setDate(from.getDate() + 5);
-    const to = new Date();
-    to.setDate(to.getDate() + 7);
-    return `${fmtDayMonth(from)} - ${fmtDayMonthYear(to)}`;
+  /* ── Delivery method ──
+     There is exactly one method (lorry to the destination transport office), so the
+     API's single option only supplies the wording; nothing here is selectable and
+     no freight is ever added to the order total. */
+  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    api.getDeliveryOptions(subtotal)
+      .then(list => {
+        if (!mounted || !Array.isArray(list)) return;
+        setDeliveryOptions(list);
+      })
+      .catch(() => { /* keep the fallback transport copy when the endpoint is unavailable */ });
+    return () => { mounted = false; };
+    // Fetched once per checkout — nothing about it tracks the subtotal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const deliveryCharge = 0; // Service charges are paid directly at the transport office upon parcel pickup
+
+  const deliveryOption = deliveryOptions[0] || null;
+  const deliveryMethodCode = deliveryOption?.code?.trim() || TRANSPORT_METHOD_CODE;
+  const deliveryMethodName = deliveryOption?.name?.trim() || TRANSPORT_METHOD_NAME;
+  const deliveryMethodNote = deliveryOption?.note?.trim() || TRANSPORT_METHOD_NOTE;
+
+  const deliveryEta = useMemo(
+    () => etaRangeLabel(deliveryOption?.etaMinDays, deliveryOption?.etaMaxDays),
+    [deliveryOption]
+  );
 
   /* ── Payment state ── */
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'COD'>('UPI');
@@ -345,8 +399,10 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     }
   };
 
-  /* ── Totals & Place Order ── */
-  const orderTotal = Math.max(0, subtotal - discount) + deliveryCharge + packingCharges;
+  /* ── Totals & Place Order ──
+     subtotal − discount + packing charges. No freight term: the lorry freight is
+     settled directly with the transport company on collection. */
+  const orderTotal = Math.max(0, subtotal - discount) + packingCharges;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const goToStep = (target: number) => {
@@ -400,10 +456,9 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    const packingNote = packingCharges > 0
-      ? ` Packing charges ${packingPercent}% = ₹${Math.round(packingCharges)} (collect on delivery).`
-      : '';
-    const transportNote = ' Standard transport delivery (To-Pay service charge at transport office on collection).';
+    // Packing charges are calculated and returned by the server on the created
+    // order — the client only shows an estimate before placing the order.
+    const transportNote = ` Delivery: ${deliveryMethodName} (lorry freight paid by the customer to the transport company on collection).`;
 
     try {
       const order = await api.createOrder({
@@ -444,19 +499,27 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
         })),
         paymentMethod,
         couponCode: couponCode || undefined,
-        deliveryMethod: 'standard',
+        deliveryMethod: deliveryMethodCode,
         utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
         paymentScreenshotBase64: paymentMethod === 'UPI' ? (screenshotPreview || undefined) : undefined,
         notes:
           (paymentMethod === 'UPI'
             ? `UPI Payment Proof Uploaded. UTR: ${utrNumber.trim()}`
-            : 'Cash on Delivery order.') + packingNote + transportNote
+            : 'Cash on Delivery order.') + transportNote
       });
+
+      // The server owns the final numbers: prefer its grandTotal / packingCharges
+      // over the pre-order client estimate.
+      const serverPacking = Number(order?.packingCharges);
+      const serverPackingPercent = Number(order?.packingChargePercent);
 
       clearCart();
       onNavigate('order-placed', {
         orderNumber: order.orderNumber,
-        grandTotal: orderTotal,
+        grandTotal: Number(order?.grandTotal) > 0 ? Number(order.grandTotal) : orderTotal,
+        packingCharges: Number.isFinite(serverPacking) && serverPacking > 0 ? serverPacking : undefined,
+        packingChargePercent:
+          Number.isFinite(serverPackingPercent) && serverPackingPercent > 0 ? serverPackingPercent : undefined,
         paymentMethod,
         utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined
       });
@@ -737,23 +800,18 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             </div>
           )}
 
-          {/* Transport Delivery Notice (1 Week / To-Pay) */}
-          <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 shadow-xs space-y-2">
+          {/* Single delivery method — informational only, nothing to choose */}
+          <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200/80 shadow-xs">
             <div className="flex items-start space-x-2.5">
               <Truck className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-black text-xs text-amber-950">Transport Office Delivery (Within 1 Week)</span>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 text-[10px] font-bold uppercase tracking-wider flex-shrink-0">
-                    To-Pay
-                  </span>
-                </div>
-                <p className="text-[11px] text-amber-800 font-semibold mt-0.5">
-                  Expected delivery between <strong>{defaultDeliveryEta}</strong> (~7 Days)
-                </p>
-                <p className="text-[10px] text-amber-700 mt-1 leading-relaxed">
-                  Parcel will be dispatched to your nearest transport office. Transport service / freight charges are to be paid directly to the transport office when collecting your parcel.
-                </p>
+                <h4 className="font-black text-xs text-amber-950">{deliveryMethodName}</h4>
+                {deliveryEta && (
+                  <p className="text-[11px] text-amber-800 font-semibold mt-0.5">
+                    Expected to reach the transport office between <strong>{deliveryEta}</strong>
+                  </p>
+                )}
+                <p className="text-[10px] text-amber-700 mt-1 leading-relaxed">{deliveryMethodNote}</p>
               </div>
             </div>
           </div>
@@ -795,15 +853,12 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                 <span>-{inr(discount)}</span>
               </div>
             )}
-            <div className="flex justify-between items-center">
-              <span>Delivery Charges</span>
-              <span className="font-bold text-amber-800 text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                To-Pay at Transport Office
-              </span>
-            </div>
             {packingCharges > 0 && (
               <div className="flex justify-between">
-                <span>Packing Charges ({packingPercent}%)</span>
+                <span>
+                  Packing Charges ({packingPercent}%)
+                  <span className="text-[10px] text-slate-400 font-medium ml-1">estimated</span>
+                </span>
                 <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
               </div>
             )}
@@ -812,7 +867,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               <span className="text-base text-purple">{inr(orderTotal)}</span>
             </div>
             <div className="text-[10px] text-slate-400 pt-0.5">
-              * Transport office service charges to be paid directly on parcel collection.
+              * Lorry freight is paid directly to the transport company when you collect the parcel.
             </div>
           </div>
 
@@ -843,7 +898,9 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               <span className="text-base font-black text-purple">{inr(orderTotal)}</span>
             </div>
             <div className="text-right">
-              <span className="text-[10px] text-amber-700 font-semibold block">+ Transport charge To-Pay</span>
+              <span className="text-[10px] text-amber-700 font-semibold block">
+                {deliveryMethodName}
+              </span>
               <button
                 type="button"
                 onClick={() => goToStep(2)}
@@ -915,6 +972,9 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                   </div>
                 </div>
               </div>
+
+              {/* Bank transfer alternative to the QR (hidden until the store configures it) */}
+              <BankTransferDetailsCard compact />
 
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card space-y-3">
                 <h4 className="text-xs font-bold text-navy flex items-center space-x-1.5">
@@ -1044,6 +1104,10 @@ interface Screen6OrderPlacedProps {
   screenshotUrl?: string;
   grandTotal?: number;
   paymentMethod?: string;
+  /** Server-calculated packing charges on the created order. */
+  packingCharges?: number;
+  /** Percentage the server used for `packingCharges`. */
+  packingChargePercent?: number;
 }
 
 export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
@@ -1051,7 +1115,9 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
   orderNumber = '',
   utrNumber = '',
   grandTotal = 0,
-  paymentMethod
+  paymentMethod,
+  packingCharges = 0,
+  packingChargePercent = 0
 }) => {
   const { user } = useAuth();
   const { thankYouMessage } = useSettings();
@@ -1085,6 +1151,24 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs text-left space-y-2.5">
+          {/* Server-confirmed amounts for the placed order */}
+          {grandTotal > 0 && (
+            <div className="pb-2.5 border-b border-slate-100 space-y-1.5 text-xs">
+              {packingCharges > 0 && (
+                <div className="flex justify-between text-slate-600">
+                  <span>
+                    Packing Charges
+                    {packingChargePercent > 0 ? ` (${packingChargePercent}%)` : ''}
+                  </span>
+                  <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="font-bold text-navy">Order Total</span>
+                <span className="font-black text-purple">{inr(grandTotal)}</span>
+              </div>
+            </div>
+          )}
           <div className="flex items-start space-x-2 text-xs text-slate-600">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
             <span>
@@ -1238,6 +1322,10 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
   const totalAmount = Number(order?.grandTotal ?? order?.totalAmount ?? order?.total) || 0;
   const isCancelled = ['cancelled', 'returned'].includes((status || '').toLowerCase());
   const progressIdx = statusToStepIndex(status);
+  const packingCharges = Number(order?.packingCharges ?? order?.packingCharge) || 0;
+  const packingChargePercent = Number(order?.packingChargePercent) || 0;
+  const carrierName: string = order?.carrierName ?? order?.carrier ?? '';
+  const trackingNumber: string = order?.trackingNumber ?? order?.lrNumber ?? '';
 
   /** Find the date a given timeline step was reached, from the status history. */
   const dateForStep = (stepIdx: number): string => {
@@ -1337,6 +1425,9 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
             </div>
           )}
 
+          {/* Carrier + LR / waybill — how the customer collects the parcel */}
+          <CarrierTrackingCard carrierName={carrierName} trackingNumber={trackingNumber} compact />
+
           {/* Vertical timeline — only completed steps get the green check */}
           <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-card">
             <div className="space-y-0">
@@ -1429,8 +1520,21 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
                   );
                 })}
               </div>
+              {packingCharges > 0 && (
+                <div className="flex justify-between text-xs text-slate-600 pt-2 border-t border-slate-100">
+                  <span>
+                    Packing Charges
+                    {packingChargePercent > 0 ? ` (${packingChargePercent}%)` : ''}
+                  </span>
+                  <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
+                </div>
+              )}
               {totalAmount > 0 && (
-                <div className="flex justify-between text-xs font-black text-navy pt-2 border-t border-slate-100">
+                <div
+                  className={`flex justify-between text-xs font-black text-navy pt-2 ${
+                    packingCharges > 0 ? '' : 'border-t border-slate-100'
+                  }`}
+                >
                   <span>Total Amount</span>
                   <span>{inr(totalAmount)}</span>
                 </div>

@@ -3,6 +3,7 @@ import {
   Product,
   Category,
   Brand,
+  ComboItem,
   Order,
   Address,
   CartItem
@@ -28,6 +29,38 @@ export const normalizeImageUrl = (url?: string | null): string | undefined => {
     trimmed.match(/[?&]id=([A-Za-z0-9_-]{10,})/i);
   if (!match) return trimmed;
   return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+};
+
+/** Combo / gift-box fields (ProductDto.isCombo, comboItemCount and, on the detail
+ *  DTO, comboItems / comboItemsTotal). The API may not expose them yet, so every
+ *  field stays undefined when absent and the combo UI simply hides itself. */
+const mapComboFields = (p: any): Partial<Product> => {
+  const rawItems = Array.isArray(p?.comboItems) ? p.comboItems : null;
+  const comboItems: ComboItem[] | undefined = rawItems
+    ? rawItems
+        .map((c: any): ComboItem => ({
+          componentProductId: String(c?.componentProductId ?? c?.productId ?? ''),
+          productName: String(c?.productName ?? c?.name ?? '').trim(),
+          sku: String(c?.sku ?? '').trim(),
+          imageUrl: normalizeImageUrl(c?.imageUrl ?? c?.primaryImageUrl),
+          quantity: Number(c?.quantity) || 1,
+          unitPrice: Number(c?.unitPrice ?? c?.price) || 0,
+          lineTotal:
+            Number(c?.lineTotal) ||
+            (Number(c?.unitPrice ?? c?.price) || 0) * (Number(c?.quantity) || 1)
+        }))
+        .filter((c: ComboItem) => c.productName.length > 0)
+    : undefined;
+
+  const count = Number(p?.comboItemCount);
+  const total = Number(p?.comboItemsTotal);
+
+  return {
+    isCombo: typeof p?.isCombo === 'boolean' ? p.isCombo : undefined,
+    comboItemCount: Number.isFinite(count) && count > 0 ? count : undefined,
+    comboItems: comboItems && comboItems.length > 0 ? comboItems : undefined,
+    comboItemsTotal: Number.isFinite(total) && total > 0 ? total : undefined
+  };
 };
 
 const apiClient = axios.create({
@@ -112,8 +145,13 @@ export const api = {
     throw new Error(res.data?.message || 'Firebase login failed');
   },
 
-  async register(data: { firstName: string; lastName: string; email: string; phone: string; password: string }): Promise<{ user: any; token: string }> {
-    const res = await apiClient.post('/auth/register', data);
+  async register(data: { firstName: string; lastName: string; email: string; phone: string; password: string; confirmPassword?: string }): Promise<{ user: any; token: string }> {
+    // The API requires ConfirmPassword and rejects the request without it. Both
+    // sign-up forms already validate the two typed passwords match before calling.
+    const res = await apiClient.post('/auth/register', {
+      ...data,
+      confirmPassword: data.confirmPassword ?? data.password
+    });
     if (res.data?.data?.token) {
       localStorage.setItem('aadhi_customer_token', res.data.data.token);
       return res.data.data;
@@ -194,7 +232,8 @@ export const api = {
           primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
           images: (p.images || []).map((img: any) =>
             typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
-          )
+          ),
+          ...mapComboFields(p)
         }));
       }
       return [];
@@ -239,7 +278,8 @@ export const api = {
           primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
           images: (p.images || []).map((img: any) =>
             typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
-          )
+          ),
+          ...mapComboFields(p)
         };
       }
       return null;
@@ -365,7 +405,6 @@ export const api = {
     subtotal: number;
     discount: number;
     couponCode?: string;
-    shippingCharge: number;
     grandTotal: number;
   }> {
     const res = await apiClient.post('/cart/calculate', {
@@ -385,6 +424,7 @@ export const api = {
     utrNumber?: string;
     paymentScreenshotUrl?: string;
     paymentScreenshotBase64?: string;
+    /** Delivery method code from GET /orders/delivery-options; 'transport' by default. */
     deliveryMethod?: string;
   }): Promise<Order> {
     // Backend requires a bare 10-digit phone: strip "+91 98765 43210" style formatting.
@@ -409,7 +449,7 @@ export const api = {
       paymentMethod: typeof payload.paymentMethod === 'number' ? payload.paymentMethod : (payload.paymentMethod === 'COD' ? 1 : 2),
       couponCode: payload.couponCode,
       notes: payload.notes,
-      deliveryMethod: payload.deliveryMethod || 'standard',
+      deliveryMethod: payload.deliveryMethod || 'transport',
       utrNumber: payload.utrNumber,
       paymentScreenshotUrl: payload.paymentScreenshotUrl,
       paymentScreenshotBase64: payload.paymentScreenshotBase64,
@@ -539,17 +579,19 @@ export const api = {
   },
 
   // DELIVERY OPTIONS
+  // There is exactly one delivery method: the parcel goes by lorry to the destination
+  // transport office and the customer pays the freight to the transport company on
+  // collection. The store never charges or discounts freight, so no `charge` is read.
   async getDeliveryOptions(subtotal: number): Promise<Array<{
-    code: string; name: string; charge: number; etaMinDays: number; etaMaxDays: number;
+    code: string; name: string; note?: string; etaMinDays?: number; etaMaxDays?: number;
   }>> {
     try {
       const res = await apiClient.get('/orders/delivery-options', { params: { subtotal } });
-      return res.data?.data || [];
+      const list = res.data?.data;
+      return Array.isArray(list) ? list : [];
     } catch {
-      return [
-        { code: 'standard', name: 'Standard Delivery (3-5 Days)', charge: 40, etaMinDays: 3, etaMaxDays: 5 },
-        { code: 'express', name: 'Express Delivery (1-2 Days)', charge: 90, etaMinDays: 1, etaMaxDays: 2 }
-      ];
+      // Endpoint unavailable — the checkout falls back to its own transport copy.
+      return [];
     }
   },
 
@@ -566,26 +608,6 @@ export const api = {
     } catch {
       return null;
     }
-  },
-
-  // RETURNS & REFUNDS (customer)
-  async getMyReturns(): Promise<any[]> {
-    try {
-      const res = await apiClient.get('/returns/my');
-      return res.data?.data || [];
-    } catch {
-      return [];
-    }
-  },
-
-  async createReturn(payload: {
-    orderId: string;
-    reason: string;
-    comments?: string;
-    items: Array<{ orderItemId: string; quantity: number }>;
-  }): Promise<any> {
-    const res = await apiClient.post('/returns', payload);
-    return res.data?.data;
   }
 };
 

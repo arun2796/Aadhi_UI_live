@@ -14,7 +14,6 @@ interface CartContextType {
   couponCode: string;
   applyCoupon: (code: string) => Promise<boolean>;
   removeCoupon: () => void;
-  shippingCharge: number;
   grandTotal: number;
   isCartDrawerOpen: boolean;
   setIsCartDrawerOpen: (open: boolean) => void;
@@ -33,7 +32,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [couponCode, setCouponCode] = useState<string>('');
   const [serverDiscount, setServerDiscount] = useState<number>(0);
-  const [serverShipping, setServerShipping] = useState<number>(0);
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState<boolean>(false);
 
   useEffect(() => {
@@ -45,7 +43,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let isMounted = true;
     if (items.length === 0) {
       setServerDiscount(0);
-      setServerShipping(0);
       return;
     }
 
@@ -55,7 +52,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ).then(calc => {
       if (isMounted && calc) {
         setServerDiscount(calc.discount || 0);
-        setServerShipping(calc.shippingCharge || 0);
       }
     }).catch(() => {
       // Fallback
@@ -127,7 +123,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (calc && (calc.couponCode || calc.discount > 0)) {
         setCouponCode(clean);
         setServerDiscount(calc.discount || 0);
-        setServerShipping(calc.shippingCharge || 0);
         return true;
       }
       return false;
@@ -144,7 +139,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const totalItems = items.reduce((acc, i) => acc + i.quantity, 0);
   const subtotal = items.reduce((acc, i) => acc + (i.lineTotal || (i.unitPrice * i.quantity)), 0);
   const discount = serverDiscount;
-  const shippingCharge = 0; // Transport is strictly To-Pay on delivery / local pickup; no delivery charge online
+  // There is no delivery charge anywhere in the storefront: the lorry freight is paid
+  // by the customer directly to the transport company on collection.
   const grandTotal = Math.max(0, subtotal - discount);
 
   return (
@@ -160,7 +156,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       couponCode,
       applyCoupon,
       removeCoupon,
-      shippingCharge,
       grandTotal,
       isCartDrawerOpen,
       setIsCartDrawerOpen

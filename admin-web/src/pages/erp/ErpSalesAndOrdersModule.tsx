@@ -72,6 +72,9 @@ const NEXT_TRANSITIONS: Record<string, OrderStatus[]> = {
   Cancelled: []
 };
 
+/** Transport carriers the counter uses most — one-tap chips in the Quick Dispatch modal. */
+const CARRIER_QUICK_PICKS = ['VRL Logistics', 'MSS Transport', 'TAT', 'Speed Courier'];
+
 /** Client-side list filters shared by the Filters popovers (design: every list page has one). */
 interface ListFilterState {
   method: string; // 'all' | 'UPI' | 'COD'
@@ -326,15 +329,10 @@ const formatDateTime = (iso?: string) =>
       })
     : '—';
 
-/** Payment column label per design 02: Paid | COD | Refunded (falls back to raw payment status). */
+/** Payment column label: Paid | COD (falls back to the raw payment status). This business runs no
+    returns/refunds process, so no refund-specific labels are rendered. */
 const paymentLabel = (o: Order) =>
-  o.paymentStatus === 'Refunded' || o.paymentStatus === 'RefundPending'
-    ? 'Refunded'
-    : o.paymentStatus === 'Paid'
-    ? 'Paid'
-    : o.paymentMethod === 'COD'
-    ? 'COD'
-    : o.paymentStatus;
+  o.paymentStatus === 'Paid' ? 'Paid' : o.paymentMethod === 'COD' ? 'COD' : o.paymentStatus;
 
 const escapeHtml = (value: unknown): string =>
   String(value ?? '').replace(
@@ -343,94 +341,240 @@ const escapeHtml = (value: unknown): string =>
       (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]
   );
 
-/** Clean printable HTML invoice for an order — opened in a new window, then window.print()
-    (mirrors the customer-web invoice pattern). */
-const buildOrderInvoiceHtml = (o: Order): string => {
-  const formatNum = (n?: number): string =>
-    (Number(n) || 0).toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
+/* ══════════════════════════════════════════════════════════════════════════════
+   SIVAKASI PHYSICAL ESTIMATE / TAX INVOICE (Phase 5)
+   The printed paper format the owner uses at the counter. Everything about the
+   seller that gets printed lives in the two constants below — edit them here.
+   Matching system settings (Store.* / Payment.*) override them at runtime when
+   the API serves those keys.
+   ════════════════════════════════════════════════════════════════════════════ */
 
-  const formatInvoiceDate = (dateStr?: string): string => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '';
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
+const INVOICE_COMPANY = {
+  name: 'AADHI CRACKERS',
+  address: '3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189, Tamil Nadu.',
+  mobile: '+91 94428 26566',
+  email: 'support@aadhicrackers.com'
+};
+
+const INVOICE_BANK = {
+  bankName: 'AXIS BANK LTD',
+  accountName: 'AADHI CRACKERS',
+  accountNumber: '926020003006172',
+  ifscCode: 'UTIB0000089'
+};
+
+/** Footer legal line printed under the ledger. */
+const INVOICE_TERMS = [
+  'Fireworks are packed and transported strictly as per The Explosives Act, 1884 and Explosive Rules, 2008 norms; our responsibility ceases once the goods are handed over to the carrier.',
+  'Goods once sold are not returnable or exchangeable. Subject to Sivakasi jurisdiction.'
+];
+
+/** Sivakasi trade convention: catalogue MRP is ~5x the selling rate (i.e. 80% off).
+    Used only as a fallback when the order line carries no real MRP / discount data. */
+const FALLBACK_MRP_MULTIPLIER = 5;
+
+interface InvoiceBranding {
+  company: typeof INVOICE_COMPANY;
+  bank: typeof INVOICE_BANK;
+}
+
+const DEFAULT_INVOICE_BRANDING: InvoiceBranding = { company: INVOICE_COMPANY, bank: INVOICE_BANK };
+
+/** Overlays the system settings (when present) on top of the hard-coded letterhead. */
+const buildInvoiceBranding = (settings: Record<string, string>): InvoiceBranding => {
+  const pick = (key: string, fallback: string) => (settings[key] || '').trim() || fallback;
+  return {
+    company: {
+      name: pick('Store.BusinessName', INVOICE_COMPANY.name),
+      address: pick('Store.Address', INVOICE_COMPANY.address),
+      mobile: pick('Store.Phone', INVOICE_COMPANY.mobile),
+      email: pick('Store.Email', INVOICE_COMPANY.email)
+    },
+    bank: {
+      bankName: pick('Payment.BankName', INVOICE_BANK.bankName),
+      accountName: pick('Payment.AccountName', INVOICE_BANK.accountName),
+      accountNumber: pick('Payment.AccountNumber', INVOICE_BANK.accountNumber),
+      ifscCode: pick('Payment.IfscCode', INVOICE_BANK.ifscCode)
+    }
   };
+};
 
-  const items = o.items || [];
-  const subTotal =
-    Number(o.itemsSubtotal) > 0
-      ? Number(o.itemsSubtotal)
-      : items.reduce(
-          (sum, it) =>
-            sum + (Number(it.lineTotal) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1)),
-          0
-        );
+/** Fields the API adds for dispatch (Phase 6) and the printed estimate (Phase 5) that are not
+    part of the shared Order DTO yet — read defensively so the screen works either way. */
+type OrderExtras = {
+  carrierName?: string;
+  packingCharges?: number;
+  packingChargePercent?: number;
+  deliveryCharge?: number;
+};
 
+const orderExtras = (order?: Order | null): OrderExtras => (order ?? {}) as OrderExtras;
+
+type OrderItemExtras = { mrp?: number; discountPercent?: number; discountPercentage?: number };
+
+const formatMoney = (n?: number): string =>
+  (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** dd-MM-yyyy, the format printed on the paper estimate. */
+const formatInvoiceDate = (dateStr?: string): string => {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  if (isNaN(d.getTime())) return '';
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+};
+
+interface InvoiceLine {
+  code: string;
+  name: string;
+  qty: number;
+  /** Rate per qty before discount (MRP). */
+  rate: number;
+  discountPercent: number;
+  finalRate: number;
+  amount: number;
+}
+
+const buildInvoiceLines = (items: OrderItem[]): InvoiceLine[] =>
+  (items || []).map((it, i) => {
+    const ex = it as OrderItem & OrderItemExtras;
+    const qty = Number(it.quantity) || 1;
+    const amount = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
+    const finalRate = Number(it.unitPrice) || (qty > 0 ? amount / qty : 0);
+    const lineDiscount = Number(it.discount) || 0;
+
+    // Prefer real data: an explicit MRP, else the per-unit discount the order carries,
+    // else the shop's standard 80%-off catalogue convention.
+    let rate = Number(ex.mrp) || 0;
+    if (!(rate > finalRate)) {
+      rate = lineDiscount > 0 ? finalRate + lineDiscount / qty : finalRate * FALLBACK_MRP_MULTIPLIER;
+    }
+
+    const explicitPercent = Number(ex.discountPercent ?? ex.discountPercentage) || 0;
+    const discountPercent =
+      explicitPercent > 0 ? explicitPercent : rate > 0 ? ((rate - finalRate) / rate) * 100 : 0;
+
+    return {
+      code: it.sku || `AC-${String(i + 1).padStart(2, '0')}`,
+      name: it.productName || '—',
+      qty,
+      rate,
+      discountPercent: Math.max(0, discountPercent),
+      finalRate,
+      amount
+    };
+  });
+
+interface InvoiceTotals {
+  subtotal: number;
+  discount: number;
+  packingCharge: number;
+  packingChargePercent?: number;
+  deliveryCharge: number;
+  tax: number;
+  overallTotal: number;
+  totalItems: number;
+  totalQty: number;
+}
+
+const buildInvoiceTotals = (order: Order, lines: InvoiceLine[]): InvoiceTotals => {
+  const ex = orderExtras(order);
+  const lineSum = lines.reduce((s, l) => s + l.amount, 0);
+  const subtotal = Number(order.itemsSubtotal) > 0 ? Number(order.itemsSubtotal) : lineSum;
+  const discount = Number(order.discount) || 0;
+
+  const packingChargePercent =
+    Number(ex.packingChargePercent) > 0 ? Number(ex.packingChargePercent) : undefined;
   const packingCharge =
-    Number(o.shippingCharge) > 0
-      ? Number(o.shippingCharge)
-      : Math.round(subTotal * 0.015);
+    Number(ex.packingCharges) > 0
+      ? Number(ex.packingCharges)
+      : packingChargePercent
+      ? (subtotal * packingChargePercent) / 100
+      : 0;
 
-  const overallTotal =
-    Number(o.grandTotal) > subTotal
-      ? Number(o.grandTotal)
-      : subTotal + packingCharge;
+  const deliveryCharge = Number(ex.deliveryCharge) || Number(order.shippingCharge) || 0;
+  const tax = Number(order.tax) || 0;
+
+  const computed = Math.max(0, subtotal - discount) + packingCharge + deliveryCharge + tax;
+  const overallTotal = Number(order.grandTotal) > 0 ? Number(order.grandTotal) : computed;
+
+  return {
+    subtotal,
+    discount,
+    packingCharge,
+    packingChargePercent,
+    deliveryCharge,
+    tax,
+    overallTotal,
+    totalItems: lines.length,
+    totalQty: lines.reduce((s, l) => s + l.qty, 0)
+  };
+};
+
+/** The owner's A4 paper estimate, print-optimised (pure black on white, bordered ledger).
+    Rendered both in the on-screen preview iframe and in the print window. */
+const buildOrderInvoiceHtml = (
+  order: Order,
+  branding: InvoiceBranding = DEFAULT_INVOICE_BRANDING
+): string => {
+  const { company, bank } = branding;
+  const lines = buildInvoiceLines(order.items || []);
+  const totals = buildInvoiceTotals(order, lines);
+
+  const orderNum = order.orderNumber || '—';
+  const orderDate = formatInvoiceDate(order.placedAtUtc);
+
+  const addr = order.shippingAddress;
+  const deliverToLines = [
+    addr?.addressLine1,
+    addr?.addressLine2,
+    [addr?.city, addr?.state].filter(Boolean).join(', '),
+    addr?.postalCode ? `Pincode: ${addr.postalCode}` : ''
+  ]
+    .filter(Boolean)
+    .map((l) => `<div>${escapeHtml(l)}</div>`)
+    .join('');
+
+  const phone = order.customerPhone || addr?.phone || '';
 
   const rows =
-    items.length === 0
-      ? '<tr><td colspan="8" style="text-align:center;padding:24px 12px;color:#64748b;font-weight:bold;border-bottom:1px solid #000;">No items found for this invoice.</td></tr>'
-      : items
-          .map((it, i) => {
-            const qty = Number(it.quantity) || 1;
-            const lineTotal = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
-            const finalRate = qty > 0 ? Number(it.unitPrice) || lineTotal / qty : 0;
-
-            // Sivakasi Cracker 80% discount model
-            let rateQty = finalRate * 5;
-            let discount = rateQty * 0.8;
-            if (Number(it.discount) > 0) {
-              const unitDisc = Number(it.discount) / qty;
-              rateQty = finalRate + unitDisc;
-              discount = unitDisc;
-            }
-
-            const code = it.sku || `AC-${String(i + 1).padStart(2, '0')}`;
-
-            return `
-            <tr>
-              <td class="col-sno">${i + 1}</td>
-              <td class="col-code">${escapeHtml(code)}</td>
-              <td class="col-name">${escapeHtml(it.productName)}</td>
-              <td class="col-qty">${qty}</td>
-              <td class="col-rate">${formatNum(rateQty)}</td>
-              <td class="col-disc">${formatNum(discount)}</td>
-              <td class="col-final">${formatNum(finalRate)}</td>
-              <td class="col-amount">${formatNum(lineTotal)}</td>
-            </tr>`;
-          })
+    lines.length === 0
+      ? '<tr><td colspan="8" style="text-align:center;padding:22px 10px;font-weight:bold;">No items recorded for this order.</td></tr>'
+      : lines
+          .map(
+            (l, i) => `
+          <tr>
+            <td class="c-sno">${i + 1}</td>
+            <td class="c-code">${escapeHtml(l.code)}</td>
+            <td class="c-name">${escapeHtml(l.name)}</td>
+            <td class="c-qty">${escapeHtml(l.qty)}</td>
+            <td class="c-rate">${escapeHtml(formatMoney(l.rate))}</td>
+            <td class="c-disc">${escapeHtml(l.discountPercent.toFixed(l.discountPercent % 1 === 0 ? 0 : 2))}%</td>
+            <td class="c-final">${escapeHtml(formatMoney(l.finalRate))}</td>
+            <td class="c-amt">${escapeHtml(formatMoney(l.amount))}</td>
+          </tr>`
+          )
           .join('');
 
-  const addr = o.shippingAddress;
-  const addressLines = addr
-    ? [
-        addr.addressLine1,
-        addr.addressLine2,
-        [addr.city, addr.state].filter(Boolean).join(', '),
-        addr.postalCode ? `${addr.state ? '' : 'Pincode: '}${addr.postalCode}` : null
-      ]
-        .filter(Boolean)
-        .map((l) => escapeHtml(l))
-        .join('<br />')
-    : 'Sivakasi, Tamil Nadu';
+  const sumRow = (label: string, value: string, cls = '') =>
+    `<tr${cls ? ` class="${cls}"` : ''}><td class="sum-k">${escapeHtml(label)}</td><td class="sum-v">${escapeHtml(
+      value
+    )}</td></tr>`;
 
-  const orderNum = o.orderNumber || '—';
-  const orderDate = formatInvoiceDate(o.placedAtUtc) || new Date().toLocaleDateString('en-IN');
+  const totalRows = [
+    sumRow('Subtotal', formatMoney(totals.subtotal)),
+    sumRow('Discount', totals.discount > 0 ? `- ${formatMoney(totals.discount)}` : formatMoney(0)),
+    sumRow(
+      totals.packingChargePercent
+        ? `Packing Charge ( ${totals.packingChargePercent}% )`
+        : 'Packing Charge',
+      formatMoney(totals.packingCharge)
+    ),
+    sumRow(
+      'Delivery Charges',
+      totals.deliveryCharge > 0 ? formatMoney(totals.deliveryCharge) : 'To-Pay (Transport)'
+    ),
+    totals.tax > 0 ? sumRow('GST', formatMoney(totals.tax)) : '',
+    sumRow('Overall Total', formatMoney(totals.overallTotal), 'grand')
+  ].join('');
 
   return `<!doctype html>
 <html lang="en">
@@ -438,160 +582,147 @@ const buildOrderInvoiceHtml = (o: Order): string => {
 <meta charset="utf-8" />
 <title>Estimate_${escapeHtml(orderNum)}</title>
 <style>
-  @page { size: A4 portrait; margin: 8mm; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; padding: 12px; font-size: 11px; background: #fff; }
-  .invoice-box { width: 100%; max-width: 800px; margin: 0 auto; border: 1.5px solid #000; background: #fff; box-sizing: border-box; }
-  .top-bar { display: flex; border-bottom: 1.5px solid #000; font-size: 12px; }
-  .top-bar-cell { padding: 6px 10px; display: flex; align-items: center; }
-  .top-bar-left { width: 33.33%; border-right: 1.5px solid #000; font-weight: bold; }
-  .top-bar-center { width: 33.34%; justify-content: center; font-size: 13.5px; font-weight: 800; letter-spacing: 1px; border-right: 1.5px solid #000; }
-  .top-bar-right { width: 33.33%; justify-content: flex-end; font-weight: bold; }
-  .company-header { padding: 6px 12px 8px; border-bottom: 1.5px solid #000; text-align: center; }
-  .company-contacts { display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; margin-bottom: 2px; }
-  .company-name { font-size: 17px; font-weight: 800; letter-spacing: 0.5px; margin: 2px 0 3px; }
-  .company-address { font-size: 11px; color: #111; }
-  .info-grid { display: flex; border-bottom: 1.5px solid #000; }
-  .customer-col { width: 58%; border-right: 1.5px solid #000; padding: 6px 10px; line-height: 1.45; font-size: 11px; }
-  .customer-col .title { font-weight: bold; margin-bottom: 2px; font-size: 11.5px; }
-  .bank-col { width: 42%; padding: 6px 10px; line-height: 1.4; }
-  .bank-table { width: 100%; border-collapse: collapse; }
-  .bank-table td { padding: 1px 0; font-size: 10.5px; vertical-align: top; }
-  .bank-table td.lbl { font-weight: bold; width: 82px; white-space: nowrap; }
-  .bank-table td.colon { width: 14px; font-weight: bold; text-align: center; }
-  .bank-table td.val { font-weight: bold; letter-spacing: 0.2px; }
-  .ledger-table { width: 100%; border-collapse: collapse; font-size: 10px; }
-  .ledger-table th { border-bottom: 1.5px solid #000; border-right: 1px solid #000; padding: 5px 3px; text-align: center; font-weight: bold; background: #fff; }
-  .ledger-table th:last-child { border-right: none; }
-  .cat-band td { background: #e2e8f0; font-weight: bold; padding: 3px 8px; font-size: 10.5px; border-bottom: 1px solid #000; text-align: left; }
-  .ledger-table td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 3.5px 5px; vertical-align: middle; }
-  .ledger-table td:last-child { border-right: none; }
-  .col-sno { width: 34px; text-align: center; }
-  .col-code { width: 52px; text-align: center; font-weight: 500; }
-  .col-name { text-align: left; padding-left: 8px !important; }
-  .col-qty { width: 38px; text-align: center; font-weight: bold; }
-  .col-rate { width: 72px; text-align: right; }
-  .col-disc { width: 70px; text-align: right; }
-  .col-final { width: 70px; text-align: right; font-weight: 600; }
-  .col-amount { width: 80px; text-align: right; font-weight: bold; }
-  .subtotal-row td { font-weight: bold; border-bottom: 1.5px solid #000; padding: 4px 6px; }
-  .subtotal-label { text-align: right; font-weight: bold; padding-right: 8px !important; }
-  .spacer-row td { height: 42px; border-bottom: 1px solid #000; }
-  .packing-row td { font-weight: bold; border-bottom: 1.5px solid #000; padding: 4px 6px; }
-  .overall-row td { font-weight: bold; padding: 4px 6px; background: #e2e8f0; font-size: 11px; }
-  .total-items-cell { font-weight: bold; text-align: left; padding-left: 8px !important; }
-  .overall-label { text-align: right; font-weight: bold; padding-right: 8px !important; }
-  .invoice-footer { display: flex; justify-content: space-between; padding: 8px 10px; font-size: 9.5px; border-top: 1.5px solid #000; line-height: 1.45; }
-  .terms-box { width: 65%; }
-  .terms-box .terms-title { font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
-  .sign-box { width: 32%; text-align: right; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; }
-  .sign-title { font-weight: bold; }
-  .sign-space { height: 28px; }
-  @media print {
-    body { padding: 0; }
-    .invoice-box { border: 1.5px solid #000; max-width: 100%; }
-  }
+  @page { size: A4 portrait; margin: 10mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; line-height: 1.35; padding: 10px; }
+  .sheet { width: 100%; max-width: 190mm; margin: 0 auto; border: 1.5px solid #000; }
+  .head { display: flex; border-bottom: 1.5px solid #000; }
+  .head > div { padding: 5px 8px; }
+  .head-left { width: 33.33%; font-weight: bold; }
+  .head-mid { width: 33.34%; text-align: center; font-weight: bold; font-size: 14px; letter-spacing: 2px;
+              border-left: 1.5px solid #000; border-right: 1.5px solid #000; }
+  .head-right { width: 33.33%; text-align: right; font-weight: bold; }
+  .company { text-align: center; padding: 7px 10px 8px; border-bottom: 1.5px solid #000; }
+  .company-name { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+  .company-addr { margin-top: 2px; }
+  .company-contact { margin-top: 3px; font-weight: bold; }
+  .company-contact span { margin: 0 12px; }
+  .boxes { display: flex; border-bottom: 1.5px solid #000; }
+  .box { padding: 6px 8px; line-height: 1.5; }
+  .box-left { width: 58%; border-right: 1.5px solid #000; }
+  .box-right { width: 42%; }
+  .box-title { font-weight: bold; text-decoration: underline; margin-bottom: 3px; }
+  .box-name { font-weight: bold; }
+  table.bank { width: 100%; border-collapse: collapse; }
+  table.bank td { padding: 1px 0; vertical-align: top; font-size: 10.5px; }
+  table.bank td.k { font-weight: bold; width: 76px; white-space: nowrap; }
+  table.bank td.c { width: 10px; text-align: center; font-weight: bold; }
+  table.bank td.v { font-weight: bold; letter-spacing: 0.2px; }
+  table.ledger { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  table.ledger thead { display: table-header-group; }
+  table.ledger th { border-bottom: 1.5px solid #000; border-right: 1px solid #000; padding: 5px 3px;
+                    font-weight: bold; text-align: center; }
+  table.ledger td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 3.5px 5px; }
+  table.ledger th:last-child, table.ledger td:last-child { border-right: none; }
+  table.ledger tr { page-break-inside: avoid; }
+  .c-sno { width: 32px; text-align: center; }
+  .c-code { width: 68px; text-align: center; }
+  .c-name { text-align: left; }
+  .c-qty { width: 36px; text-align: center; font-weight: bold; }
+  .c-rate { width: 84px; text-align: right; }
+  .c-disc { width: 68px; text-align: right; }
+  .c-final { width: 72px; text-align: right; }
+  .c-amt { width: 80px; text-align: right; font-weight: bold; }
+  .totals { display: flex; border-bottom: 1.5px solid #000; page-break-inside: avoid; }
+  .totals-left { width: 52%; border-right: 1.5px solid #000; padding: 7px 9px; font-weight: bold; line-height: 1.9; }
+  .totals-right { width: 48%; }
+  table.sum { width: 100%; border-collapse: collapse; font-size: 11px; }
+  table.sum td { padding: 3.5px 9px; border-bottom: 1px solid #000; }
+  table.sum tr:last-child td { border-bottom: none; }
+  td.sum-k { text-align: right; }
+  td.sum-v { width: 98px; text-align: right; font-weight: bold; border-left: 1px solid #000; }
+  table.sum tr.grand td { font-weight: bold; font-size: 12.5px; border-top: 1.5px solid #000; }
+  .foot { display: flex; padding: 8px 9px; font-size: 9.5px; line-height: 1.5; page-break-inside: avoid; }
+  .foot-terms { width: 63%; padding-right: 12px; }
+  .foot-terms .t { font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
+  .foot-sign { width: 37%; text-align: right; display: flex; flex-direction: column; justify-content: space-between; }
+  .sign-for { font-weight: bold; }
+  .sign-space { height: 48px; }
+  .sign-line { border-top: 1px solid #000; padding-top: 3px; font-weight: bold; }
+  @media print { body { padding: 0; } .sheet { max-width: 100%; } }
 </style>
 </head>
 <body>
-  <div class="invoice-box">
-    <!-- 1. Top Header Bar -->
-    <div class="top-bar">
-      <div class="top-bar-cell top-bar-left">Order No : ${escapeHtml(orderNum)}</div>
-      <div class="top-bar-cell top-bar-center">ESTIMATE</div>
-      <div class="top-bar-cell top-bar-right">Date : ${escapeHtml(orderDate)}</div>
+  <div class="sheet">
+    <!-- 1. Order No | ESTIMATE | Date -->
+    <div class="head">
+      <div class="head-left">Order No : ${escapeHtml(orderNum)}</div>
+      <div class="head-mid">ESTIMATE</div>
+      <div class="head-right">Date : ${escapeHtml(orderDate)}</div>
     </div>
 
-    <!-- 2. Company Header -->
-    <div class="company-header">
-      <div class="company-contacts">
-        <span>Mobile : +91 94428 26566</span>
-        <span>E-mail : support@aadhicrackers.com</span>
+    <!-- 2. Company letterhead -->
+    <div class="company">
+      <div class="company-name">${escapeHtml(company.name)}</div>
+      <div class="company-addr">${escapeHtml(company.address)}</div>
+      <div class="company-contact">
+        <span>Mobile : ${escapeHtml(company.mobile)}</span>
+        <span>E-mail : ${escapeHtml(company.email)}</span>
       </div>
-      <div class="company-name">Aadhi Crackers</div>
-      <div class="company-address">3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189.</div>
     </div>
 
-    <!-- 3. Customer & Bank Details -->
-    <div class="info-grid">
-      <div class="customer-col">
-        <div class="title">Customer Details</div>
-        <div><strong>${escapeHtml(o.customerName || 'Valued Customer')}</strong></div>
-        ${o.customerPhone ? `<div>${escapeHtml(o.customerPhone)}</div>` : ''}
-        ${addressLines ? `<div>${addressLines}</div>` : ''}
+    <!-- 3. Deliver To | Bank Details -->
+    <div class="boxes">
+      <div class="box box-left">
+        <div class="box-title">Deliver To</div>
+        <div class="box-name">${escapeHtml(order.customerName || 'Valued Customer')}</div>
+        ${deliverToLines || '<div>Sivakasi, Tamil Nadu</div>'}
+        ${phone ? `<div>Phone : ${escapeHtml(phone)}</div>` : ''}
       </div>
-      <div class="bank-col">
-        <table class="bank-table">
-          <tr><td class="lbl">A/C Name</td><td class="colon">:</td><td class="val">AADHI CRACKERS</td></tr>
-          <tr><td class="lbl">A/C Number</td><td class="colon">:</td><td class="val">926020003006172</td></tr>
-          <tr><td class="lbl">A/C Type</td><td class="colon">:</td><td class="val">Current</td></tr>
-          <tr><td class="lbl">Bank Name</td><td class="colon">:</td><td class="val">AXIS BANK LTD</td></tr>
-          <tr><td class="lbl">IFSC Code</td><td class="colon">:</td><td class="val">UTIB0000089</td></tr>
+      <div class="box box-right">
+        <div class="box-title">Bank Details</div>
+        <table class="bank">
+          <tr><td class="k">Bank</td><td class="c">:</td><td class="v">${escapeHtml(bank.bankName)}</td></tr>
+          <tr><td class="k">A/c Name</td><td class="c">:</td><td class="v">${escapeHtml(bank.accountName)}</td></tr>
+          <tr><td class="k">A/c No</td><td class="c">:</td><td class="v">${escapeHtml(bank.accountNumber)}</td></tr>
+          <tr><td class="k">IFSC</td><td class="c">:</td><td class="v">${escapeHtml(bank.ifscCode)}</td></tr>
         </table>
       </div>
     </div>
 
-    <!-- 4. Ledger Table -->
-    <table class="ledger-table">
+    <!-- 4. Ledger -->
+    <table class="ledger">
       <thead>
         <tr>
-          <th class="col-sno">S.No</th>
-          <th class="col-code">Code</th>
-          <th class="col-name">Product Name</th>
-          <th class="col-qty">Qty</th>
-          <th class="col-rate">Rate / Qty</th>
-          <th class="col-disc">Discount</th>
-          <th class="col-final">Final Rate</th>
-          <th class="col-amount">Amount</th>
+          <th class="c-sno">S.No</th>
+          <th class="c-code">Code</th>
+          <th class="c-name">Product Name</th>
+          <th class="c-qty">Qty</th>
+          <th class="c-rate">Rate/Qty (MRP)</th>
+          <th class="c-disc">Discount %</th>
+          <th class="c-final">Final Rate</th>
+          <th class="c-amt">Amount</th>
         </tr>
       </thead>
       <tbody>
-        <tr class="cat-band">
-          <td colspan="8">80% Products</td>
-        </tr>
         ${rows}
-        <!-- Sub Total Row -->
-        <tr class="subtotal-row">
-          <td colspan="7" class="subtotal-label">Sub Total</td>
-          <td class="col-amount">${formatNum(subTotal)}</td>
-        </tr>
-        <!-- Spacer Row with vertical borders -->
-        <tr class="spacer-row">
-          <td class="col-sno">&nbsp;</td>
-          <td class="col-code">&nbsp;</td>
-          <td class="col-name">&nbsp;</td>
-          <td class="col-qty">&nbsp;</td>
-          <td class="col-rate">&nbsp;</td>
-          <td class="col-disc">&nbsp;</td>
-          <td class="col-final">&nbsp;</td>
-          <td class="col-amount">&nbsp;</td>
-        </tr>
-        <!-- Packing Charges Row -->
-        <tr class="packing-row">
-          <td colspan="7" class="subtotal-label">Packing Charges ( 1.5% )</td>
-          <td class="col-amount">${formatNum(packingCharge)}</td>
-        </tr>
-        <!-- Overall Total Row -->
-        <tr class="overall-row">
-          <td colspan="4" class="total-items-cell">Total Items : <strong>${items.reduce((s, it) => s + (Number(it.quantity) || 1), 0)}</strong></td>
-          <td colspan="3" class="overall-label">Overall Total</td>
-          <td class="col-amount">${formatNum(overallTotal)}</td>
-        </tr>
       </tbody>
     </table>
 
-    <!-- 5. Footer & Terms -->
-    <div class="invoice-footer">
-      <div class="terms-box">
-        <div class="terms-title">Terms &amp; Conditions</div>
-        <div>1. Goods once sold will not be taken back or exchanged.</div>
-        <div>2. Our responsibility ceases immediately after delivering goods to carriers.</div>
-        <div>3. Subject to Sivakasi Jurisdiction.</div>
+    <!-- 5. Totals -->
+    <div class="totals">
+      <div class="totals-left">
+        <div>Total Items : ${escapeHtml(totals.totalItems)}</div>
+        <div>Total Qty : ${escapeHtml(totals.totalQty)}</div>
       </div>
-      <div class="sign-box">
-        <div class="sign-title">For AADHI CRACKERS</div>
+      <div class="totals-right">
+        <table class="sum">
+          ${totalRows}
+        </table>
+      </div>
+    </div>
+
+    <!-- 6. Terms + signatory -->
+    <div class="foot">
+      <div class="foot-terms">
+        <div class="t">Terms &amp; Conditions</div>
+        ${INVOICE_TERMS.map((t) => `<div>${escapeHtml(t)}</div>`).join('')}
+      </div>
+      <div class="foot-sign">
+        <div class="sign-for">For ${escapeHtml(company.name)}</div>
         <div class="sign-space"></div>
-        <div>Authorized Signatory</div>
+        <div class="sign-line">Authorized Signatory</div>
       </div>
     </div>
   </div>
@@ -599,272 +730,35 @@ const buildOrderInvoiceHtml = (o: Order): string => {
 </html>`;
 };
 
-/** React Component: High-Fidelity Paper Preview matching Sivakasi physical estimate reference */
-interface InvoicePaperPreviewProps {
-  order: Order;
-  invoiceNumber?: string;
-  invoiceDate?: string;
-  invoiceSubtotal?: number;
-  invoiceGrandTotal?: number;
-}
-
-const InvoicePaperPreview: React.FC<InvoicePaperPreviewProps> = ({
+/** On-screen paper preview — renders the exact print HTML inside an isolated A4 iframe,
+    so what the admin sees is byte-for-byte what the printer produces. */
+const InvoicePaperPreview: React.FC<{ order: Order; branding?: InvoiceBranding }> = ({
   order,
-  invoiceNumber,
-  invoiceDate,
-  invoiceSubtotal,
-  invoiceGrandTotal
+  branding = DEFAULT_INVOICE_BRANDING
 }) => {
-  const formatNum = (n?: number): string =>
-    (Number(n) || 0).toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-
-  const formatInvoiceDate = (dateStr?: string): string => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return '';
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
-  };
-
-  const items = order.items || [];
-
-  const subTotal =
-    Number(invoiceSubtotal) > 0
-      ? Number(invoiceSubtotal)
-      : Number(order.itemsSubtotal) > 0
-      ? Number(order.itemsSubtotal)
-      : items.reduce(
-          (sum, it) =>
-            sum + (Number(it.lineTotal) || (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1)),
-          0
-        );
-
-  const packingCharge =
-    Number(order.shippingCharge) > 0
-      ? Number(order.shippingCharge)
-      : Math.round(subTotal * 0.015);
-
-  const overallTotal =
-    Number(invoiceGrandTotal) > 0
-      ? Number(invoiceGrandTotal)
-      : Number(order.grandTotal) > subTotal
-      ? Number(order.grandTotal)
-      : subTotal + packingCharge;
-
-  const totalQty = items.reduce((sum, it) => sum + (Number(it.quantity) || 1), 0);
-
-  const orderNum = order.orderNumber || invoiceNumber || '—';
-  const displayDate =
-    formatInvoiceDate(invoiceDate || order.placedAtUtc) || new Date().toLocaleDateString('en-IN');
-
-  const addr = order.shippingAddress;
-  const addressLines = addr
-    ? [
-        addr.addressLine1,
-        addr.addressLine2,
-        [addr.city, addr.state].filter(Boolean).join(', '),
-        addr.postalCode ? `${addr.state ? '' : 'Pincode: '}${addr.postalCode}` : null
-      ].filter(Boolean)
-    : ['Sivakasi, Tamil Nadu'];
-
+  const html = useMemo(() => buildOrderInvoiceHtml(order, branding), [order, branding]);
   return (
-    <div className="w-full max-w-[800px] bg-white border-[1.5px] border-black text-black font-sans text-[11px] shadow-sm select-text">
-      {/* 1. Top Header Bar: Order No | ESTIMATE | Date */}
-      <div className="flex border-b-[1.5px] border-black text-xs font-bold">
-        <div className="w-1/3 p-2 border-r-[1.5px] border-black flex items-center">
-          Order No : <span className="ml-1 font-extrabold">{orderNum}</span>
-        </div>
-        <div className="w-1/3 p-2 border-r-[1.5px] border-black flex items-center justify-center font-black tracking-widest text-[13.5px] uppercase">
-          ESTIMATE
-        </div>
-        <div className="w-1/3 p-2 flex items-center justify-end">
-          Date : <span className="ml-1 font-extrabold">{displayDate}</span>
-        </div>
-      </div>
-
-      {/* 2. Company Header */}
-      <div className="p-2.5 text-center border-b-[1.5px] border-black">
-        <div className="flex justify-between text-[11px] font-bold">
-          <span>Mobile : +91 94428 26566</span>
-          <span>E-mail : support@aadhicrackers.com</span>
-        </div>
-        <div className="text-lg font-black tracking-wide my-0.5">Aadhi Crackers</div>
-        <div className="text-[11px] text-neutral-800">
-          3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189.
-        </div>
-      </div>
-
-      {/* 3. Customer & Bank Details */}
-      <div className="flex border-b-[1.5px] border-black">
-        <div className="w-[58%] border-r-[1.5px] border-black p-2.5 leading-tight">
-          <div className="font-bold text-xs mb-1">Customer Details</div>
-          <div className="font-bold text-[12px]">{order.customerName || 'Valued Customer'}</div>
-          {order.customerPhone && <div className="text-neutral-800">{order.customerPhone}</div>}
-          <div className="text-neutral-700 mt-0.5">
-            {addressLines.map((line, idx) => (
-              <div key={idx}>{line}</div>
-            ))}
-          </div>
-        </div>
-        <div className="w-[42%] p-2.5 text-[10.5px] leading-snug">
-          <table className="w-full">
-            <tbody>
-              <tr>
-                <td className="font-bold whitespace-nowrap w-24">A/C Name</td>
-                <td className="w-3 font-bold text-center">:</td>
-                <td className="font-bold">AADHI CRACKERS</td>
-              </tr>
-              <tr>
-                <td className="font-bold whitespace-nowrap">A/C Number</td>
-                <td className="font-bold text-center">:</td>
-                <td className="font-bold tracking-wider">926020003006172</td>
-              </tr>
-              <tr>
-                <td className="font-bold whitespace-nowrap">A/C Type</td>
-                <td className="font-bold text-center">:</td>
-                <td className="font-bold">Current</td>
-              </tr>
-              <tr>
-                <td className="font-bold whitespace-nowrap">Bank Name</td>
-                <td className="font-bold text-center">:</td>
-                <td className="font-bold">AXIS BANK LTD</td>
-              </tr>
-              <tr>
-                <td className="font-bold whitespace-nowrap">IFSC Code</td>
-                <td className="font-bold text-center">:</td>
-                <td className="font-bold">UTIB0000089</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* 4. Ledger Table */}
-      <table className="w-full border-collapse text-[10.5px]">
-        <thead>
-          <tr className="border-b-[1.5px] border-black font-bold">
-            <th className="w-9 border-r border-black p-1 text-center">S.No</th>
-            <th className="w-14 border-r border-black p-1 text-center">Code</th>
-            <th className="border-r border-black p-1 pl-2 text-left">Product Name</th>
-            <th className="w-10 border-r border-black p-1 text-center">Qty</th>
-            <th className="w-20 border-r border-black p-1 text-right">Rate / Qty</th>
-            <th className="w-20 border-r border-black p-1 text-right">Discount</th>
-            <th className="w-20 border-r border-black p-1 text-right">Final Rate</th>
-            <th className="w-24 p-1 text-right">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="bg-slate-200 border-b border-black font-bold">
-            <td colSpan={8} className="p-1 px-2 text-left">80% Products</td>
-          </tr>
-          {items.length === 0 ? (
-            <tr className="border-b border-black">
-              <td colSpan={8} className="text-center py-6 text-slate-500 font-bold">
-                No items found for this invoice.
-              </td>
-            </tr>
-          ) : (
-            items.map((it, i) => {
-              const qty = Number(it.quantity) || 1;
-              const lineTotal = Number(it.lineTotal) || (Number(it.unitPrice) || 0) * qty;
-              const finalRate = qty > 0 ? Number(it.unitPrice) || lineTotal / qty : 0;
-              let rateQty = finalRate * 5;
-              let discount = rateQty * 0.8;
-              if (Number(it.discount) > 0) {
-                const unitDisc = Number(it.discount) / qty;
-                rateQty = finalRate + unitDisc;
-                discount = unitDisc;
-              }
-              const code = it.sku || `AC-${String(i + 1).padStart(2, '0')}`;
-
-              return (
-                <tr key={it.id || i} className="border-b border-black">
-                  <td className="border-r border-black p-1 text-center">{i + 1}</td>
-                  <td className="border-r border-black p-1 text-center font-medium">{code}</td>
-                  <td className="border-r border-black p-1 pl-2 text-left">{it.productName}</td>
-                  <td className="border-r border-black p-1 text-center font-bold">{qty}</td>
-                  <td className="border-r border-black p-1 text-right">{formatNum(rateQty)}</td>
-                  <td className="border-r border-black p-1 text-right">{formatNum(discount)}</td>
-                  <td className="border-r border-black p-1 text-right font-medium">{formatNum(finalRate)}</td>
-                  <td className="p-1 text-right font-bold">{formatNum(lineTotal)}</td>
-                </tr>
-              );
-            })
-          )}
-
-          {/* Sub Total */}
-          <tr className="border-b-[1.5px] border-black font-bold">
-            <td colSpan={7} className="p-1.5 pr-3 text-right">Sub Total</td>
-            <td className="p-1.5 text-right font-bold">{formatNum(subTotal)}</td>
-          </tr>
-
-          {/* Spacer row maintaining vertical column lines */}
-          <tr className="border-b border-black h-9">
-            <td className="border-r border-black">&nbsp;</td>
-            <td className="border-r border-black">&nbsp;</td>
-            <td className="border-r border-black">&nbsp;</td>
-            <td className="border-r border-black">&nbsp;</td>
-            <td className="border-r border-black">&nbsp;</td>
-            <td className="border-r border-black">&nbsp;</td>
-            <td className="border-r border-black">&nbsp;</td>
-            <td>&nbsp;</td>
-          </tr>
-
-          {/* Packing Charges (1.5%) */}
-          <tr className="border-b-[1.5px] border-black font-bold">
-            <td colSpan={7} className="p-1.5 pr-3 text-right">Packing Charges ( 1.5% )</td>
-            <td className="p-1.5 text-right font-bold">{formatNum(packingCharge)}</td>
-          </tr>
-
-          {/* Overall Total Row */}
-          <tr className="bg-slate-200 font-bold text-[11px]">
-            <td colSpan={4} className="p-1.5 pl-2 text-left">
-              Total Items : <span className="font-extrabold">{totalQty}</span>
-            </td>
-            <td colSpan={3} className="p-1.5 pr-3 text-right">Overall Total</td>
-            <td className="p-1.5 text-right font-black">{formatNum(overallTotal)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* 5. Footer */}
-      <div className="p-2.5 border-t-[1.5px] border-black flex justify-between text-[10px] leading-relaxed">
-        <div className="w-[65%]">
-          <div className="font-bold underline mb-0.5">Terms & Conditions</div>
-          <div>1. Goods once sold will not be taken back or exchanged.</div>
-          <div>2. Our responsibility ceases immediately after delivering goods to carriers.</div>
-          <div>3. Subject to Sivakasi Jurisdiction.</div>
-        </div>
-        <div className="w-[32%] text-right flex flex-col justify-between items-end">
-          <div className="font-bold">For AADHI CRACKERS</div>
-          <div className="h-7"></div>
-          <div className="font-bold">Authorized Signatory</div>
-        </div>
-      </div>
-    </div>
+    <iframe
+      title={`Estimate preview ${order.orderNumber || ''}`}
+      srcDoc={html}
+      className="bg-white shadow-lg flex-shrink-0"
+      style={{ width: 794, height: 1123, maxWidth: '100%', border: 'none' }}
+    />
   );
 };
 
-/** Payments status pill per design 15: Paid green, Pending amber, Refunded orange. */
+/** Payments status pill per design 15: Paid green, Pending amber, Failed red. */
 const PaymentStatusPill: React.FC<{ status: string }> = ({ status }) => {
   const cls =
-    status === 'Paid'
+    status === 'Paid' || status === 'Completed'
       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
       : status === 'Pending' || status === 'Authorized'
       ? 'bg-amber-50 text-amber-700 border border-amber-200'
-      : status === 'Refunded' || status === 'RefundPending' || status === 'Completed'
-      ? 'bg-orange-50 text-orange-600 border border-orange-200'
       : status === 'Failed' || status === 'Cancelled'
       ? 'bg-red-50 text-red-700 border border-red-200'
       : 'bg-slate-50 text-slate-600 border border-slate-200';
-  const label = status === 'RefundPending' ? 'Refunded' : status === 'Completed' ? 'Refunded' : status;
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${cls}`}>{label}</span>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold ${cls}`}>{status}</span>
   );
 };
 
@@ -892,7 +786,7 @@ const buildTimeline = (order: Order): { steps: TimelineStep[]; cancelled?: Order
 
   let currentRank = STATUS_RANK[order.orderStatus];
   if (currentRank === undefined) {
-    // Cancelled / Returned — show progress reached before the terminal state
+    // Cancelled — show the progress reached before the terminal state
     currentRank = histories.reduce((max, h) => Math.max(max, STATUS_RANK[h.toStatus] ?? 0), 0);
   }
 
@@ -940,10 +834,17 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [utrInput, setUtrInput] = useState('');
   const [verificationNotes, setVerificationNotes] = useState('');
-  const [trackingInput, setTrackingInput] = useState('');
-  const [dispatchTargetOrder, setDispatchTargetOrder] = useState<Order | null>(null);
-  const [dispatchLrInput, setDispatchLrInput] = useState('');
   const [rejectPaymentTarget, setRejectPaymentTarget] = useState<Order | null>(null);
+
+  // QUICK DISPATCH (Phase 6) — one modal shared by the list row and the order detail view
+  const [dispatchTargetOrder, setDispatchTargetOrder] = useState<Order | null>(null);
+  const [dispatchCarrier, setDispatchCarrier] = useState('');
+  const [dispatchLrInput, setDispatchLrInput] = useState('');
+  const [dispatchNotes, setDispatchNotes] = useState('');
+  const [isDispatching, setIsDispatching] = useState(false);
+
+  // Printed estimate letterhead — hard-coded defaults, overridden by system settings when served
+  const [invoiceBranding, setInvoiceBranding] = useState<InvoiceBranding>(DEFAULT_INVOICE_BRANDING);
   const [viewerImage, setViewerImage] = useState<{
     url: string;
     title: string;
@@ -1035,6 +936,28 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  /** Printed-estimate letterhead: overlay Store.* / Payment.* settings on the built-in defaults.
+      Loaded separately so a settings outage never blocks the orders screen. */
+  useEffect(() => {
+    let active = true;
+    api
+      .getSettings()
+      .then((list) => {
+        if (!active || !Array.isArray(list) || list.length === 0) return;
+        const map: Record<string, string> = {};
+        list.forEach((s) => {
+          if (s?.key) map[s.key] = s.value ?? '';
+        });
+        setInvoiceBranding(buildInvoiceBranding(map));
+      })
+      .catch(() => {
+        /* keep the built-in letterhead */
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Sync subTab with the initialSubTab prop whenever the sidebar switches screens
@@ -1216,7 +1139,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
 
   // ===================== Handlers =====================
 
-  /** Print Invoice (design 03) — opens a clean invoice window and triggers window.print(). */
+  /** Print Estimate — opens the Sivakasi A4 paper estimate in a window and triggers window.print(). */
   const handlePrintInvoice = async (order: Order) => {
     let orderToPrint = order;
     if (!orderToPrint.items || orderToPrint.items.length === 0) {
@@ -1234,7 +1157,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       showToast('Please allow pop-ups to print the invoice.', 'warning');
       return;
     }
-    w.document.write(buildOrderInvoiceHtml(orderToPrint));
+    w.document.write(buildOrderInvoiceHtml(orderToPrint, invoiceBranding));
     w.document.close();
     w.focus();
     setTimeout(() => {
@@ -1278,7 +1201,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     setSelectedOrder(o);
     setUtrInput(o.utrNumber || '');
     setVerificationNotes('');
-    setTrackingInput(o.trackingNumber || '');
     // Hydrate with the full detail (items, status history) in the background
     api
       .getOrderById(o.id)
@@ -1286,7 +1208,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         if (full) {
           setSelectedOrder((prev) => (prev && prev.id === o.id ? full : prev));
           setUtrInput(full.utrNumber || '');
-          setTrackingInput(full.trackingNumber || '');
         }
       })
       .catch(() => {});
@@ -1300,7 +1221,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         setSelectedOrder(full);
         setUtrInput(full.utrNumber || '');
         setVerificationNotes('');
-        setTrackingInput(full.trackingNumber || '');
       } else {
         showToast('Order not found', 'warning');
       }
@@ -1396,45 +1316,66 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     }
   };
 
-  // Dispatch Order to Transport (Confirmed -> Shipped)
-  const handleDispatchOrder = async () => {
-    if (!selectedOrder) return;
-    try {
-      const trackingNo = trackingInput.trim();
-      const reason = trackingNo ? `Dispatched via transport: ${trackingNo}` : 'Dispatched to transport office';
-      const updated = await api.updateOrderStatus(selectedOrder.id, 'Shipped', reason, trackingNo || undefined);
-      showToast(`Order ${selectedOrder.orderNumber} marked as Dispatched / Shipped!`, 'success');
-      if (updated) {
-        setSelectedOrder(updated);
-        setOrders((prev) => prev.map((o) => (o.id === selectedOrder.id ? updated : o)));
-      }
-      loadData();
-    } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to dispatch order', 'error');
-    }
+  // ===================== QUICK DISPATCH (Phase 6) =====================
+
+  const openDispatchModal = (order: Order) => {
+    setDispatchTargetOrder(order);
+    setDispatchCarrier(orderExtras(order).carrierName || '');
+    setDispatchLrInput(order.trackingNumber || '');
+    setDispatchNotes('');
   };
 
-  // Quick Dispatch from Table Row modal
+  const closeDispatchModal = () => {
+    setDispatchTargetOrder(null);
+    setDispatchCarrier('');
+    setDispatchLrInput('');
+    setDispatchNotes('');
+  };
+
+  /** Hands the parcel to the transport carrier: POST /orders/{id}/dispatch → order becomes Shipped. */
   const handleQuickDispatch = async () => {
-    if (!dispatchTargetOrder) return;
+    if (!dispatchTargetOrder || isDispatching) return;
+
+    const carrierName = dispatchCarrier.trim();
+    const trackingNumber = dispatchLrInput.trim();
+    if (!trackingNumber) {
+      showToast('Enter the LR / Waybill number before dispatching.', 'warning');
+      return;
+    }
+
+    const targetId = dispatchTargetOrder.id;
+    const targetNumber = dispatchTargetOrder.orderNumber;
+    setIsDispatching(true);
     try {
-      const trackingNo = dispatchLrInput.trim();
-      const reason = trackingNo ? `Dispatched via transport: ${trackingNo}` : 'Dispatched to transport office';
-      const updated = await api.updateOrderStatus(dispatchTargetOrder.id, 'Shipped', reason, trackingNo || undefined);
-      showToast(`Order ${dispatchTargetOrder.orderNumber} marked as Dispatched!`, 'success');
-      if (updated) {
-        setOrders((prev) => prev.map((o) => (o.id === dispatchTargetOrder.id ? updated : o)));
-        if (selectedOrder?.id === dispatchTargetOrder.id) {
-          setSelectedOrder(updated);
-        }
+      const updated = await orderApi.dispatchOrder(targetId, {
+        carrierName: carrierName || undefined,
+        trackingNumber,
+        notes: dispatchNotes.trim() || undefined
+      });
+
+      // Prefer the DTO the dispatch call returns; otherwise re-read the order.
+      const refreshed = updated || (await api.getOrderById(targetId).catch(() => null));
+      if (refreshed) {
+        setOrders((prev) => prev.map((o) => (o.id === targetId ? refreshed : o)));
+        setSelectedOrder((prev) => (prev && prev.id === targetId ? refreshed : prev));
       }
-      setDispatchTargetOrder(null);
-      setDispatchLrInput('');
+
+      showToast(
+        `Order ${targetNumber} dispatched${carrierName ? ` via ${carrierName}` : ''} — LR ${trackingNumber}`,
+        'success'
+      );
+      closeDispatchModal();
       loadData();
     } catch (error) {
-      const { message } = getApiErrorDetails(error);
-      showToast(message || 'Failed to dispatch order', 'error');
+      const { message, status } = getApiErrorDetails(error);
+      // 404 means the dispatch endpoint is not live yet — keep the message human either way.
+      const friendly =
+        status === 404
+          ? `Dispatch is not available on the server yet for order ${targetNumber}. Please try again shortly.`
+          : `Could not dispatch order ${targetNumber}${message ? ` — ${message}` : ''}. Please check the carrier details and try again.`;
+      showToast(friendly, 'error');
+    } finally {
+      setIsDispatching(false);
     }
   };
 
@@ -1700,12 +1641,9 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                           )}
                           {(o.orderStatus === 'Confirmed' || o.orderStatus === 'Processing' || o.orderStatus === 'Packed') && (
                             <button
-                              onClick={() => {
-                                setDispatchTargetOrder(o);
-                                setDispatchLrInput(o.trackingNumber || '');
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs flex items-center space-x-1 shadow-xs transition-transform active:scale-95"
-                              title="Enter LR and dispatch order"
+                              onClick={() => openDispatchModal(o)}
+                              className="px-3 py-1.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-black text-xs flex items-center space-x-1 shadow-xs transition-transform active:scale-95"
+                              title="Quick Dispatch — enter carrier and LR number"
                             >
                               <Truck className="w-3.5 h-3.5" />
                               <span>Dispatch</span>
@@ -1915,32 +1853,23 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
               ) : selectedOrder.orderStatus === 'Confirmed' || selectedOrder.orderStatus === 'Processing' || selectedOrder.orderStatus === 'Packed' ? (
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-1">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-2xl bg-blue-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <div className="w-10 h-10 rounded-2xl bg-purple text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                       <Truck className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="font-black text-sm text-navy">Order Confirmed & Ready for Transport Dispatch</div>
                       <div className="text-xs text-slate-500">
-                        Pack the cracker cartons and enter the transport LR or tracking number.
+                        Pack the cracker cartons, then record the carrier and LR / waybill number.
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={trackingInput}
-                      onChange={(e) => setTrackingInput(e.target.value)}
-                      placeholder="LR / Tracking # (e.g. VRL-90821)"
-                      className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 font-mono text-xs font-bold text-navy outline-none focus:border-purple focus:bg-white w-52"
-                    />
-                    <button
-                      onClick={handleDispatchOrder}
-                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-blue-600/20 whitespace-nowrap transition-transform active:scale-95"
-                    >
-                      <Truck className="w-4 h-4" />
-                      <span>Mark Dispatched</span>
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => openDispatchModal(selectedOrder)}
+                    className="px-5 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-purple/20 whitespace-nowrap transition-transform active:scale-95 self-end md:self-auto"
+                  >
+                    <Truck className="w-4 h-4" />
+                    <span>Quick Dispatch</span>
+                  </button>
                 </div>
               ) : selectedOrder.orderStatus === 'Shipped' || selectedOrder.orderStatus === 'OutForDelivery' ? (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-1">
@@ -1957,7 +1886,12 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-slate-500">Customer will collect the parcel at the transport office.</div>
+                      <div className="text-xs text-slate-500">
+                        {orderExtras(selectedOrder).carrierName
+                          ? `Handed over to ${orderExtras(selectedOrder).carrierName}. `
+                          : ''}
+                        Customer will collect the parcel at the transport office.
+                      </div>
                     </div>
                   </div>
                   <button
@@ -2056,9 +1990,18 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                     <StatusBadge status={selectedOrder.orderStatus} />
                   )}
                 </div>
+                {orderExtras(selectedOrder).carrierName && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Carrier</span>
+                    <span className="font-bold text-navy flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-purple" />
+                      {orderExtras(selectedOrder).carrierName}
+                    </span>
+                  </div>
+                )}
                 {selectedOrder.trackingNumber && (
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Tracking #</span>
+                    <span className="text-slate-500">LR / Waybill #</span>
                     <span className="font-mono font-bold text-navy">{selectedOrder.trackingNumber}</span>
                   </div>
                 )}
@@ -2779,9 +2722,15 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
           statusHistories: []
         };
 
+        // The estimate always prints from an Order shape — fill any gap from the invoice record.
         const printableOrder: Order = {
           ...baseOrder,
-          items: baseOrder.items || []
+          items: baseOrder.items || [],
+          orderNumber: baseOrder.orderNumber || selectedInvoice.orderNumber || selectedInvoice.invoiceNumber,
+          placedAtUtc: baseOrder.placedAtUtc || selectedInvoice.issuedAtUtc,
+          itemsSubtotal: Number(baseOrder.itemsSubtotal) || Number(selectedInvoice.subtotal) || 0,
+          tax: Number(baseOrder.tax) || Number(selectedInvoice.tax) || 0,
+          grandTotal: Number(baseOrder.grandTotal) || Number(selectedInvoice.grandTotal) || 0
         };
 
         return (
@@ -2789,7 +2738,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
             <div className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-3 max-h-[95vh] flex flex-col">
               <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <div className="flex items-center space-x-2">
-                  <div className="font-black text-base text-navy">AADHI CRACKERS</div>
+                  <div className="font-black text-base text-navy">{invoiceBranding.company.name}</div>
                   <span className="text-[10px] font-mono bg-purple/10 text-purple px-2.5 py-0.5 rounded-full font-bold">
                     ESTIMATE / INVOICE #{selectedInvoice.invoiceNumber}
                   </span>
@@ -2815,26 +2764,20 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 </div>
               </div>
 
-              {/* Formatted Reference Invoice Live Preview (Native High-Fidelity Paper Canvas) */}
-              <div className="flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-200/60 p-3 sm:p-6 flex justify-center shadow-inner">
+              {/* Live A4 preview — the exact HTML that goes to the printer */}
+              <div className="flex-1 overflow-auto rounded-2xl border border-slate-200 bg-slate-200/60 p-3 sm:p-6 flex justify-center shadow-inner">
                 {isInvoiceOrderLoading ? (
                   <div className="flex flex-col items-center justify-center py-20 space-y-3 text-slate-500">
                     <Loader2 className="w-8 h-8 animate-spin text-purple" />
                     <div className="text-xs font-bold">Loading invoice details...</div>
                   </div>
                 ) : (
-                  <InvoicePaperPreview
-                    order={printableOrder}
-                    invoiceNumber={selectedInvoice.invoiceNumber}
-                    invoiceDate={selectedInvoice.issuedAtUtc}
-                    invoiceSubtotal={selectedInvoice.subtotal}
-                    invoiceGrandTotal={selectedInvoice.grandTotal}
-                  />
+                  <InvoicePaperPreview order={printableOrder} branding={invoiceBranding} />
                 )}
               </div>
 
               <div className="pt-2 flex items-center justify-between text-xs text-slate-500 border-t border-slate-100">
-                <span>GSTIN: 33ABCDE1234F1Z5 • Sivakasi, Tamil Nadu</span>
+                <span className="truncate pr-3">{invoiceBranding.company.address}</span>
                 <span className="font-bold text-navy">Total: {formatINR(selectedInvoice.grandTotal)}</span>
               </div>
             </div>
@@ -2842,23 +2785,24 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
         );
       })()}
 
-      {/* QUICK DISPATCH MODAL */}
+      {/* QUICK DISPATCH MODAL (Phase 6) — carrier + LR / waybill, then POST /orders/{id}/dispatch */}
       {dispatchTargetOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy/70 backdrop-blur-xs animate-fade-in">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center space-x-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                <div className="w-9 h-9 rounded-xl bg-purple text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                   <Truck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-black text-sm text-navy">Dispatch Order #{dispatchTargetOrder.orderNumber}</h3>
-                  <p className="text-[11px] text-slate-500">Enter lorry transport LR / tracking details</p>
+                  <h3 className="font-black text-sm text-navy">Quick Dispatch — #{dispatchTargetOrder.orderNumber}</h3>
+                  <p className="text-[11px] text-slate-500">Record the carrier and LR / waybill number</p>
                 </div>
               </div>
               <button
-                onClick={() => setDispatchTargetOrder(null)}
+                onClick={closeDispatchModal}
                 className="text-slate-400 hover:text-slate-600"
+                title="Close"
               >
                 <XCircle className="w-5 h-5" />
               </button>
@@ -2868,39 +2812,91 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
               <div>
                 <label className="block font-bold text-navy mb-1">Customer</label>
                 <div className="p-2.5 bg-slate-50 rounded-xl text-slate-700">
-                  <span className="font-bold text-navy">{dispatchTargetOrder.customerName}</span> • {dispatchTargetOrder.customerPhone}
+                  <span className="font-bold text-navy">{dispatchTargetOrder.customerName}</span>
+                  {dispatchTargetOrder.customerPhone ? ` • ${dispatchTargetOrder.customerPhone}` : ''}
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold text-navy mb-1">Transport Lorry / LR Number (Optional)</label>
+                <label className="block font-bold text-navy mb-1">Carrier Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. VRL Logistics"
+                  value={dispatchCarrier}
+                  onChange={(e) => setDispatchCarrier(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-navy outline-none focus:border-purple focus:bg-white"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {CARRIER_QUICK_PICKS.map((c) => {
+                    const isPicked = dispatchCarrier.trim().toLowerCase() === c.toLowerCase();
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setDispatchCarrier(c)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors ${
+                          isPicked
+                            ? 'bg-purple text-white border-purple'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-purple hover:text-purple'
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-navy mb-1">
+                  LR / Waybill Number <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
                   autoFocus
-                  placeholder="e.g. VRL-90821 or Rathimeena LR-442"
+                  placeholder="e.g. VRL-90821"
                   value={dispatchLrInput}
                   onChange={(e) => setDispatchLrInput(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 font-mono text-xs font-bold text-navy outline-none focus:border-purple"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleQuickDispatch();
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 font-mono text-xs font-bold text-navy outline-none focus:border-purple focus:bg-white"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Customer will see this LR number on their order tracking page.
+                  The customer sees this LR number on their order tracking page.
                 </span>
+              </div>
+
+              <div>
+                <label className="block font-bold text-navy mb-1">Notes (optional)</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. 3 cartons handed over at Sivakasi booking office"
+                  value={dispatchNotes}
+                  onChange={(e) => setDispatchNotes(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-navy outline-none focus:border-purple focus:bg-white resize-none"
+                />
               </div>
             </div>
 
             <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setDispatchTargetOrder(null)}
+                onClick={closeDispatchModal}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleQuickDispatch}
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-blue-600/20"
+                disabled={isDispatching || !dispatchLrInput.trim()}
+                className={`px-5 py-2 rounded-xl text-white text-xs font-black uppercase tracking-wider flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-transform active:scale-95 ${
+                  isDispatching || !dispatchLrInput.trim()
+                    ? 'bg-purple/40 cursor-not-allowed'
+                    : 'bg-purple hover:bg-purple-dark'
+                }`}
               >
-                <Truck className="w-4 h-4" />
-                <span>Confirm Dispatch</span>
+                {isDispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+                <span>{isDispatching ? 'Dispatching...' : 'Confirm Dispatch'}</span>
               </button>
             </div>
           </div>

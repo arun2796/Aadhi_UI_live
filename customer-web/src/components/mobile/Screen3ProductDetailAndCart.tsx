@@ -10,9 +10,10 @@ import {
   CheckCircle2,
   Star,
   Share2,
-  RotateCcw,
+  BadgeCheck,
   User,
   BadgePercent,
+  Gift,
   X,
   Tag
 } from 'lucide-react';
@@ -137,6 +138,10 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
   const inWish = isInWishlist(product.id);
   const inStock = product.isActive !== false;
   const off = pctOff(product.price, product.compareAtPrice, product.discountPercentage);
+
+  // Combo contents — hidden entirely until the API sends `comboItems`.
+  const comboItems = Array.isArray(product.comboItems) ? product.comboItems : [];
+  const comboItemsTotal = product.comboItemsTotal ?? 0;
 
   // Real review data only — the rating line is omitted entirely when the DTO has none.
   const rating = typeof product.rating === 'number' && product.rating > 0 ? product.rating : 0;
@@ -290,6 +295,57 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
         <div className="text-[10px] text-slate-400 font-medium">Inclusive of all taxes</div>
       </div>
 
+      {/* 3b. What's inside this combo — the key selling point for gift boxes */}
+      {comboItems.length > 0 && (
+        <div className="px-4 pt-4">
+          <div className="rounded-2xl border border-purple/20 overflow-hidden">
+            <div className="px-3.5 py-2.5 flex items-center gap-1.5 bg-purple-soft">
+              <Gift className="w-4 h-4 text-purple flex-shrink-0" />
+              <h3 className="text-xs font-black text-navy">What's inside this combo</h3>
+              <span className="ml-auto text-[10px] font-black text-purple flex-shrink-0">
+                {comboItems.length} items
+              </span>
+            </div>
+
+            <div className="divide-y divide-slate-100 bg-white">
+              {comboItems.map((c, i) => (
+                <div
+                  key={c.componentProductId || `${c.sku}-${i}`}
+                  className="flex items-center gap-2.5 px-3.5 py-2.5"
+                >
+                  <img
+                    src={c.imageUrl || productPlaceholder}
+                    alt={c.productName}
+                    className="w-10 h-10 rounded-lg object-cover border border-slate-100 bg-slate-50 flex-shrink-0"
+                    loading="lazy"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-2">
+                      {c.productName}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-semibold">× {c.quantity}</div>
+                  </div>
+                  {c.unitPrice > 0 && (
+                    <div className="text-[11px] font-black text-slate-600 flex-shrink-0">
+                      {inr(c.unitPrice)}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {comboItemsTotal > 0 && (
+              <div className="px-3.5 py-2.5 flex items-center justify-between bg-slate-50 border-t border-slate-100">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Total value inside
+                </span>
+                <span className="text-xs font-black text-navy">{inr(comboItemsTotal)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 4. Feature checklist (from real description lines only; hidden when none) */}
       {features.length > 0 && (
         <div className="px-4 pt-3">
@@ -368,7 +424,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
         </div>
       )}
 
-      {/* 8. Bottom icon row: Share / Wishlist / Easy Returns / Account */}
+      {/* 8. Bottom icon row: Share / Wishlist / Factory Direct / Account */}
       <div className="px-4 pt-4">
         <div className="grid grid-cols-4 gap-2 pt-4 border-t border-slate-100">
           <button onClick={handleShare} className="flex flex-col items-center gap-1.5 active:opacity-70">
@@ -387,9 +443,9 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
 
           <div className="flex flex-col items-center gap-1.5">
             <span className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center">
-              <RotateCcw className="w-4 h-4 text-emerald-600" />
+              <BadgeCheck className="w-4 h-4 text-emerald-600" />
             </span>
-            <span className="text-[9px] font-bold text-slate-600">Easy Returns</span>
+            <span className="text-[9px] font-bold text-slate-600">Factory Direct</span>
           </div>
 
           <button
@@ -425,11 +481,10 @@ export const Screen4Cart: React.FC<{
     couponCode,
     applyCoupon,
     removeCoupon,
-    shippingCharge,
     grandTotal
   } = useCart();
   const { showToast } = useToast();
-  const { promotionCodeEnabled, freeShippingThreshold } = useSettings();
+  const { promotionCodeEnabled } = useSettings();
 
   const [code, setCode] = useState('');
   const [applying, setApplying] = useState(false);
@@ -612,11 +667,6 @@ export const Screen4Cart: React.FC<{
             ) : (
               <span className="font-bold text-slate-400">{inr(0)}</span>
             )}
-          </div>
-
-          <div className="flex justify-between">
-            <span className="text-slate-600">Delivery Charges</span>
-            <span className="font-bold text-emerald-600 text-xs">₹0 (Transport To-Pay)</span>
           </div>
 
           <div className="flex justify-between items-baseline pt-2.5 border-t border-slate-100">

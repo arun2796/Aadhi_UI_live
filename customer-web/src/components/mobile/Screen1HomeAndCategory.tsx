@@ -4,7 +4,7 @@ import {
   BadgeCheck,
   ShieldCheck,
   Truck,
-  RotateCcw,
+  Package,
   CheckCircle2,
   Star,
   ChevronDown,
@@ -13,6 +13,7 @@ import {
   ArrowUpDown,
   SlidersHorizontal,
   ShoppingCart,
+  Gift,
   X
 } from 'lucide-react';
 import { Product, Category } from '../../types';
@@ -42,6 +43,18 @@ const pctOff = (p: Product): number => {
 
 const productImage = (p: Product): string =>
   p.primaryImageUrl || (p as any).imageUrl || productPlaceholder;
+
+/** Small purple COMBO chip — renders nothing until the API sends `isCombo`. */
+const ComboChip: React.FC<{ product: Product }> = ({ product }) => {
+  if (product.isCombo !== true) return null;
+  const count = product.comboItemCount ?? 0;
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-soft text-purple text-[8px] font-black uppercase tracking-wider">
+      <Gift className="w-2.5 h-2.5" />
+      Combo{count > 0 ? ` · ${count} items` : ''}
+    </span>
+  );
+};
 
 const prettifySlug = (slug: string) => {
   if (!slug) return 'Products';
@@ -146,7 +159,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
 
             {/* mini trust points inside hero */}
             <div className="flex items-center flex-wrap gap-x-3 gap-y-1 pt-1">
-              {['100% Original', 'Safe & Secure', 'Fast Delivery'].map((t) => (
+              {['100% Original', 'Safe & Secure', 'Transport Delivery'].map((t) => (
                 <span key={t} className="flex items-center gap-1 text-[9px] font-bold text-white/85">
                   <CheckCircle2 className="w-3 h-3 text-gold" />
                   {t}
@@ -172,8 +185,8 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
           {[
             { icon: BadgeCheck, tint: 'bg-orange-soft text-orange', title: '100% Original', sub: 'Trusted Brands' },
             { icon: ShieldCheck, tint: 'bg-purple-soft text-purple', title: 'Safe & Secure', sub: 'Quality Assured' },
-            { icon: Truck, tint: 'bg-emerald-50 text-emerald-600', title: 'Fast Delivery', sub: 'On Time Delivery' },
-            { icon: RotateCcw, tint: 'bg-gold-soft text-gold-dark', title: 'Easy Returns', sub: 'No Questions Asked' }
+            { icon: Truck, tint: 'bg-emerald-50 text-emerald-600', title: 'Transport Delivery', sub: 'Arrives in 1–2 weeks' },
+            { icon: Package, tint: 'bg-gold-soft text-gold-dark', title: 'Safe Packing', sub: 'Sivakasi Direct' }
           ].map(({ icon: Icon, tint, title, sub }) => (
             <div
               key={title}
@@ -291,6 +304,8 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
                     <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[30px] mb-1">
                       {p.name}
                     </h4>
+
+                    <ComboChip product={p} />
                   </div>
 
                   <div className="w-full mt-1">
@@ -594,6 +609,13 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
                 <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[28px] mb-1">
                   {p.name}
                 </h4>
+
+                {/* combo chip */}
+                {p.isCombo === true && (
+                  <div className="mb-1">
+                    <ComboChip product={p} />
+                  </div>
+                )}
 
                 {/* price + MRP + % badge */}
                 <div className="flex items-center gap-1.5 flex-wrap mb-1">
