@@ -15,6 +15,7 @@ const ErpDashboardPage = lazy(() => import('./pages/erp/ErpDashboardPage').then(
 const ErpSalesAndOrdersModule = lazy(() => import('./pages/erp/ErpSalesAndOrdersModule').then(m => ({ default: m.ErpSalesAndOrdersModule })));
 const ErpCatalogModule = lazy(() => import('./pages/erp/ErpCatalogModule').then(m => ({ default: m.ErpCatalogModule })));
 const ErpProductFormPage = lazy(() => import('./pages/erp/ErpProductFormPage').then(m => ({ default: m.ErpProductFormPage })));
+const ErpComboModule = lazy(() => import('./pages/erp/ErpComboModule').then(m => ({ default: m.ErpComboModule })));
 const ErpSubCategoriesPage = lazy(() => import('./pages/erp/ErpSubCategoriesPage').then(m => ({ default: m.ErpSubCategoriesPage })));
 const ErpFinanceAndPnlModule = lazy(() => import('./pages/erp/ErpFinanceAndPnlModule').then(m => ({ default: m.ErpFinanceAndPnlModule })));
 const ErpMarketingModule = lazy(() => import('./pages/erp/ErpMarketingModule').then(m => ({ default: m.ErpMarketingModule })));
@@ -65,7 +66,7 @@ function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedA
       products: '/admin/products',
       categories: '/admin/categories',
       brands: '/admin/brands',
-      combos: '/admin/combo-offers',
+      combos: '/admin/combos',
       reviews: '/admin/reviews',
       banners: '/admin/banners',
       finance: '/admin/finance',
@@ -120,6 +121,11 @@ function CategoryDetailWrapper() {
   return <ErpCatalogModule initialSubTab="categories" initialSelectedCategoryId={id} />;
 }
 
+function ComboFormWrapper() {
+  const { id } = useParams<{ id: string }>();
+  return <ErpComboModule mode="form" comboId={id} />;
+}
+
 function AdminAppRoutes() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -163,6 +169,9 @@ function AdminAppRoutes() {
       <Route path="/admin/categories/:id" element={<ProtectedAdminShell currentTab="categories"><CategoryDetailWrapper /></ProtectedAdminShell>} />
       <Route path="/admin/sub-categories" element={<ProtectedAdminShell currentTab="sub-categories"><ErpSubCategoriesPage /></ProtectedAdminShell>} />
       <Route path="/admin/brands" element={<ProtectedAdminShell currentTab="brands"><ErpCatalogModule initialSubTab="brands" /></ProtectedAdminShell>} />
+      <Route path="/admin/combos" element={<ProtectedAdminShell currentTab="combos"><ErpComboModule /></ProtectedAdminShell>} />
+      <Route path="/admin/combos/new" element={<ProtectedAdminShell currentTab="combos"><ErpComboModule mode="form" /></ProtectedAdminShell>} />
+      <Route path="/admin/combos/:id" element={<ProtectedAdminShell currentTab="combos"><ComboFormWrapper /></ProtectedAdminShell>} />
       <Route path="/admin/gift-boxes" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
       <Route path="/admin/gift-boxes/:id" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
       <Route path="/admin/combo-offers" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />

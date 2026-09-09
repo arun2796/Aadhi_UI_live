@@ -182,6 +182,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'catalog-sub-categories', label: 'Sub Categories', icon: FolderTree, to: 'sub-categories', indent: true },
       { key: 'catalog-brand', label: 'Brands', icon: Award, to: 'brands' },
       { key: 'catalog-product', label: 'Product', icon: Package, to: 'products' },
+      { key: 'catalog-combo', label: 'Combo', icon: Gift, to: 'combos' },
       { key: 'catalog-discount', label: 'Discount', icon: Tag, to: 'marketing/coupons?tab=discounts' },
       { key: 'catalog-promo-code', label: 'Promotion Code', icon: Ticket, to: 'marketing/coupons?tab=codes' }
     ]
@@ -222,7 +223,9 @@ const NAV_GROUPS: NavGroup[] = [
 const SHOW_DEVELOPER_NAV = false;
 
 const DEVELOPER_NAV: NavLeaf[] = [
-  { key: 'dev-combos', label: 'Gift Boxes / Combos', icon: Gift, to: 'combos' },
+  // The Catalog group now owns the "Combo" highlight (/admin/combos); this hidden
+  // entry keeps the legacy catalog gift-box screen reachable.
+  { key: 'dev-combos', label: 'Gift Boxes (Legacy)', icon: Gift, to: 'combo-offers' },
   { key: 'dev-reviews', label: 'Reviews', icon: Star, to: 'reviews' },
   { key: 'dev-expenses', label: 'Expenses', icon: Wallet, to: 'expenses' },
   { key: 'dev-receivables', label: 'Receivables', icon: Clock, to: 'receivables' },
