@@ -232,6 +232,12 @@ export interface Order {
   carrierName?: string;
   /** LR / waybill number used to collect the parcel. */
   trackingNumber?: string;
+  /** Transport office phone the customer calls to arrange collection.
+      Null on orders dispatched before this was recorded. */
+  carrierPhone?: string;
+  /** Transport office / branch address the parcel is collected from.
+      Null on orders dispatched before this was recorded. */
+  carrierAddress?: string;
   placedAtUtc: string;
   utrNumber?: string;
   paymentScreenshotUrl?: string;

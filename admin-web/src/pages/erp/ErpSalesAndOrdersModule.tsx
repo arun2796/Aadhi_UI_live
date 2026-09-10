@@ -414,12 +414,52 @@ const buildInvoiceBranding = (settings: Record<string, string>): InvoiceBranding
     part of the shared Order DTO yet — read defensively so the screen works either way. */
 type OrderExtras = {
   carrierName?: string;
+  /** Transport office the customer rings, and the branch they collect the parcel from.
+      Both optional at dispatch — null on every order dispatched before they existed. */
+  carrierPhone?: string;
+  carrierAddress?: string;
   packingCharges?: number;
   packingChargePercent?: number;
   deliveryCharge?: number;
 };
 
 const orderExtras = (order?: Order | null): OrderExtras => (order ?? {}) as OrderExtras;
+
+/**
+ * The collection details the customer needs: which office to call, which branch to go to.
+ * Returns `undefined` (never '' or '—') for a value the order does not carry, so historical
+ * orders simply render nothing instead of an empty row.
+ */
+const dispatchContact = (order?: Order | null): { phone?: string; address?: string } => {
+  const extras = orderExtras(order);
+  return {
+    phone: extras.carrierPhone?.trim() || undefined,
+    address: extras.carrierAddress?.trim() || undefined
+  };
+};
+
+/** `tel:` target — strip the spacing/brackets the counter types, keep a leading +. */
+const telHref = (phone: string): string => `tel:${phone.replace(/[^\d+]/g, '')}`;
+
+/**
+ * Forgiving sanity-check for a transport office number. A branch line is just as often a landline
+ * with an STD code (04562 xxxxxx) as a 10-digit mobile, and offices routinely list two numbers,
+ * so this only rejects the obviously-wrong. It never blocks a dispatch — it drives a hint.
+ */
+const looksLikeIndianPhone = (value: string): boolean => {
+  const parts = value
+    .split(/[,/&]|\bor\b/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return false;
+  return parts.every((part) => {
+    if (/[^\d+()\-.\s]/.test(part)) return false;
+    let digits = part.replace(/\D/g, '');
+    if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+    if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+    return digits.length >= 8 && digits.length <= 12;
+  });
+};
 
 type OrderItemExtras = {
   mrp?: number;
@@ -599,6 +639,57 @@ const buildOrderInvoiceHtml = (
 
   const phone = order.customerPhone || addr?.phone || '';
 
+  /* ── Collection details ──────────────────────────────────────────
+     The goods travel by lorry to a transport office and the CUSTOMER collects
+     them there. This sheet is normally printed at the counter AT dispatch and
+     handed over for the customer to carry to that office, so it has to name the
+     carrier, the LR number, the office phone and the office address — the same
+     block, in the same place, as the customer's own copy
+     (customer-web/src/utils/invoiceTemplate.ts), so the two read alike.
+
+     Only values the order actually carries are printed. An estimate printed
+     before dispatch (and any order dispatched before these fields existed)
+     carries none of them and the whole block is left off the paper. Nothing is
+     placeholdered — no dash rows, no empty labels. */
+  const carrier = (orderExtras(order).carrierName || '').trim();
+  const lrNumber = (order.trackingNumber || '').trim();
+  // dispatchContact() already trims and returns undefined (never '' or '—') for a missing value.
+  const { phone: carrierPhone, address: carrierAddress } = dispatchContact(order);
+
+  const collectionItems = (
+    [
+      ['Transport', carrier],
+      ['LR / Waybill', lrNumber],
+      ['Office Phone', carrierPhone || '']
+    ] as const
+  )
+    .filter(([, value]) => Boolean(value))
+    .map(([label, value]) => `<span class="ci"><b>${escapeHtml(label)}</b> : ${escapeHtml(value)}</span>`)
+    .join('');
+
+  // The note describes only what this block actually prints — an order with no LR
+  // number never tells the reader to quote one.
+  const collectionNote = [
+    lrNumber ? 'Quote the LR / waybill number at the transport office to collect this parcel.' : '',
+    'Freight is payable by the customer directly to the transport company on collection.'
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const collectionBlock =
+    collectionItems || carrierAddress
+      ? `<div class="collect">
+      <div class="collect-title">Collection Details</div>
+      ${collectionItems ? `<div class="collect-line">${collectionItems}</div>` : ''}
+      ${
+        carrierAddress
+          ? `<div class="collect-line"><b>Transport Office</b> : ${escapeHtml(carrierAddress)}</div>`
+          : ''
+      }
+      <div class="collect-note">${escapeHtml(collectionNote)}</div>
+    </div>`
+      : '';
+
   const rows =
     lines.length === 0
       ? '<tr><td colspan="8" style="text-align:center;padding:22px 10px;font-weight:bold;">No items recorded for this order.</td></tr>'
@@ -681,6 +772,12 @@ const buildOrderInvoiceHtml = (
   table.bank td.k { font-weight: bold; width: 76px; white-space: nowrap; }
   table.bank td.c { width: 10px; text-align: center; font-weight: bold; }
   table.bank td.v { font-weight: bold; letter-spacing: 0.2px; }
+  .collect { padding: 6px 9px; border-bottom: 1.5px solid #000; font-size: 10.5px; line-height: 1.55;
+             page-break-inside: avoid; }
+  .collect-title { font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
+  .collect-line { margin-top: 1px; }
+  .collect-line .ci { display: inline-block; margin-right: 16px; white-space: nowrap; }
+  .collect-note { margin-top: 2px; font-size: 9.5px; }
   table.ledger { width: 100%; border-collapse: collapse; font-size: 10.5px; }
   table.ledger thead { display: table-header-group; }
   table.ledger th { border-bottom: 1.5px solid #000; border-right: 1px solid #000; padding: 5px 3px;
@@ -739,7 +836,12 @@ const buildOrderInvoiceHtml = (
       <div class="box box-left">
         <div class="box-title">Deliver To</div>
         <div class="box-name">${escapeHtml(order.customerName || 'Valued Customer')}</div>
-        ${deliverToLines || '<div>Sivakasi, Tamil Nadu</div>'}
+        ${/* No fallback address. This printed "Sivakasi, Tamil Nadu" when the order carried no
+              structured address - the SELLER's own town presented as the BUYER's address, on a
+              document signed "For AADHI CRACKERS / Authorized Signatory". An address that is not
+              known is left blank; the same fix was applied to the customer-facing template in
+              customer-web/src/utils/invoiceTemplate.ts. Keep the two in step. */ ''}
+        ${deliverToLines}
         ${phone ? `<div>Phone : ${escapeHtml(phone)}</div>` : ''}
       </div>
       <div class="box box-right">
@@ -752,6 +854,9 @@ const buildOrderInvoiceHtml = (
         </table>
       </div>
     </div>
+
+    <!-- 3b. Collection details (printed only once the parcel is with a carrier) -->
+    ${collectionBlock}
 
     <!-- 4. Ledger -->
     <table class="ledger">
@@ -912,6 +1017,8 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   const [dispatchTargetOrder, setDispatchTargetOrder] = useState<Order | null>(null);
   const [dispatchCarrier, setDispatchCarrier] = useState('');
   const [dispatchLrInput, setDispatchLrInput] = useState('');
+  const [dispatchCarrierPhone, setDispatchCarrierPhone] = useState('');
+  const [dispatchCarrierAddress, setDispatchCarrierAddress] = useState('');
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
 
@@ -1393,9 +1500,12 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
   // ===================== QUICK DISPATCH (Phase 6) =====================
 
   const openDispatchModal = (order: Order) => {
+    const contact = dispatchContact(order);
     setDispatchTargetOrder(order);
     setDispatchCarrier(orderExtras(order).carrierName || '');
     setDispatchLrInput(order.trackingNumber || '');
+    setDispatchCarrierPhone(contact.phone || '');
+    setDispatchCarrierAddress(contact.address || '');
     setDispatchNotes('');
   };
 
@@ -1403,8 +1513,14 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     setDispatchTargetOrder(null);
     setDispatchCarrier('');
     setDispatchLrInput('');
+    setDispatchCarrierPhone('');
+    setDispatchCarrierAddress('');
     setDispatchNotes('');
   };
+
+  /** Non-blocking hint only: a typed-but-implausible office number still dispatches. */
+  const dispatchPhoneLooksOdd =
+    dispatchCarrierPhone.trim().length > 0 && !looksLikeIndianPhone(dispatchCarrierPhone.trim());
 
   /** Hands the parcel to the transport carrier: POST /orders/{id}/dispatch → order becomes Shipped. */
   const handleQuickDispatch = async () => {
@@ -1417,6 +1533,10 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       return;
     }
 
+    // Collection details are optional and must never hold up a dispatch — send undefined, not ''.
+    const carrierPhone = dispatchCarrierPhone.trim() || undefined;
+    const carrierAddress = dispatchCarrierAddress.trim() || undefined;
+
     const targetId = dispatchTargetOrder.id;
     const targetNumber = dispatchTargetOrder.orderNumber;
     setIsDispatching(true);
@@ -1424,6 +1544,8 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
       const updated = await orderApi.dispatchOrder(targetId, {
         carrierName: carrierName || undefined,
         trackingNumber,
+        carrierPhone,
+        carrierAddress,
         notes: dispatchNotes.trim() || undefined
       });
 
@@ -1992,6 +2114,26 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                           : ''}
                         Customer will collect the parcel at the transport office.
                       </div>
+                      {/* Where the customer goes and who they call — shown only when captured. */}
+                      {(dispatchContact(selectedOrder).phone || dispatchContact(selectedOrder).address) && (
+                        <div className="mt-1 flex flex-col sm:flex-row sm:flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-500">
+                          {dispatchContact(selectedOrder).phone && (
+                            <a
+                              href={telHref(dispatchContact(selectedOrder).phone as string)}
+                              className="inline-flex items-center gap-1 font-bold text-navy hover:text-purple"
+                            >
+                              <Phone className="w-3 h-3 text-orange flex-shrink-0" />
+                              {dispatchContact(selectedOrder).phone}
+                            </a>
+                          )}
+                          {dispatchContact(selectedOrder).address && (
+                            <span className="inline-flex items-start gap-1">
+                              <MapPin className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
+                              <span className="whitespace-pre-line">{dispatchContact(selectedOrder).address}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <button
@@ -2103,6 +2245,29 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                   <div className="flex justify-between items-center">
                     <span className="text-slate-500">LR / Waybill #</span>
                     <span className="font-mono font-bold text-navy">{selectedOrder.trackingNumber}</span>
+                  </div>
+                )}
+                {/* Collection details — absent on orders dispatched before these fields existed,
+                    so each row is omitted entirely rather than printed empty. */}
+                {dispatchContact(selectedOrder).phone && (
+                  <div className="flex justify-between items-center gap-3">
+                    <span className="text-slate-500 flex-shrink-0">Transport Office Phone</span>
+                    <a
+                      href={telHref(dispatchContact(selectedOrder).phone as string)}
+                      className="font-bold text-navy flex items-center gap-1.5 hover:text-purple text-right"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-orange flex-shrink-0" />
+                      {dispatchContact(selectedOrder).phone}
+                    </a>
+                  </div>
+                )}
+                {dispatchContact(selectedOrder).address && (
+                  <div className="space-y-1">
+                    <span className="text-slate-500 block">Transport Office Address</span>
+                    <div className="flex items-start gap-1.5 font-bold text-navy">
+                      <MapPin className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+                      <span className="whitespace-pre-line">{dispatchContact(selectedOrder).address}</span>
+                    </div>
                   </div>
                 )}
                 {selectedOrder.utrNumber && (
@@ -2989,6 +3154,52 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                 <span className="text-[10px] text-slate-400 mt-1 block">
                   The customer sees this LR number on their order tracking page.
                 </span>
+              </div>
+
+              {/* Collection details — how the customer actually reaches the goods. Optional:
+                  the parcel dispatches with or without them. */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-3">
+                <div className="flex items-start gap-1.5 text-[11px] text-slate-500 leading-snug">
+                  <MapPin className="w-3.5 h-3.5 text-purple mt-px flex-shrink-0" />
+                  <span>
+                    The customer sees these on their order page — they ring this office and collect the parcel
+                    there. Optional; dispatch works without them.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-navy mb-1">Transport office phone</label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    placeholder="e.g. 04562 226622 or 98765 43210"
+                    value={dispatchCarrierPhone}
+                    onChange={(e) => setDispatchCarrierPhone(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleQuickDispatch();
+                    }}
+                    className={`w-full p-2.5 rounded-xl border bg-white text-xs font-bold text-navy outline-none focus:border-purple ${
+                      dispatchPhoneLooksOdd ? 'border-amber-300' : 'border-slate-200'
+                    }`}
+                  />
+                  {dispatchPhoneLooksOdd && (
+                    <span className="text-[10px] text-amber-600 font-bold mt-1 block">
+                      That does not look like a phone number — landlines with an STD code are fine. It will still
+                      be saved as typed.
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block font-bold text-navy mb-1">Transport office address / branch</label>
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. VRL Logistics, Bypass Road, Madurai — near Mattuthavani bus stand"
+                    value={dispatchCarrierAddress}
+                    onChange={(e) => setDispatchCarrierAddress(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs text-navy outline-none focus:border-purple resize-none"
+                  />
+                </div>
               </div>
 
               <div>

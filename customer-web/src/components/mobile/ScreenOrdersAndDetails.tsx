@@ -192,6 +192,8 @@ export const ScreenMyOrders: React.FC<NavProps> = ({ onNavigate }) => {
                     <CarrierTrackingCard
                       carrierName={o.carrierName}
                       trackingNumber={o.trackingNumber}
+                      carrierPhone={o.carrierPhone}
+                      carrierAddress={o.carrierAddress}
                       compact
                     />
                   </div>
@@ -247,6 +249,10 @@ interface OrderView {
   carrierName?: string;
   /** LR / waybill number for parcel collection. */
   trackingNumber?: string;
+  /** Transport office phone to call about collection. */
+  carrierPhone?: string;
+  /** Transport office / branch address to collect from. */
+  carrierAddress?: string;
   total: number;
 }
 
@@ -300,6 +306,8 @@ const normalizeOrder = (raw: any, fallbackNumber?: string): OrderView => {
     tax,
     carrierName: raw?.carrierName ?? raw?.carrier ?? undefined,
     trackingNumber: raw?.trackingNumber ?? raw?.lrNumber ?? undefined,
+    carrierPhone: raw?.carrierPhone ?? undefined,
+    carrierAddress: raw?.carrierAddress ?? undefined,
     total
   };
 };
@@ -379,6 +387,8 @@ export const ScreenOrderDetails: React.FC<NavProps & { orderId?: string; orderNu
             <CarrierTrackingCard
               carrierName={order.carrierName}
               trackingNumber={order.trackingNumber}
+              carrierPhone={order.carrierPhone}
+              carrierAddress={order.carrierAddress}
               compact
             />
           )}

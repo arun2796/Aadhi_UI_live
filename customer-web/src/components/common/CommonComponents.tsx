@@ -4,6 +4,8 @@ import {
   Copy,
   Download,
   Landmark,
+  MapPin,
+  Phone,
   Printer,
   Star,
   StarHalf,
@@ -146,30 +148,76 @@ export const Drawer: React.FC<{
    this LR number, so it gets a high-contrast navy card everywhere
    an order is shown (My Orders, Order Details, Track Order).
    Renders nothing until the order actually carries the values.
+
+   Beneath the headline (carrier + LR) sit the two things that let the
+   customer actually REACH the goods: the transport office phone —
+   rendered as a `tel:` link so one tap dials it — and the branch
+   address to collect from. Both are optional: an order dispatched
+   before the API recorded them carries null, and each row simply does
+   not render. No empty rows, labels or dashes on historical orders.
    ───────────────────────────────────────────────────────────── */
+
+/**
+ * The dialable form of a transport-office phone: digits only, keeping a leading
+ * `+` for an international prefix. Returns '' when the value holds too few digits
+ * to be a real number, so the caller can print it as plain text instead of
+ * offering a `tel:` link that would dial nothing.
+ */
+const telHref = (phone: string): string => {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 6) return '';
+  return (phone.trim().startsWith('+') ? '+' : '') + digits;
+};
 
 export const CarrierTrackingCard: React.FC<{
   carrierName?: string;
   trackingNumber?: string;
+  /** Transport office phone; rendered as a one-tap `tel:` link when present. */
+  carrierPhone?: string;
+  /** Transport office / branch address the parcel is collected from. */
+  carrierAddress?: string;
   compact?: boolean;
   className?: string;
-}> = ({ carrierName, trackingNumber, compact = false, className = '' }) => {
-  const [copied, setCopied] = useState(false);
+}> = ({
+  carrierName,
+  trackingNumber,
+  carrierPhone,
+  carrierAddress,
+  compact = false,
+  className = ''
+}) => {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const carrier = (carrierName || '').trim();
   const lr = (trackingNumber || '').trim();
+  const phone = (carrierPhone || '').trim();
+  const address = (carrierAddress || '').trim();
+  const dial = telHref(phone);
 
+  // Unchanged: no carrier and no LR means the parcel has not been handed over.
   if (!carrier && !lr) return null;
 
-  const handleCopy = () => {
-    if (!lr) return;
+  const handleCopy = (key: string, value: string) => {
+    if (!value) return;
     try {
-      navigator.clipboard.writeText(lr);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(current => (current === key ? null : current)), 2500);
     } catch {
-      /* clipboard unavailable — the number stays selectable on screen */
+      /* clipboard unavailable — the value stays selectable on screen */
     }
   };
+
+  const copyButton = (key: string, value: string, title: string) => (
+    <button
+      type="button"
+      onClick={() => handleCopy(key, value)}
+      title={title}
+      className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[10px] font-bold flex items-center gap-1 transition-colors flex-shrink-0"
+    >
+      {copiedKey === key ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      <span>{copiedKey === key ? 'Copied!' : 'Copy'}</span>
+    </button>
+  );
 
   return (
     <div
@@ -198,17 +246,49 @@ export const CarrierTrackingCard: React.FC<{
               >
                 {lr}
               </span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                title="Copy LR / Waybill number"
-                className="px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-[10px] font-bold flex items-center gap-1 transition-colors"
-              >
-                {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                <span>{copied ? 'Copied!' : 'Copy'}</span>
-              </button>
+              {copyButton('lr', lr, 'Copy LR / Waybill number')}
             </div>
           )}
+
+          {/* Transport office — supporting detail, kept visibly below the headline.
+              The whole block is absent unless the order carries a phone or an address. */}
+          {(phone || address) && (
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+                Transport Office
+              </div>
+              {phone &&
+                (dial ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a
+                      href={`tel:${dial}`}
+                      title={`Call the transport office on ${phone}`}
+                      className="px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 active:scale-98 text-[12px] font-bold flex items-center gap-1.5 transition-all"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span className="tracking-wide">{phone}</span>
+                    </a>
+                    <span className="text-[10px] text-white/40">Tap to call</span>
+                  </div>
+                ) : (
+                  // Not a dialable number — shown, but never as a link that dials nothing.
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-3.5 h-3.5 text-white/50 flex-shrink-0" />
+                    <span className="text-[12px] font-bold tracking-wide break-all">{phone}</span>
+                  </div>
+                ))}
+              {address && (
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 text-white/50 flex-shrink-0" />
+                  <span className="text-[11px] text-white/80 leading-relaxed flex-1 min-w-0 break-words">
+                    {address}
+                  </span>
+                  {copyButton('address', address, 'Copy transport office address')}
+                </div>
+              )}
+            </div>
+          )}
+
           <p className="text-[10px] text-white/50 mt-2 leading-relaxed">
             Show this LR / waybill number at the transport office to collect your parcel.
           </p>

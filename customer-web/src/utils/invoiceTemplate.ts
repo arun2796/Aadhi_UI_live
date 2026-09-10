@@ -139,6 +139,20 @@ export interface EstimateOrder {
       returns ONLY this form — it carries no structured shippingAddress object — so the
       Deliver To block reads it when there is nothing better. */
   deliveryAddressSummary?: string;
+  /* ── Collection (present only once the order has been dispatched) ──────────
+     The customer collects the parcel themselves from the transport office, so
+     these four are what turn the printed estimate into a document they can
+     actually collect against. Every one is optional: an estimate printed before
+     dispatch — or for an order dispatched before the API recorded the office
+     contact — simply omits the block. Nothing is substituted. */
+  /** Transport company the parcel was handed to. */
+  carrierName?: string;
+  /** LR / waybill number quoted at the transport office. */
+  trackingNumber?: string;
+  /** Transport office phone. */
+  carrierPhone?: string;
+  /** Transport office / branch address the parcel is collected from. */
+  carrierAddress?: string;
   items?: EstimateOrderItem[];
   itemsSubtotal?: number;
   subtotal?: number;
@@ -351,6 +365,56 @@ export const buildEstimateHtml = (
     order.customerName || addr?.fullName || (!hasStructuredAddress ? summaryParts[0] : '') || 'Valued Customer';
   const phone = order.customerPhone || addr?.phone || '';
 
+  /* ── Collection details ─────────────────────────────────────────────────────
+     The goods travel by lorry to a transport office and the CUSTOMER collects
+     them there, so a printed estimate that omits the carrier, the LR number, the
+     office phone and the office address is not enough to collect against — the
+     reader would have to go back to the website for all four. They are printed
+     here as one block, and ONLY the values the order actually carries: an
+     estimate printed before dispatch (the common case at checkout) carries none
+     of them and the whole block is left off the paper, exactly as the Deliver To
+     block leaves off an address it does not know. Nothing is placeholdered. */
+  const carrier = (order.carrierName || '').trim();
+  const lrNumber = (order.trackingNumber || '').trim();
+  const carrierPhone = (order.carrierPhone || '').trim();
+  const carrierAddress = (order.carrierAddress || '').trim();
+
+  const collectionItems = (
+    [
+      ['Transport', carrier],
+      ['LR / Waybill', lrNumber],
+      ['Office Phone', carrierPhone]
+    ] as const
+  )
+    .filter(([, value]) => Boolean(value))
+    .map(
+      ([label, value]) => `<span class="ci"><b>${escapeHtml(label)}</b> : ${escapeHtml(value)}</span>`
+    )
+    .join('');
+
+  // The note describes only what this block actually prints — an order with no LR
+  // number never tells the reader to quote one.
+  const collectionNote = [
+    lrNumber ? 'Quote the LR / waybill number at the transport office to collect this parcel.' : '',
+    'Freight is payable by the customer directly to the transport company on collection.'
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const collectionBlock =
+    collectionItems || carrierAddress
+      ? `<div class="collect">
+      <div class="collect-title">Collection Details</div>
+      ${collectionItems ? `<div class="collect-line">${collectionItems}</div>` : ''}
+      ${
+        carrierAddress
+          ? `<div class="collect-line"><b>Transport Office</b> : ${escapeHtml(carrierAddress)}</div>`
+          : ''
+      }
+      <div class="collect-note">${escapeHtml(collectionNote)}</div>
+    </div>`
+      : '';
+
   const rows =
     lines.length === 0
       ? '<tr><td colspan="8" style="text-align:center;padding:22px 10px;font-weight:bold;">No items recorded for this order.</td></tr>'
@@ -468,6 +532,12 @@ export const buildEstimateHtml = (
   table.bank td.k { font-weight: bold; width: 76px; white-space: nowrap; }
   table.bank td.c { width: 10px; text-align: center; font-weight: bold; }
   table.bank td.v { font-weight: bold; letter-spacing: 0.2px; }
+  .collect { padding: 6px 9px; border-bottom: 1.5px solid #000; font-size: 10.5px; line-height: 1.55;
+             page-break-inside: avoid; }
+  .collect-title { font-weight: bold; text-decoration: underline; margin-bottom: 2px; }
+  .collect-line { margin-top: 1px; }
+  .collect-line .ci { display: inline-block; margin-right: 16px; white-space: nowrap; }
+  .collect-note { margin-top: 2px; font-size: 9.5px; }
   table.ledger { width: 100%; border-collapse: collapse; font-size: 10.5px; }
   table.ledger thead { display: table-header-group; }
   table.ledger th { border-bottom: 1.5px solid #000; border-right: 1px solid #000; padding: 5px 3px;
@@ -540,6 +610,9 @@ export const buildEstimateHtml = (
         </table>
       </div>
     </div>
+
+    <!-- 3b. Collection details (printed only once the parcel is with a carrier) -->
+    ${collectionBlock}
 
     <!-- 4. Ledger -->
     <table class="ledger">

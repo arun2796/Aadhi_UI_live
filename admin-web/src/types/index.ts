@@ -243,6 +243,13 @@ export interface Order {
   /** Logistics: transport partner + LR/waybill number captured at dispatch. */
   carrierName?: string;
   trackingNumber?: string;
+  /**
+   * How the customer actually reaches the goods: the transport office they ring and the branch
+   * they collect from. Both optional at dispatch, so orders dispatched before these existed
+   * return null — every surface must render nothing rather than an empty row.
+   */
+  carrierPhone?: string;
+  carrierAddress?: string;
   deliveryMethod?: string;
   deliveryMethodName?: string;
   placedAtUtc: string;

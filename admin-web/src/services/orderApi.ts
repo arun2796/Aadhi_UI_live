@@ -97,15 +97,26 @@ export const orderApi = {
   /**
    * Quick Dispatch (Phase 6) — hands the parcel to the transport carrier and moves the
    * order to Shipped. Backend contract: POST /orders/{id}/dispatch
-   * { carrierName, trackingNumber, notes } → updated OrderDto.
+   * { carrierName, trackingNumber, carrierPhone, carrierAddress, notes } → updated OrderDto.
+   *
+   * `carrierPhone` / `carrierAddress` are the transport office the customer rings and the branch
+   * they collect from. Both optional — blank fields are sent as `undefined`, never as "".
    */
   dispatchOrder: async (
     id: string,
-    data: { carrierName?: string; trackingNumber: string; notes?: string }
+    data: {
+      carrierName?: string;
+      trackingNumber: string;
+      carrierPhone?: string;
+      carrierAddress?: string;
+      notes?: string;
+    }
   ) => {
     const res = await apiClient.post<{ data: Order }>(`/orders/${id}/dispatch`, {
       carrierName: data.carrierName?.trim() || undefined,
       trackingNumber: data.trackingNumber.trim(),
+      carrierPhone: data.carrierPhone?.trim() || undefined,
+      carrierAddress: data.carrierAddress?.trim() || undefined,
       notes: data.notes?.trim() || undefined
     });
     return res.data?.data;

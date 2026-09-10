@@ -1542,6 +1542,10 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
   const packingChargePercent = Number(order?.packingChargePercent) || 0;
   const carrierName: string = order?.carrierName ?? order?.carrier ?? '';
   const trackingNumber: string = order?.trackingNumber ?? order?.lrNumber ?? '';
+  // Transport office contact — the anonymous tracking DTO carries these too, and a
+  // guest has no My Orders, so this screen is their only route to them.
+  const carrierPhone: string = order?.carrierPhone ?? '';
+  const carrierAddress: string = order?.carrierAddress ?? '';
 
   /* The ESTIMATE for the tracked order. For a guest arriving at /track/<number>
      this screen is the only route back to their invoice, so it is offered here
@@ -1663,7 +1667,13 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
           )}
 
           {/* Carrier + LR / waybill — how the customer collects the parcel */}
-          <CarrierTrackingCard carrierName={carrierName} trackingNumber={trackingNumber} compact />
+          <CarrierTrackingCard
+            carrierName={carrierName}
+            trackingNumber={trackingNumber}
+            carrierPhone={carrierPhone}
+            carrierAddress={carrierAddress}
+            compact
+          />
 
           {/* Vertical timeline — only completed steps get the green check */}
           <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-card">

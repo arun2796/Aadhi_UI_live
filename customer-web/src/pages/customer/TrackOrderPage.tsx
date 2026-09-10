@@ -160,6 +160,10 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
   const packingChargePercent = Number(order?.packingChargePercent) || 0;
   const carrierName: string = order?.carrierName ?? order?.carrier ?? '';
   const trackingNumber: string = order?.trackingNumber ?? order?.lrNumber ?? '';
+  // Transport office contact — the anonymous tracking DTO carries these too, and a
+  // guest has no My Orders, so this screen is their only route to them.
+  const carrierPhone: string = order?.carrierPhone ?? '';
+  const carrierAddress: string = order?.carrierAddress ?? '';
 
   /** Date a given timeline node was reached, from the status history. */
   const dateForStep = (stepIdx: number): string => {
@@ -469,7 +473,12 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
           </div>
 
           {/* ── Carrier + LR / waybill: how the customer collects the parcel ── */}
-          <CarrierTrackingCard carrierName={carrierName} trackingNumber={trackingNumber} />
+          <CarrierTrackingCard
+            carrierName={carrierName}
+            trackingNumber={trackingNumber}
+            carrierPhone={carrierPhone}
+            carrierAddress={carrierAddress}
+          />
 
           {/* ── Delivery Address + Need Help ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

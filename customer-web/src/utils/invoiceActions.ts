@@ -275,6 +275,13 @@ export const toEstimateOrder = (
     customerPhone: src.customerPhone || src.shippingAddress?.phone || undefined,
     shippingAddress: src.shippingAddress ?? undefined,
     deliveryAddressSummary: src.deliveryAddressSummary ?? undefined,
+    // Collection details, present only once the order has been dispatched. The
+    // full OrderDto and the anonymous tracking DTO both carry them; the checkout
+    // snapshot predates dispatch, so there they are simply absent.
+    carrierName: src.carrierName ?? src.carrier ?? undefined,
+    trackingNumber: src.trackingNumber ?? src.lrNumber ?? undefined,
+    carrierPhone: src.carrierPhone ?? undefined,
+    carrierAddress: src.carrierAddress ?? undefined,
     items,
     itemsSubtotal: numberOrUndefined(src.itemsSubtotal, src.subtotal),
     discount: numberOrUndefined(src.discount),
