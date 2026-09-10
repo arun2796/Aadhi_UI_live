@@ -30,10 +30,21 @@ import { useSettings, findDeliveryZone } from '../../context/SettingsContext';
 import {
   BankTransferDetailsCard,
   CarrierTrackingCard,
+  GuestCheckoutNotice,
+  OrderNumberKeepsake,
+  PaymentProofUpdateCard,
+  RecentDeviceOrders,
   triggerFireworksConfetti
 } from '../common/CommonComponents';
 import { api } from '../../services/api';
 import { compressImageFile } from '../../utils/imageCompressor';
+import { rememberOrderNumber } from '../../utils/guestOrders';
+import {
+  QUOTE_PROBLEM_MESSAGE,
+  inrExact,
+  upiAmount,
+  useCheckoutQuote
+} from '../../utils/checkoutQuote';
 
 /* ─────────────────────────────────────────────────────────────
    Shared helpers
@@ -168,9 +179,9 @@ const LABEL_OPTIONS: Array<{ value: string; icon: React.ReactNode }> = [
 
 export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, onBack }) => {
   const { user } = useAuth();
-  const { items, subtotal, discount, couponCode, clearCart } = useCart();
+  const { items, subtotal, couponCode, clearCart } = useCart();
   const { showToast } = useToast();
-  const { deliveryZones } = useSettings();
+  const { deliveryZones, packingChargePercent: settingsPackingPercent } = useSettings();
 
   const [step, setStep] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -235,14 +246,34 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     [addresses, selectedAddressId]
   );
 
+  /* ── THE PAYABLE AMOUNT ──
+     Never computed here. POST /cart/calculate runs the same arithmetic the order
+     will, and everything on this screen that states a price reads its result:
+     the bill breakdown, "Total Amount to Pay", the PLACE ORDER label and the UPI
+     QR's am= parameter. It re-quotes whenever the cart, the coupon or the chosen
+     address changes, and while it has no verified answer the screen says so
+     instead of inventing one. */
+  const { quote, status: quoteStatus, problem: quoteProblem, canPay, retry: retryQuote } =
+    useCheckoutQuote({
+      items: items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+      couponCode,
+      addressKey: selectedAddress
+        ? `${selectedAddress.id || ''}|${selectedAddress.state}|${selectedAddress.pincode}`
+        : ''
+    });
+
+  /* Label only — the billed amount is always quote.packingCharges. */
+  const packingLabelPercent =
+    quote && quote.packingChargePercent > 0 ? quote.packingChargePercent : settingsPackingPercent;
+
+  const appliedCouponCode = quote?.couponCode || couponCode || '';
+
   /* ── DELIVERY ZONES (storefront-controlled, keyed by the address state) ── */
   const zone = useMemo(
     () => findDeliveryZone(deliveryZones, selectedAddress?.state),
     [deliveryZones, selectedAddress]
   );
   const minOrderShortfall = Boolean(zone && zone.minOrder > 0 && subtotal < zone.minOrder);
-  const packingPercent = zone?.packingChargesPercent || 0;
-  const packingCharges = packingPercent > 0 ? (subtotal * packingPercent) / 100 : 0;
   const cityWarning = useMemo(() => {
     if (!zone || zone.allCities || zone.cities.length === 0) return null;
     const typedCity = (selectedAddress?.city || '').trim();
@@ -399,10 +430,10 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     }
   };
 
-  /* ── Totals & Place Order ──
-     subtotal − discount + packing charges. No freight term: the lorry freight is
-     settled directly with the transport company on collection. */
-  const orderTotal = Math.max(0, subtotal - discount) + packingCharges;
+  /* ── Place Order ──
+     `quote.grandTotal` is the ONLY payable figure; there is no client-side sum to
+     fall back to, by design. When there is no verified quote the pay action is
+     disabled rather than showing an amount the order would not match. */
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const goToStep = (target: number) => {
@@ -428,6 +459,14 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
   };
 
   const handlePlaceOrder = async () => {
+    if (!quote || !canPay) {
+      setErrorMessage(
+        quoteProblem
+          ? QUOTE_PROBLEM_MESSAGE[quoteProblem]
+          : 'Confirming the payable amount with the store — please wait a moment.'
+      );
+      return;
+    }
     if (!selectedAddress) {
       setErrorMessage('Delivery address is missing.');
       goToStep(1);
@@ -456,8 +495,8 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    // Packing charges are calculated and returned by the server on the created
-    // order — the client only shows an estimate before placing the order.
+    // Every money figure on this screen came from the server's quote, and the
+    // created order runs the identical arithmetic — nothing here is estimated.
     const transportNote = ` Delivery: ${deliveryMethodName} (lorry freight paid by the customer to the transport company on collection).`;
 
     try {
@@ -508,24 +547,42 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             : 'Cash on Delivery order.') + transportNote
       });
 
-      // The server owns the final numbers: prefer its grandTotal / packingCharges
-      // over the pre-order client estimate.
+      // The created order's own grandTotal is definitive; the verified quote is
+      // the only fallback, and a disagreement between the two is surfaced below.
       const serverPacking = Number(order?.packingCharges);
       const serverPackingPercent = Number(order?.packingChargePercent);
+      const finalTotal = Number(order?.grandTotal) > 0 ? Number(order.grandTotal) : quote.grandTotal;
+
+      // The quote and the order run the same arithmetic, so a mismatch means the
+      // customer was shown (and may already have paid) a different figure. Say so.
+      if (Math.abs(finalTotal - quote.grandTotal) > 1) {
+        showToast(
+          `The confirmed order total is ${inrExact(finalTotal)} — please contact us before paying any different amount.`,
+          'warning'
+        );
+      }
+
+      // A guest has no My Orders, so the order number is their only handle on
+      // this order. Remembering it on this device is a convenience for finding
+      // it again later — never something the app trusts (see utils/guestOrders).
+      // Signed-in customers already have My Orders, so nothing is stored for them.
+      if (!user) rememberOrderNumber(order.orderNumber);
 
       clearCart();
       onNavigate('order-placed', {
+        orderId: order.id,
         orderNumber: order.orderNumber,
-        grandTotal: Number(order?.grandTotal) > 0 ? Number(order.grandTotal) : orderTotal,
+        grandTotal: finalTotal,
         packingCharges: Number.isFinite(serverPacking) && serverPacking > 0 ? serverPacking : undefined,
         packingChargePercent:
           Number.isFinite(serverPackingPercent) && serverPackingPercent > 0 ? serverPackingPercent : undefined,
         paymentMethod,
-        utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined
+        utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
+        isGuest: !user
       });
     } catch (err: any) {
       showToast(err?.message || 'Order could not be placed. Please try again.', 'error');
-      onNavigate('payment-failed', { amount: orderTotal });
+      onNavigate('payment-failed', { amount: quote.grandTotal });
     } finally {
       setIsSubmitting(false);
     }
@@ -575,6 +632,22 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
       <div className="px-4 pt-4">
         <CheckoutStepper step={step} onStepClick={goToStep} />
       </div>
+
+      {/* Guests continue with no account — signing in is offered, never required.
+          Shown on the first step only so it never interrupts a checkout in progress. */}
+      {!user && step === 1 && (
+        <div className="px-4">
+          <GuestCheckoutNotice
+            onLogin={() =>
+              onNavigate('auth', {
+                initialTab: 'login',
+                redirectTo: 'checkout',
+                redirectParams: {}
+              })
+            }
+          />
+        </div>
+      )}
 
       {/* ═══════════ STEP 1: ADDRESS (design 05) ═══════════ */}
       {step === 1 && (
@@ -841,34 +914,67 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             ))}
           </div>
 
-          {/* Bill Breakdown / Totals */}
+          {/* Bill Breakdown / Totals — every figure is a component of the server's
+              quote, and the total is the server's own grandTotal. */}
           <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2 text-xs text-slate-600">
-            <div className="flex justify-between">
-              <span>Subtotal</span>
-              <span className="font-bold text-slate-800">{inr(subtotal)}</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between text-emerald-600 font-semibold">
-                <span>Discount{couponCode ? ` (${couponCode})` : ''}</span>
-                <span>-{inr(discount)}</span>
+            {quote ? (
+              <>
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span className="font-bold text-slate-800">{inrExact(quote.itemsSubtotal)}</span>
+                </div>
+                {quote.discount > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-semibold">
+                    <span>Discount{appliedCouponCode ? ` (${appliedCouponCode})` : ''}</span>
+                    <span>-{inrExact(quote.discount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>GST</span>
+                  <span className="font-bold text-slate-800">{inrExact(quote.tax)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>
+                    Packing Charges
+                    {packingLabelPercent > 0 ? ` (${packingLabelPercent}%)` : ''}
+                  </span>
+                  <span className="font-bold text-slate-800">{inrExact(quote.packingCharges)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Delivery</span>
+                  <span className="font-bold text-slate-800">{inrExact(quote.shippingCharge)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-black text-navy pt-2 border-t border-slate-100">
+                  <span>Total Payable Online</span>
+                  <span className="text-base text-purple">{inrExact(quote.grandTotal)}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 pt-0.5">
+                  * Lorry freight is paid directly to the transport company when you collect the parcel.
+                </div>
+              </>
+            ) : quoteStatus === 'loading' ? (
+              <div className="flex items-center space-x-2 text-slate-500 py-1.5">
+                <Clock className="w-4 h-4 text-purple animate-spin" />
+                <span className="font-semibold">Confirming your total with the store...</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-start space-x-1.5 text-amber-800">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span className="text-[11px] font-semibold leading-relaxed">
+                    {quoteProblem
+                      ? QUOTE_PROBLEM_MESSAGE[quoteProblem]
+                      : 'The payable amount is not available yet.'}
+                  </span>
+                </div>
+                <button
+                  onClick={retryQuote}
+                  className="w-full py-2 rounded-xl bg-amber-600 text-white text-[11px] font-bold"
+                >
+                  Retry
+                </button>
               </div>
             )}
-            {packingCharges > 0 && (
-              <div className="flex justify-between">
-                <span>
-                  Packing Charges ({packingPercent}%)
-                  <span className="text-[10px] text-slate-400 font-medium ml-1">estimated</span>
-                </span>
-                <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-sm font-black text-navy pt-2 border-t border-slate-100">
-              <span>Total Payable Online</span>
-              <span className="text-base text-purple">{inr(orderTotal)}</span>
-            </div>
-            <div className="text-[10px] text-slate-400 pt-0.5">
-              * Lorry freight is paid directly to the transport company when you collect the parcel.
-            </div>
           </div>
 
           {errorBanner}
@@ -895,7 +1001,13 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
           <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between text-xs">
             <div>
               <span className="text-slate-400 font-semibold text-[11px] block">Total Amount to Pay</span>
-              <span className="text-base font-black text-purple">{inr(orderTotal)}</span>
+              {quote ? (
+                <span className="text-base font-black text-purple">{inrExact(quote.grandTotal)}</span>
+              ) : (
+                <span className="text-[11px] font-bold text-amber-700">
+                  {quoteStatus === 'loading' ? 'Confirming...' : 'Unavailable'}
+                </span>
+              )}
             </div>
             <div className="text-right">
               <span className="text-[10px] text-amber-700 font-semibold block">
@@ -937,40 +1049,73 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
           {/* UPI details: QR + UTR + screenshot proof */}
           {paymentMethod === 'UPI' && (
             <div className="space-y-3 animate-fade-in">
+              {/* The encoded am= is the server's grandTotal, never a client sum.
+                  With no verified quote NO QR is rendered: a QR carrying the wrong
+                  amount is the worst form of this bug. */}
               <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card text-center space-y-3">
                 <div className="flex items-center justify-center space-x-1.5 text-xs font-bold text-navy">
                   <QrCode className="w-4 h-4 text-purple" />
                   <span>Scan & Pay via any UPI App</span>
                 </div>
 
-                <div className="w-44 h-44 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${officialUpiId}%26pn=AADHI%20CRACKERS%26am=${orderTotal}%26cu=INR`}
-                    alt="Aadhi Crackers UPI QR Code"
-                    className="w-36 h-36 object-contain rounded-lg"
-                  />
-                  <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
-                    GPay • PhonePe • Paytm • BHIM
-                  </div>
-                </div>
+                {quote ? (
+                  <>
+                    <div className="w-44 h-44 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${officialUpiId}%26pn=AADHI%20CRACKERS%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
+                        alt="Aadhi Crackers UPI QR Code"
+                        className="w-36 h-36 object-contain rounded-lg"
+                      />
+                      <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
+                        GPay • PhonePe • Paytm • BHIM
+                      </div>
+                    </div>
 
-                <div className="bg-purple/5 border border-purple/15 rounded-xl p-2.5 space-y-1 text-xs">
-                  <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                    Amount to Transfer
+                    <div className="bg-purple/5 border border-purple/15 rounded-xl p-2.5 space-y-1 text-xs">
+                      <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
+                        Amount to Transfer
+                      </div>
+                      <div className="text-lg font-black text-navy">{inrExact(quote.grandTotal)}</div>
+                      <div className="flex items-center justify-center space-x-2 pt-1">
+                        <span className="font-mono text-purple font-bold text-xs">{officialUpiId}</span>
+                        <button
+                          onClick={handleCopyUpi}
+                          className="p-1 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] flex items-center space-x-1"
+                          title="Copy UPI ID"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : quoteStatus === 'loading' ? (
+                  <div className="w-44 h-44 mx-auto rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center space-y-2 px-4">
+                    <Clock className="w-5 h-5 text-purple animate-spin" />
+                    <span className="text-[10px] font-semibold text-slate-500 text-center leading-relaxed">
+                      Confirming the exact amount before showing the QR code...
+                    </span>
                   </div>
-                  <div className="text-lg font-black text-navy">{inr(orderTotal)}</div>
-                  <div className="flex items-center justify-center space-x-2 pt-1">
-                    <span className="font-mono text-purple font-bold text-xs">{officialUpiId}</span>
+                ) : (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 space-y-2 text-left">
+                    <div className="flex items-start space-x-1.5 text-amber-800">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span className="text-[11px] font-semibold leading-relaxed">
+                        {quoteProblem
+                          ? QUOTE_PROBLEM_MESSAGE[quoteProblem]
+                          : 'The payable amount is not available yet.'}{' '}
+                        No QR code is shown until the amount is confirmed, so that you never pay the
+                        wrong figure.
+                      </span>
+                    </div>
                     <button
-                      onClick={handleCopyUpi}
-                      className="p-1 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] flex items-center space-x-1"
-                      title="Copy UPI ID"
+                      onClick={retryQuote}
+                      className="w-full py-2 rounded-lg bg-amber-600 text-white text-[11px] font-bold"
                     >
-                      <Copy className="w-3 h-3" />
-                      <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
+                      Retry
                     </button>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Bank transfer alternative to the QR (hidden until the store configures it) */}
@@ -1069,9 +1214,9 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             {backButton(() => goToStep(2))}
             <button
               onClick={handlePlaceOrder}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !canPay}
               className={`flex-[2] py-3.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs uppercase tracking-wider shadow-glow-purple transition-all flex items-center justify-center space-x-2 ${
-                isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+                isSubmitting || !canPay ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
               {isSubmitting ? (
@@ -1079,10 +1224,20 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   <span>Placing Order...</span>
                 </>
-              ) : (
+              ) : quote ? (
                 <>
                   <PackageCheck className="w-4 h-4" />
-                  <span>Place Order ({inr(orderTotal)})</span>
+                  <span>Place Order ({inrExact(quote.grandTotal)})</span>
+                </>
+              ) : quoteStatus === 'loading' ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Confirming total...</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4" />
+                  <span>Total unavailable</span>
                 </>
               )}
             </button>
@@ -1099,6 +1254,8 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
 
 interface Screen6OrderPlacedProps {
   onNavigate: (page: string, params?: any) => void;
+  /** Order GUID — needed to re-submit payment proof for this order. */
+  orderId?: string;
   orderNumber?: string;
   utrNumber?: string;
   screenshotUrl?: string;
@@ -1108,22 +1265,28 @@ interface Screen6OrderPlacedProps {
   packingCharges?: number;
   /** Percentage the server used for `packingCharges`. */
   packingChargePercent?: number;
+  /** True when the order was placed without signing in. */
+  isGuest?: boolean;
 }
 
 export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
   onNavigate,
+  orderId = '',
   orderNumber = '',
   utrNumber = '',
   grandTotal = 0,
   paymentMethod,
   packingCharges = 0,
-  packingChargePercent = 0
+  packingChargePercent = 0,
+  isGuest
 }) => {
   const { user } = useAuth();
   const { thankYouMessage } = useSettings();
   const rewardPoints = Math.floor((grandTotal || 0) / 100);
   const isUpi = paymentMethod === 'UPI' || Boolean(utrNumber);
   const contact = user?.email || user?.phone || 'your registered contact';
+  // Guests have no My Orders, so this screen has to carry more weight.
+  const placedAsGuest = isGuest ?? !user;
 
   useEffect(() => {
     triggerFireworksConfetti();
@@ -1144,11 +1307,9 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
           </p>
         </div>
 
-        {/* Big Order ID */}
-        <div className="space-y-0.5">
-          <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Order ID</div>
-          <div className="text-xl font-mono font-black text-navy">{orderNumber || '—'}</div>
-        </div>
+        {/* The order number, large and copyable. For a guest it is the ONLY
+            handle on this order, so it carries the "save this" instruction. */}
+        <OrderNumberKeepsake orderNumber={orderNumber} isGuest={placedAsGuest} />
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs text-left space-y-2.5">
           {/* Server-confirmed amounts for the placed order */}
@@ -1160,22 +1321,28 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
                     Packing Charges
                     {packingChargePercent > 0 ? ` (${packingChargePercent}%)` : ''}
                   </span>
-                  <span className="font-bold text-slate-800">{inr(packingCharges)}</span>
+                  <span className="font-bold text-slate-800">{inrExact(packingCharges)}</span>
                 </div>
               )}
               <div className="flex justify-between">
                 <span className="font-bold text-navy">Order Total</span>
-                <span className="font-black text-purple">{inr(grandTotal)}</span>
+                <span className="font-black text-purple">{inrExact(grandTotal)}</span>
               </div>
             </div>
           )}
           <div className="flex items-start space-x-2 text-xs text-slate-600">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
             <span>
-              A confirmation has been sent to <strong className="text-navy">{contact}</strong>
+              {placedAsGuest ? (
+                <>We will contact you on the mobile number on your delivery address with updates.</>
+              ) : (
+                <>
+                  A confirmation has been sent to <strong className="text-navy">{contact}</strong>
+                </>
+              )}
             </span>
           </div>
-          {rewardPoints > 0 && (
+          {rewardPoints > 0 && !placedAsGuest && (
             <div className="flex items-start space-x-2 text-xs font-semibold text-gold-dark">
               <Gift className="w-4 h-4 text-gold flex-shrink-0 mt-0.5" />
               <span>
@@ -1205,6 +1372,16 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
           </div>
         )}
 
+        {/* UPI proof can be corrected without an account — the API accepts an
+            anonymous submission that carries the matching order number. */}
+        {isUpi && orderId && orderNumber && (
+          <PaymentProofUpdateCard
+            orderId={orderId}
+            orderNumber={orderNumber}
+            currentUtr={utrNumber}
+          />
+        )}
+
         {/* Actions */}
         <div className="space-y-2.5 pt-1">
           <button
@@ -1212,7 +1389,7 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
             className="w-full py-3.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs transition-colors shadow-glow-purple flex items-center justify-center space-x-1.5"
           >
             <Truck className="w-4 h-4" />
-            <span>Track Order</span>
+            <span>Track This Order</span>
           </button>
           <button
             onClick={() => onNavigate('home')}
@@ -1221,6 +1398,13 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
             Continue Shopping
           </button>
         </div>
+
+        {placedAsGuest && orderNumber && (
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Bookmark <span className="font-mono text-slate-500">/track/{orderNumber}</span> to come
+            straight back to this order.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1294,6 +1478,9 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
         if (!mounted) return;
         if (res) {
           setOrder(res);
+          // A number the API resolved is worth keeping on this device so a guest
+          // can reach it again without retyping. See utils/guestOrders.
+          if (res.orderNumber) rememberOrderNumber(res.orderNumber);
         } else {
           setOrder(null);
           setError('Order not found. Please verify your order number.');
@@ -1377,6 +1564,12 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Orders placed from this browser — the only "order list" a guest has.
+          Renders nothing when storage is unavailable or empty. */}
+      {!activeOrderNumber && (
+        <RecentDeviceOrders onTrack={(no) => { setInputValue(no); setActiveOrderNumber(no); }} />
       )}
 
       {loading && (

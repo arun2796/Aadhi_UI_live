@@ -29,9 +29,8 @@ import { settingsApi } from './settingsApi';
 import {
   Order,
   StoreSettings,
+  SystemHealthReport,
   Coupon,
-  GiftBox,
-  ComboOffer,
   ProductReview,
   HomepageBanner,
   ProfitAndLossStatement,
@@ -89,14 +88,6 @@ export const api = {
   createProduct: productApi.createProduct,
   updateProduct: productApi.updateProduct,
   deleteProduct: productApi.deleteProduct,
-  getGiftBoxes: async (count = 8) => {
-    const res = await apiClient.get<{ data: GiftBox[] }>(`/products/gift-boxes?count=${count}`);
-    return res.data?.data || [];
-  },
-  getComboOffers: async (count = 8) => {
-    const res = await apiClient.get<{ data: ComboOffer[] }>(`/products/combo-offers?count=${count}`);
-    return res.data?.data || [];
-  },
   getProductReviews: async (params?: { productId?: string; status?: string; page?: number; pageSize?: number }) => {
     const res = await apiClient.get('/reviews', { params });
     return (res.data?.data?.items || res.data?.data || []) as ProductReview[];
@@ -138,6 +129,7 @@ export const api = {
 
   // Orders & Sales
   getOrders: orderApi.getOrders,
+  getAllOrders: orderApi.getAllOrders,
   getOrderById: orderApi.getOrderById,
   createOrder: orderApi.createOrder,
   updateOrderStatus: orderApi.updateOrderStatus,
@@ -238,16 +230,27 @@ export const api = {
   // Reports
   getDashboardKpis: reportApi.getDashboardKpis,
   getSalesOverview: reportApi.getSalesOverview,
+  /**
+   * Normalised sales trajectory points for the dashboard chart.
+   *
+   * The live API returns `salesTrend: [{ date, sales, orders }]`; older/mock servers returned
+   * `salesByDate: [{ date, revenue, orders }]`. Both are flattened to one point shape here so the
+   * chart never silently falls through to its "no sales" empty state.
+   */
   getSalesTrend: async (period = 'month') => {
     const res = await reportApi.getSalesOverview(period);
-    const dataPoints = (res?.salesByDate || []).map(d => ({
-      label: d.date,
-      date: d.date,
-      revenue: d.revenue,
-      amount: d.revenue,
-      orderCount: d.orders,
-      orders: d.orders
-    }));
+    const rawPoints: Array<Record<string, unknown>> =
+      (res?.salesTrend as unknown as Array<Record<string, unknown>>) ||
+      (res?.salesByDate as unknown as Array<Record<string, unknown>>) ||
+      [];
+
+    const dataPoints = rawPoints.map((d) => {
+      const label = String(d.date ?? d.label ?? '');
+      const revenue = Number(d.sales ?? d.revenue ?? d.amount ?? 0) || 0;
+      const orders = Number(d.orders ?? d.orderCount ?? 0) || 0;
+      return { label, date: label, revenue, amount: revenue, sales: revenue, orderCount: orders, orders };
+    });
+
     return { ...res, dataPoints };
   },
   getTopCategories: reportApi.getTopCategories,
@@ -274,9 +277,16 @@ export const api = {
     }
     return true;
   },
-  getSystemHealth: async () => {
-    const res = await apiClient.get('/system-health');
-    return res.data?.data;
+  /**
+   * GET /system-health. The endpoint returns a flat report; the round-trip time is measured
+   * here because the API does not send a latency field of its own.
+   */
+  getSystemHealth: async (): Promise<SystemHealthReport> => {
+    const startedAt = performance.now();
+    const res = await apiClient.get<{ data?: SystemHealthReport }>('/system-health');
+    const apiLatencyMs = Math.round(performance.now() - startedAt);
+    const data = (res.data?.data ?? {}) as SystemHealthReport;
+    return { ...data, apiLatencyMs };
   },
   updateSetting: settingsApi.updateSetting
 };

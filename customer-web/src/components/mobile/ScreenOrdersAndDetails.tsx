@@ -12,6 +12,7 @@ import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../context/SettingsContext';
 import { CarrierTrackingCard } from '../common/CommonComponents';
 import { buildEstimateHtml, buildInvoiceBranding } from '../../utils/invoiceTemplate';
+import { inrExact } from '../../utils/checkoutQuote';
 import { Order } from '../../types';
 
 interface NavProps {
@@ -264,8 +265,9 @@ const normalizeOrder = (raw: any, fallbackNumber?: string): OrderView => {
       imageUrl: it?.imageUrl ?? it?.primaryImageUrl,
       quantity: qty,
       unitPrice: unit,
-      // Real MRP / discount when the API sends them — the estimate falls back to the
-      // shop's 80%-off catalogue convention only when both are absent.
+      // Real MRP / discount ONLY when the API sends them. OrderItemDto carries
+      // neither today, so these stay undefined and the printed estimate leaves the
+      // MRP / Discount columns blank rather than inventing a catalogue price.
       mrp: Number(it?.mrp ?? it?.compareAtPrice ?? it?.originalPrice) || undefined,
       discount: Number(it?.discount) || undefined,
       lineTotal: Number(it?.lineTotal) || unit * qty
@@ -450,29 +452,33 @@ export const ScreenOrderDetails: React.FC<NavProps & { orderId?: string; orderNu
           </div>
 
           {/* Price summary */}
+          {/* Exact paise, and every billed component listed, so the rows visibly
+              add up to the Total Amount the customer was charged. */}
           <div className="pt-4 border-t border-slate-100 space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-slate-500 font-medium">Subtotal</span>
-              <span className="font-bold text-navy">{inr(order.subtotal)}</span>
+              <span className="font-bold text-navy">{inrExact(order.subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500 font-medium">Discount</span>
               <span className={`font-bold ${order.discount > 0 ? 'text-emerald-600' : 'text-navy'}`}>
-                {order.discount > 0 ? `-${inr(order.discount)}` : inr(0)}
+                {order.discount > 0 ? `-${inrExact(order.discount)}` : inrExact(0)}
               </span>
             </div>
-            {order.packingCharges > 0 && (
-              <div className="flex justify-between">
-                <span className="text-slate-500 font-medium">
-                  Packing Charges
-                  {order.packingChargePercent > 0 ? ` (${order.packingChargePercent}%)` : ''}
-                </span>
-                <span className="font-bold text-navy">{inr(order.packingCharges)}</span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-slate-500 font-medium">GST</span>
+              <span className="font-bold text-navy">{inrExact(order.tax)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-500 font-medium">
+                Packing Charges
+                {order.packingChargePercent > 0 ? ` (${order.packingChargePercent}%)` : ''}
+              </span>
+              <span className="font-bold text-navy">{inrExact(order.packingCharges)}</span>
+            </div>
             <div className="flex justify-between pt-2 border-t border-slate-100 text-sm">
               <span className="font-black text-navy">Total Amount</span>
-              <span className="font-black text-navy">{inr(order.total)}</span>
+              <span className="font-black text-navy">{inrExact(order.total)}</span>
             </div>
           </div>
 

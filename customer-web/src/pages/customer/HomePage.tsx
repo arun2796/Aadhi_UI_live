@@ -60,7 +60,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     api.getCategories().then(setCategories);
-    api.getProducts().then(setProducts);
+    api.getProducts({ excludeCombos: true }).then(setProducts);
     api.getBestSellers().then((list) => {
       if (list.length > 0) {
         setBestSellers(list);

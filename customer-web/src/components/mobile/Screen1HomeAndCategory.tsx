@@ -127,7 +127,8 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         let list = await api.getBestSellers();
         list = Array.isArray(list) ? list.filter((p) => p && p.id) : [];
         if (list.length === 0) {
-          const all = await api.getProducts();
+          // Ordinary home rail — combos have their own section below.
+          const all = await api.getProducts({ excludeCombos: true });
           list = all.filter((p) => p.isBestSeller);
           if (list.length === 0) list = all.slice(0, 8);
         }
@@ -489,7 +490,9 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       api.getCategories().catch(() => [] as Category[]),
       combosView
         ? api.getCombos().catch(() => [] as Product[])
-        : api.getProducts().catch(() => [] as Product[])
+        // Ordinary category / all-products browsing: combos belong to the
+        // Combos view only (this screen carries no text search of its own).
+        : api.getProducts({ excludeCombos: true }).catch(() => [] as Product[])
     ])
       .then(([cats, prods]) => {
         if (!live) return;

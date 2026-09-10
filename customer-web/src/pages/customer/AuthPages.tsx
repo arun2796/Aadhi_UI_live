@@ -9,8 +9,6 @@ export interface DesktopNavProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
-const IS_DEV: boolean = Boolean((import.meta as any).env?.DEV);
-
 const getErrorMessage = (error: any, fallback: string): string =>
   error?.response?.data?.message || error?.response?.data?.error || error?.message || fallback;
 
@@ -157,6 +155,9 @@ const AuthCard: React.FC<{
   </div>
 );
 
+/** Account screens whose login gate should still point guests at order tracking. */
+const ORDER_PAGES = new Set(['my-orders', 'orders', 'order-details']);
+
 /* ─────────────────────────────────────────────────────────────
    Desktop design 11: LOGIN — centered "Welcome Back!" card.
    ───────────────────────────────────────────────────────────── */
@@ -252,6 +253,21 @@ export const LoginPage: React.FC<DesktopNavProps & { redirectTo?: string; redire
             Register
           </button>
         </p>
+
+        {/* My Orders needs an account, but tracking never has. A guest who
+            landed here from the Orders tab gets a way out rather than a wall. */}
+        {ORDER_PAGES.has(redirectTo || '') && (
+          <p className="text-center text-[11px] text-slate-400">
+            Ordered without an account?{' '}
+            <button
+              type="button"
+              onClick={() => onNavigate('track-order')}
+              className="font-bold text-purple hover:text-purple-dark underline underline-offset-2"
+            >
+              Track with your order number
+            </button>
+          </p>
+        )}
       </form>
     </AuthCard>
   );
@@ -437,7 +453,7 @@ export const ForgotPasswordPage: React.FC<DesktopNavProps> = ({ onNavigate }) =>
     try {
       const res = await api.forgotPassword(identifier);
       showToast(res?.message || 'OTP sent successfully', 'success');
-      onNavigate('otp-verification', { identifier, devOtp: res?.devOtp });
+      onNavigate('otp-verification', { identifier });
     } catch (error: any) {
       showToast(getErrorMessage(error, 'Could not send OTP. Please try again.'), 'error');
     } finally {
@@ -481,17 +497,19 @@ export const ForgotPasswordPage: React.FC<DesktopNavProps> = ({ onNavigate }) =>
    ───────────────────────────────────────────────────────────── */
 const RESEND_SECONDS = 45;
 
-export const OtpVerificationPage: React.FC<DesktopNavProps & { identifier?: string; devOtp?: string }> = ({
+// The reset OTP is NEVER shown in the app — it is delivered out of band and the
+// customer types it in. The API used to echo it back as `devOtp`; that field was
+// removed from the contract because an anonymous caller could read a reset code
+// for any account from a phone number alone.
+export const OtpVerificationPage: React.FC<DesktopNavProps & { identifier?: string }> = ({
   onNavigate,
-  identifier,
-  devOtp
+  identifier
 }) => {
   const { showToast } = useToast();
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [hint, setHint] = useState<string | undefined>(devOtp);
   const [shakeKey, setShakeKey] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -566,7 +584,6 @@ export const OtpVerificationPage: React.FC<DesktopNavProps & { identifier?: stri
     setResending(true);
     try {
       const res = await api.resendOtp(identifier);
-      if (res?.devOtp) setHint(res.devOtp);
       setSecondsLeft(RESEND_SECONDS);
       setDigits(['', '', '', '', '', '']);
       inputsRef.current[0]?.focus();
@@ -587,14 +604,6 @@ export const OtpVerificationPage: React.FC<DesktopNavProps & { identifier?: stri
         <br />
         <span className="font-bold text-navy">{identifier || 'your mobile number'}</span>
       </p>
-
-      {IS_DEV && hint && (
-        <div className="flex justify-center">
-          <span className="text-[10px] font-bold text-purple bg-purple-soft px-2.5 py-1 rounded-full">
-            DEV OTP: {hint}
-          </span>
-        </div>
-      )}
 
       {/* 6 digit boxes */}
       <div key={shakeKey} className={`flex justify-center gap-2.5 ${shakeKey ? 'animate-shake' : ''}`}>

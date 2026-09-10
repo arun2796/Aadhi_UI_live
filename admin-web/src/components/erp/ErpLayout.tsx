@@ -223,9 +223,8 @@ const NAV_GROUPS: NavGroup[] = [
 const SHOW_DEVELOPER_NAV = false;
 
 const DEVELOPER_NAV: NavLeaf[] = [
-  // The Catalog group now owns the "Combo" highlight (/admin/combos); this hidden
-  // entry keeps the legacy catalog gift-box screen reachable.
-  { key: 'dev-combos', label: 'Gift Boxes (Legacy)', icon: Gift, to: 'combo-offers' },
+  // The legacy "Gift Boxes (Legacy)" entry pointed at /admin/combo-offers, a retired screen that
+  // has been removed — the Catalog group's "Combo" item (/admin/combos) is the only combo surface.
   { key: 'dev-reviews', label: 'Reviews', icon: Star, to: 'reviews' },
   { key: 'dev-expenses', label: 'Expenses', icon: Wallet, to: 'expenses' },
   { key: 'dev-receivables', label: 'Receivables', icon: Clock, to: 'receivables' },

@@ -1,6 +1,10 @@
 import { apiClient, wrapPagedResult } from './apiClient';
 import { Order, OrderStatus } from '../types';
 
+/** Safety valve for {@link orderApi.getAllOrders}. */
+const ALL_ORDERS_PAGE_SIZE = 200;
+const ALL_ORDERS_MAX_PAGES = 10;
+
 export const orderApi = {
   getOrders: async (params?: {
     status?: OrderStatus;
@@ -22,6 +26,23 @@ export const orderApi = {
 
     const res = await apiClient.get(`/orders?${searchParams.toString()}`);
     return wrapPagedResult<Order>(res.data?.data);
+  },
+
+  /**
+   * Walks the paged endpoint until every order is in memory.
+   *
+   * The ERP orders screen filters, tabs, counts and paginates client-side, so a single default
+   * page (20 rows) silently hid every order past the first page and made its tab counts disagree
+   * with the dashboard's per-status totals.
+   */
+  getAllOrders: async (params?: { status?: OrderStatus; search?: string; customerId?: string; fromDate?: string; toDate?: string }) => {
+    const all: Order[] = [];
+    for (let page = 1; page <= ALL_ORDERS_MAX_PAGES; page++) {
+      const chunk = await orderApi.getOrders({ ...params, page, pageSize: ALL_ORDERS_PAGE_SIZE });
+      all.push(...chunk);
+      if (chunk.length < ALL_ORDERS_PAGE_SIZE || all.length >= chunk.totalCount) break;
+    }
+    return all;
   },
 
   getOrderById: async (id: string) => {

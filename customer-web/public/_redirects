@@ -1,0 +1,14 @@
+# SPA fallback + real crawler files.
+#
+# Read by Netlify, Cloudflare Pages and other hosts that support a `_redirects`
+# file. The authoritative configuration for the current Render static site lives
+# in render.yaml (or in the dashboard's Redirects/Rewrites tab) — this file is a
+# harmless, portable equivalent so a host change does not silently break deep
+# links.
+#
+# Files that exist on disk always win, so the build-time prerendered pages
+# (/product/<slug>/index.html and friends) are served as themselves.
+
+/robots.txt    /robots.txt    200
+/sitemap.xml   /sitemap.xml   200
+/*             /index.html    200

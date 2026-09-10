@@ -1,23 +1,20 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Star,
-  Trash2,
   Plus,
-  Minus,
   ImageIcon,
   Link as LinkIcon,
   Wand2,
   X,
   Sparkles,
   Gift,
-  Search,
   AlertTriangle
 } from 'lucide-react';
-import { Product, Category, Brand, ComboItem, ComboItemInput } from '../../types';
+import { Product, Category, Brand } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
-import { productApi, ProductWritePayload } from '../../services/productApi';
+import { ProductWritePayload } from '../../services/productApi';
 import { brandApi } from '../../services/brandApi';
 import { flattenCategories } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
@@ -39,23 +36,6 @@ interface GalleryImage {
   url: string;
   isPrimary: boolean;
 }
-
-/**
- * One editable line of the Combo / Gift Box builder. Mirrors the server's
- * `ComboItem` minus `lineTotal`, which is always derived client-side while the
- * admin edits so the running total stays live.
- */
-interface ComboRow {
-  componentProductId: string;
-  productName: string;
-  sku: string;
-  imageUrl?: string;
-  quantity: number;
-  unitPrice: number;
-}
-
-/** How many picker matches to render at once (keeps the list snappy on big catalogues). */
-const PICKER_VISIBLE_LIMIT = 40;
 
 const formatMoney = (value: number) =>
   Number.isFinite(value) ? Math.round(value).toLocaleString('en-IN') : '0';
@@ -118,20 +98,10 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [galleryBatchUrls, setGalleryBatchUrls] = useState('');
 
-  // ---- Combo / Gift Box builder state ------------------------------------
-  const [comboRows, setComboRows] = useState<ComboRow[]>([]);
-  /** True when the product was already a combo when the form opened. */
-  const [wasCombo, setWasCombo] = useState(false);
-  /** Whole catalogue, loaded once, so the picker filters client-side per keystroke. */
-  const [pickerProducts, setPickerProducts] = useState<Product[]>([]);
-  const [isPickerLoading, setIsPickerLoading] = useState(true);
-  const [isPickerUnavailable, setIsPickerUnavailable] = useState(false);
-  const [pickerQuery, setPickerQuery] = useState('');
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const [pickerHighlight, setPickerHighlight] = useState(0);
-  const pickerInputRef = useRef<HTMLInputElement>(null);
-  const pickerListRef = useRef<HTMLUListElement>(null);
-  const pickerListboxId = 'combo-product-picker-listbox';
+  // ---- Combo awareness (read-only) ---------------------------------------
+  // Combos are built in Catalog → Combo, never here. The form only remembers how many
+  // items the loaded product carries so it can point the admin at the right screen.
+  const [loadedComboItemCount, setLoadedComboItemCount] = useState(0);
 
   // Inline field errors
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ServerFieldKey, string>>>({});
@@ -232,21 +202,14 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
           }
           setGallery(imgs);
 
-          // Prefill the Combo / Gift Box contents (absent on servers without the feature).
-          const serverComboItems: ComboItem[] = Array.isArray(product.comboItems)
-            ? product.comboItems
-            : [];
-          setComboRows(
-            serverComboItems.map((ci) => ({
-              componentProductId: ci.componentProductId,
-              productName: ci.productName,
-              sku: ci.sku,
-              imageUrl: normalizeImageUrl(ci.imageUrl),
-              quantity: Math.max(1, Math.round(Number(ci.quantity) || 1)),
-              unitPrice: Number(ci.unitPrice) || 0
-            }))
+          // Read-only: is this product a combo, and how big? Used only to point the admin
+          // at Catalog → Combo. Nothing here is ever sent back on save.
+          const serverComboItemCount = Array.isArray(product.comboItems)
+            ? product.comboItems.length
+            : product.comboItemCount ?? 0;
+          setLoadedComboItemCount(
+            serverComboItemCount > 0 ? serverComboItemCount : product.isCombo ? 1 : 0
           );
-          setWasCombo(Boolean(product.isCombo) || serverComboItems.length > 0);
         }
       } catch (error) {
         showToast(getServerErrorMessage(error, 'Failed to load form data'), 'error');
@@ -260,168 +223,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       isMounted = false;
     };
   }, [productId, isEdit]);
-
-  // ---- Combo / Gift Box builder ------------------------------------------
-
-  /**
-   * The picker filters client-side, so the catalogue is pulled once on mount
-   * (in the background — the form stays usable while it lands). A failure here
-   * only disables the combo builder; every other form feature keeps working.
-   */
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadPickerProducts = async () => {
-      setIsPickerLoading(true);
-      try {
-        const all = await productApi.getAllProducts();
-        if (!isMounted) return;
-        setPickerProducts(all);
-        setIsPickerUnavailable(false);
-      } catch (error) {
-        if (!isMounted) return;
-        setIsPickerUnavailable(true);
-        const status = (error as { response?: { status?: number } } | null)?.response?.status;
-        showToast(
-          status === 404
-            ? 'Combo builder unavailable: this server build has no product list endpoint yet.'
-            : 'Could not load the product list for the combo builder. You can still save the rest of the form.',
-          'warning'
-        );
-      } finally {
-        if (isMounted) setIsPickerLoading(false);
-      }
-    };
-
-    loadPickerProducts();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const comboTotal = useMemo(
-    () => comboRows.reduce((sum, r) => sum + (Number(r.unitPrice) || 0) * (Number(r.quantity) || 0), 0),
-    [comboRows]
-  );
-  const comboUnitCount = useMemo(
-    () => comboRows.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0),
-    [comboRows]
-  );
-
-  /** Candidates: everything except this product itself and other combos (no nesting). */
-  const comboCandidates = useMemo(
-    () => pickerProducts.filter((p) => p.id !== productId && !p.isCombo),
-    [pickerProducts, productId]
-  );
-
-  const pickerMatches = useMemo(() => {
-    const q = pickerQuery.trim().toLowerCase();
-    const matched = q
-      ? comboCandidates.filter(
-          (p) =>
-            (p.name || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
-        )
-      : comboCandidates;
-    return matched.slice(0, PICKER_VISIBLE_LIMIT);
-  }, [comboCandidates, pickerQuery]);
-
-  // Keep the highlighted row inside the visible list and inside its bounds.
-  useEffect(() => {
-    setPickerHighlight((prev) => (prev >= pickerMatches.length ? 0 : prev));
-  }, [pickerMatches.length]);
-
-  useEffect(() => {
-    if (!isPickerOpen) return;
-    pickerListRef.current
-      ?.querySelector<HTMLElement>(`[data-index="${pickerHighlight}"]`)
-      ?.scrollIntoView({ block: 'nearest' });
-  }, [pickerHighlight, isPickerOpen]);
-
-  const addComboItem = (product: Product) => {
-    let bumped = false;
-    setComboRows((prev) => {
-      const existing = prev.find((r) => r.componentProductId === product.id);
-      if (existing) {
-        bumped = true;
-        return prev.map((r) =>
-          r.componentProductId === product.id ? { ...r, quantity: r.quantity + 1 } : r
-        );
-      }
-      return [
-        ...prev,
-        {
-          componentProductId: product.id,
-          productName: product.name,
-          sku: product.sku,
-          imageUrl: normalizeImageUrl(product.primaryImageUrl),
-          quantity: 1,
-          unitPrice: Number(product.price) || 0
-        }
-      ];
-    });
-    setPickerQuery('');
-    setPickerHighlight(0);
-    showToast(
-      bumped ? `Increased quantity of ${product.name}` : `${product.name} added to the combo`,
-      'success'
-    );
-    pickerInputRef.current?.focus();
-  };
-
-  const setComboQuantity = (componentProductId: string, quantity: number) => {
-    setComboRows((prev) =>
-      prev.map((r) =>
-        r.componentProductId === componentProductId
-          ? { ...r, quantity: Math.max(1, Math.round(quantity) || 1) }
-          : r
-      )
-    );
-  };
-
-  const removeComboItem = (componentProductId: string) => {
-    setComboRows((prev) => prev.filter((r) => r.componentProductId !== componentProductId));
-  };
-
-  const handlePickerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (!isPickerOpen) {
-        setIsPickerOpen(true);
-        return;
-      }
-      setPickerHighlight((prev) => (pickerMatches.length === 0 ? 0 : (prev + 1) % pickerMatches.length));
-      return;
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setPickerHighlight((prev) =>
-        pickerMatches.length === 0 ? 0 : (prev - 1 + pickerMatches.length) % pickerMatches.length
-      );
-      return;
-    }
-    if (e.key === 'Home' && isPickerOpen) {
-      e.preventDefault();
-      setPickerHighlight(0);
-      return;
-    }
-    if (e.key === 'End' && isPickerOpen) {
-      e.preventDefault();
-      setPickerHighlight(Math.max(0, pickerMatches.length - 1));
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const match = pickerMatches[pickerHighlight];
-      if (match) {
-        addComboItem(match);
-        setIsPickerOpen(true);
-      }
-      return;
-    }
-    if (e.key === 'Escape') {
-      setIsPickerOpen(false);
-    }
-  };
 
   // ---- Image Handling ----------------------------------------------------
 
@@ -583,14 +384,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       )
     );
 
-    // Combo contents go up as `{ componentProductId, quantity }` pairs — the full
-    // list replaces whatever the product had, and `[]` clears it (back to a simple
-    // product). The read-only combo fields below are server-computed, never sent.
-    const comboItemsPayload: ComboItemInput[] = comboRows.map((r) => ({
-      componentProductId: r.componentProductId,
-      quantity: Math.max(1, Math.round(Number(r.quantity) || 1))
-    }));
-
     const {
       metaTitle: _metaTitle,
       metaDescription: _metaDescription,
@@ -622,8 +415,11 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
         isPrimary: Boolean(g.isPrimary)
       })),
       // What the API actually reads (see comment above).
-      imageUrls: orderedImageUrls,
-      comboItems: comboItemsPayload
+      imageUrls: orderedImageUrls
+      // DO NOT add `comboItems` here. Combo contents belong to Catalog → Combo only.
+      // The API treats an OMITTED `comboItems` as "leave the composition untouched" and an
+      // explicit `[]` as "clear it" — so sending `[]` from this form would wipe every combo
+      // the moment anyone edited it from the product list. Omit the key entirely.
     };
 
     setIsSaving(true);
@@ -637,16 +433,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       }
       navigate('/admin/products');
     } catch (error) {
-      // Graceful degradation: an older API that doesn't know about combos yet.
-      const status = (error as { response?: { status?: number } } | null)?.response?.status;
-      if (status === 404 && comboItemsPayload.length > 0) {
-        showToast(
-          'This server build does not support gift box / combo contents yet. Remove the combo items to save this product.',
-          'warning'
-        );
-        return;
-      }
-
       const data = (error as { response?: { data?: { errors?: unknown } } } | null)?.response?.data;
       const validationErrors =
         data?.errors && typeof data.errors === 'object' && !Array.isArray(data.errors)
@@ -692,11 +478,8 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     : 0;
   /** Amber, non-blocking: an MRP at/below the price never renders struck-through. */
   const showPriceOrderWarning = struckPrice > 0 && sellingPrice > 0 && struckPrice <= sellingPrice;
-  /** Amber, non-blocking: this was a combo but every component was removed. */
-  const showEmptyComboWarning = wasCombo && comboRows.length === 0;
-  /** Nudge: contents total and struck price have drifted apart. */
-  const showStruckMismatchHint =
-    comboRows.length > 0 && comboTotal > 0 && Math.round(struckPrice) !== Math.round(comboTotal);
+  /** The loaded product is a combo — the only case where this form mentions combos at all. */
+  const isLoadedCombo = isEdit && loadedComboItemCount > 0;
 
   if (isLoading) {
     return <ErpLoadingState message="Loading product form..." height="h-96" />;
@@ -807,9 +590,15 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                 </div>
 
                 <div>
+                  {/* Required only when the chosen category actually has sub-categories —
+                      otherwise the field is unsatisfiable and must not be marked mandatory. */}
                   <label className="font-bold text-navy">
                     Sub Category
-                    <RequiredMark />
+                    {subCategories.length > 0 ? (
+                      <RequiredMark />
+                    ) : (
+                      <span className="text-slate-400 font-medium"> (optional)</span>
+                    )}
                   </label>
                   <select
                     value={subCategoryId}
@@ -830,6 +619,11 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                       </option>
                     ))}
                   </select>
+                  {topCategoryId && subCategories.length === 0 && (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      This category has no sub categories, so the product is filed directly under it.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -963,314 +757,34 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                 )}
               </div>
 
-              {/* ---- Combo / Gift Box Contents ---- */}
-              <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-black text-navy flex items-center space-x-1.5">
-                    <Gift className="w-3.5 h-3.5 text-purple" />
-                    <span>Combo / Gift Box Contents</span>
-                  </h3>
-                  <span className="text-[10px] font-bold text-purple bg-purple/10 px-2.5 py-0.5 rounded-full">
-                    {comboRows.length} product{comboRows.length === 1 ? '' : 's'}
-                    {comboUnitCount !== comboRows.length ? ` · ${comboUnitCount} units` : ''}
-                  </span>
+              {/*
+                Quiet pointer, shown ONLY for a product that is already a combo. Combo contents
+                are built and edited in Catalog → Combo; a plain product never mentions combos.
+              */}
+              {isLoadedCombo && (
+                <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-start space-x-2.5 min-w-0">
+                    <Gift className="w-4 h-4 text-purple mt-0.5 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold text-navy">
+                        This product is a combo with {loadedComboItemCount} item
+                        {loadedComboItemCount === 1 ? '' : 's'} inside.
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        What's inside it is managed in Catalog → Combo. Everything else on this form
+                        saves normally and leaves the bundle contents untouched.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/admin/combos')}
+                    className="px-3.5 py-2 rounded-xl border border-purple/30 bg-white hover:bg-purple/5 text-purple text-[11px] font-bold shrink-0 transition-colors"
+                  >
+                    Open Combo module
+                  </button>
                 </div>
-                <p className="text-[10px] text-slate-400 -mt-1">
-                  Pack several catalogue products into one gift box. Their combined value becomes the
-                  struck-through MRP; you type the actual selling price by hand.
-                </p>
-
-                {/* Searchable product picker (combobox) */}
-                <div className="relative">
-                  <div className="flex items-center space-x-2">
-                    <div className="flex items-center space-x-2 flex-1 bg-white border border-slate-200 px-3 py-2 rounded-xl focus-within:border-purple transition-colors">
-                      <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <input
-                        ref={pickerInputRef}
-                        type="text"
-                        role="combobox"
-                        aria-expanded={isPickerOpen}
-                        aria-controls={pickerListboxId}
-                        aria-autocomplete="list"
-                        aria-activedescendant={
-                          isPickerOpen && pickerMatches[pickerHighlight]
-                            ? `combo-option-${pickerMatches[pickerHighlight].id}`
-                            : undefined
-                        }
-                        aria-label="Search products to add to this combo"
-                        disabled={isPickerUnavailable}
-                        value={pickerQuery}
-                        onChange={(e) => {
-                          setPickerQuery(e.target.value);
-                          setPickerHighlight(0);
-                          setIsPickerOpen(true);
-                        }}
-                        onFocus={() => setIsPickerOpen(true)}
-                        onBlur={() => setIsPickerOpen(false)}
-                        onKeyDown={handlePickerKeyDown}
-                        placeholder={
-                          isPickerUnavailable
-                            ? 'Product list unavailable'
-                            : isPickerLoading
-                            ? 'Loading products...'
-                            : 'Search products by name or SKU to add...'
-                        }
-                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400 disabled:cursor-not-allowed"
-                      />
-                      {pickerQuery && (
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setPickerQuery('');
-                            pickerInputRef.current?.focus();
-                          }}
-                          className="text-slate-300 hover:text-slate-500 transition-colors"
-                          title="Clear search"
-                          aria-label="Clear product search"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        const match = pickerMatches[pickerHighlight] || pickerMatches[0];
-                        if (!match) {
-                          showToast('No matching product to add', 'info');
-                          return;
-                        }
-                        addComboItem(match);
-                        setIsPickerOpen(true);
-                      }}
-                      disabled={isPickerUnavailable || pickerMatches.length === 0}
-                      className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shrink-0 transition-colors shadow-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add</span>
-                    </button>
-                  </div>
-
-                  {isPickerOpen && !isPickerUnavailable && (
-                    <ul
-                      ref={pickerListRef}
-                      id={pickerListboxId}
-                      role="listbox"
-                      aria-label="Matching products"
-                      className="absolute z-30 left-0 right-0 mt-1.5 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl divide-y divide-slate-50"
-                    >
-                      {pickerMatches.length === 0 && (
-                        <li className="px-3 py-3 text-[11px] text-slate-400">
-                          {isPickerLoading ? 'Loading products...' : 'No matching products'}
-                        </li>
-                      )}
-                      {pickerMatches.map((p, idx) => {
-                        const alreadyAdded = comboRows.find((r) => r.componentProductId === p.id);
-                        return (
-                          <li
-                            key={p.id}
-                            id={`combo-option-${p.id}`}
-                            role="option"
-                            data-index={idx}
-                            aria-selected={idx === pickerHighlight}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onMouseEnter={() => setPickerHighlight(idx)}
-                            onClick={() => {
-                              addComboItem(p);
-                              setIsPickerOpen(true);
-                            }}
-                            className={`px-3 py-2 cursor-pointer flex items-center justify-between gap-3 ${
-                              idx === pickerHighlight ? 'bg-purple/10' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <div className="text-xs font-bold text-navy truncate">{p.name}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">{p.sku}</div>
-                            </div>
-                            <div className="flex items-center space-x-2 shrink-0">
-                              {alreadyAdded && (
-                                <span className="text-[9px] font-bold text-purple bg-purple/10 px-1.5 py-0.5 rounded-full">
-                                  Added x{alreadyAdded.quantity}
-                                </span>
-                              )}
-                              <span className="text-xs font-black text-navy">
-                                ₹{formatMoney(Number(p.price) || 0)}
-                              </span>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-
-                {isPickerUnavailable && (
-                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500">
-                    The product list could not be loaded, so combo contents can't be edited right now.
-                    Every other field on this form still saves normally.
-                  </div>
-                )}
-
-                {/* Chosen component rows */}
-                {comboRows.length > 0 ? (
-                  <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-                    {comboRows.map((row) => (
-                      <div
-                        key={row.componentProductId}
-                        className="flex items-center gap-3 px-3 py-2.5 bg-white hover:bg-slate-50/70 transition-colors"
-                      >
-                        {row.imageUrl ? (
-                          <img
-                            src={row.imageUrl}
-                            alt={row.productName}
-                            className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLElement).style.visibility = 'hidden';
-                            }}
-                          />
-                        ) : (
-                          <div className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0">
-                            <ImageIcon className="w-4 h-4 text-slate-300" />
-                          </div>
-                        )}
-
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-navy truncate">{row.productName}</div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="font-mono">{row.sku}</span>
-                            <span className="mx-1">·</span>
-                            <span>₹{formatMoney(row.unitPrice)} each</span>
-                          </div>
-                        </div>
-
-                        {/* Quantity stepper */}
-                        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setComboQuantity(row.componentProductId, row.quantity - 1)}
-                            disabled={row.quantity <= 1}
-                            className="px-1.5 py-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                            aria-label={`Decrease quantity of ${row.productName}`}
-                          >
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <input
-                            type="number"
-                            min={1}
-                            value={row.quantity}
-                            onChange={(e) =>
-                              setComboQuantity(row.componentProductId, Number(e.target.value))
-                            }
-                            aria-label={`Quantity of ${row.productName}`}
-                            className="w-10 text-center text-xs font-bold text-navy outline-none border-x border-slate-200 py-1.5"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setComboQuantity(row.componentProductId, row.quantity + 1)}
-                            className="px-1.5 py-1.5 text-slate-500 hover:bg-slate-100 transition-colors"
-                            aria-label={`Increase quantity of ${row.productName}`}
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
-                        </div>
-
-                        <div className="w-20 text-right text-xs font-black text-navy shrink-0">
-                          ₹{formatMoney(row.unitPrice * row.quantity)}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => removeComboItem(row.componentProductId)}
-                          className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 shrink-0 transition-colors"
-                          title={`Remove ${row.productName}`}
-                          aria-label={`Remove ${row.productName} from the combo`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center">
-                    <p className="text-[11px] font-bold text-navy">No products in this combo yet</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Leave this empty for a normal single product.
-                    </p>
-                  </div>
-                )}
-
-                {/* Live total + the two purple pricing actions */}
-                {comboRows.length > 0 && (
-                  <div className="p-3 rounded-xl bg-purple/5 border border-purple/15 space-y-2.5">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <div>
-                        <div className="text-[11px] font-bold text-navy">
-                          Combo Contents Total: <span className="text-sm font-black">₹{formatMoney(comboTotal)}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                          {comboRows.length} product{comboRows.length === 1 ? '' : 's'} · {comboUnitCount} item
-                          {comboUnitCount === 1 ? '' : 's'} inside
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[10px] text-slate-400">Manual selling price</div>
-                        <div className="text-sm font-black text-navy">
-                          {sellingPrice > 0 ? `₹${formatMoney(sellingPrice)}` : 'Not set'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setField('compareAtPrice', Math.round(comboTotal));
-                          showToast(
-                            `MRP / Compare-at set to ₹${formatMoney(comboTotal)} — now type the actual selling price.`,
-                            'success'
-                          );
-                        }}
-                        className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-[11px] font-bold shadow-xs transition-colors"
-                      >
-                        Use as struck price
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => focusField('price')}
-                        className="px-3.5 py-2 rounded-xl border border-purple/30 bg-purple/5 hover:bg-purple/15 text-purple text-[11px] font-bold transition-colors"
-                      >
-                        Set selling price manually
-                      </button>
-                      <span className="text-[10px] text-slate-400">
-                        The selling price is never calculated — you type it.
-                      </span>
-                    </div>
-
-                    {showStruckMismatchHint && (
-                      <div className="text-[10px] text-slate-500">
-                        Current MRP / Compare-at is{' '}
-                        <span className="font-bold">
-                          {struckPrice > 0 ? `₹${formatMoney(struckPrice)}` : 'not set'}
-                        </span>{' '}
-                        — click "Use as struck price" to match the contents total.
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Non-blocking warning: a combo that lost all of its items */}
-                {showEmptyComboWarning && (
-                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium flex items-start space-x-2">
-                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                    <span>
-                      This gift box has no products inside. Saving now converts it back to a normal
-                      single product.
-                    </span>
-                  </div>
-                )}
-              </div>
+              )}
 
               {/* Description */}
               <div>

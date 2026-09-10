@@ -42,11 +42,18 @@ interface OrderOverviewSlice {
   color: string;
 }
 
-// Donut colors follow the design legend (01_dashboard.png): Delivered purple, Pending gold, Cancelled orange
-const ORDER_OVERVIEW_STATUSES: { status: OrderStatus; name: string; color: string }[] = [
-  { status: 'Delivered', name: 'Delivered', color: '#4F2ACB' },
-  { status: 'Pending', name: 'Pending', color: '#FFB000' },
-  { status: 'Cancelled', name: 'Cancelled', color: '#FF7A00' }
+/**
+ * Every order status the donut accounts for, grouped exactly the way the /admin/orders tabs group
+ * them so the two screens always agree. Colours follow the design legend (01_dashboard.png):
+ * Delivered purple, Pending gold, Cancelled orange; the in-between pipeline stages extend it.
+ */
+const ORDER_OVERVIEW_GROUPS: { name: string; color: string; statuses: OrderStatus[] }[] = [
+  { name: 'Pending', color: '#FFB000', statuses: ['Pending'] },
+  { name: 'Confirmed', color: '#2563EB', statuses: ['Confirmed', 'Processing', 'Packed'] },
+  { name: 'Shipped', color: '#0EA5E9', statuses: ['Shipped', 'OutForDelivery'] },
+  { name: 'Delivered', color: '#4F2ACB', statuses: ['Delivered'] },
+  { name: 'Cancelled', color: '#FF7A00', statuses: ['Cancelled'] },
+  { name: 'Returned', color: '#64748B', statuses: ['Returned'] }
 ];
 
 // Normalises backend change strings like "12.4", "+12.4%" or "-3.1" into a signed percentage label
@@ -64,6 +71,8 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
   const [salesTrend, setSalesTrend] = useState<{ date: string; sales: number; orders: number }[]>([]);
   const [orderOverview, setOrderOverview] = useState<OrderOverviewSlice[]>([]);
+  /** Authoritative unfiltered order count from the API — the donut centre must equal this. */
+  const [orderTotalCount, setOrderTotalCount] = useState(0);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [totalProductCount, setTotalProductCount] = useState<number>(0);
   const [trendPeriod, setTrendPeriod] = useState<string>('month');
@@ -81,36 +90,68 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
       .then((prods) => setTotalProductCount(prods.totalCount ?? prods.length))
       .catch(() => undefined);
 
-    // Order Overview donut — real per-status totals (paged endpoints expose totalCount)
-    Promise.all(
-      ORDER_OVERVIEW_STATUSES.map((s) =>
+    // Order Overview donut — real per-status totals (paged endpoints expose totalCount).
+    // The unfiltered total is fetched alongside so the donut centre shows the true order count
+    // and any status not in ORDER_OVERVIEW_GROUPS still gets a slice instead of vanishing.
+    const trackedStatuses = ORDER_OVERVIEW_GROUPS.flatMap((g) => g.statuses);
+    Promise.all([
+      api
+        .getOrders({ pageSize: 1 })
+        .then((res) => res.totalCount ?? 0)
+        .catch(() => 0),
+      ...trackedStatuses.map((status) =>
         api
-          .getOrders({ status: s.status, pageSize: 1 })
-          .then((res) => ({ name: s.name, value: res.totalCount ?? 0, color: s.color }))
-          .catch(() => ({ name: s.name, value: 0, color: s.color }))
+          .getOrders({ status, pageSize: 1 })
+          .then((res) => res.totalCount ?? 0)
+          .catch(() => 0)
       )
-    ).then(setOrderOverview);
+    ]).then(([allOrders, ...counts]) => {
+      const byStatus = new Map<OrderStatus, number>();
+      trackedStatuses.forEach((s, i) => byStatus.set(s, counts[i] ?? 0));
+
+      const slices: OrderOverviewSlice[] = ORDER_OVERVIEW_GROUPS.map((g) => ({
+        name: g.name,
+        color: g.color,
+        value: g.statuses.reduce((sum, s) => sum + (byStatus.get(s) ?? 0), 0)
+      }));
+
+      const covered = slices.reduce((sum, s) => sum + s.value, 0);
+      if (allOrders > covered) {
+        slices.push({ name: 'Other', color: '#94A3B8', value: allOrders - covered });
+      }
+
+      setOrderOverview(slices);
+      setOrderTotalCount(Math.max(allOrders, covered));
+    });
   }, []);
 
   useEffect(() => {
+    let active = true;
+    // `api.getSalesTrend` already normalises the live `salesTrend` array and the legacy
+    // `salesByDate` array into `dataPoints`.
     api
       .getSalesTrend(trendPeriod)
       .then((res: any) => {
-        if (res?.dataPoints?.length) {
-          setSalesTrend(
-            res.dataPoints.map((d: any) => ({
-              date: d.label || d.date,
-              sales: d.revenue || d.amount || 0,
-              orders: d.orderCount || d.orders || 0
-            }))
-          );
-        } else if (Array.isArray(res) && res.length) {
-          setSalesTrend(res);
-        } else {
-          setSalesTrend([]);
-        }
+        if (!active) return;
+        const points: any[] = Array.isArray(res?.dataPoints)
+          ? res.dataPoints
+          : Array.isArray(res)
+          ? res
+          : [];
+        setSalesTrend(
+          points.map((d: any) => ({
+            date: d.date || d.label || '',
+            sales: Number(d.sales ?? d.revenue ?? d.amount ?? 0) || 0,
+            orders: Number(d.orders ?? d.orderCount ?? 0) || 0
+          }))
+        );
       })
-      .catch(() => setSalesTrend([]));
+      .catch(() => {
+        if (active) setSalesTrend([]);
+      });
+    return () => {
+      active = false;
+    };
   }, [trendPeriod]);
 
   const rangeLabel = useMemo(() => {
@@ -144,7 +185,12 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
     }
   };
 
-  const orderOverviewTotal = orderOverview.reduce((sum, s) => sum + s.value, 0);
+  // The slices are built to sum to the API's unfiltered order count (an "Other" slice absorbs
+  // any status the groups do not name), so these two are equal by construction.
+  const orderOverviewTotal = Math.max(
+    orderTotalCount,
+    orderOverview.reduce((sum, s) => sum + s.value, 0)
+  );
 
   // Six headline KPIs laid out as a 3 x 2 grid (see the KPI grid below).
   const kpiCards: {
@@ -373,7 +419,9 @@ export const ErpDashboardPage: React.FC<ErpDashboardPageProps> = ({ onNavigateTa
         <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col">
           <div>
             <h3 className="font-extrabold text-sm text-navy tracking-tight">Order Status</h3>
-            <p className="text-[11px] text-slate-400 font-medium">Fulfillment distribution</p>
+            <p className="text-[11px] text-slate-400 font-medium">
+              All orders, every status
+            </p>
           </div>
 
           {orderOverviewTotal > 0 ? (

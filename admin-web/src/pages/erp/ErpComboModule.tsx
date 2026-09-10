@@ -445,6 +445,8 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [showConvertConfirm, setShowConvertConfirm] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
 
   /** The loaded product, so fields this focused form doesn't expose survive a save. */
   const [baseProduct, setBaseProduct] = useState<Partial<Product> | null>(null);
@@ -453,7 +455,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
   // ---- Form fields -------------------------------------------------------
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
-  const [categoryId, setCategoryId] = useState('');
   const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [price, setPrice] = useState<number | ''>('');
@@ -504,7 +505,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
           setBaseProduct(product);
           setName(product.name || '');
           setSku(product.sku || '');
-          setCategoryId(product.categoryId || '');
           setDescription(product.description || '');
           setIsActive(product.isActive ?? true);
           setPrice(Number(product.price) || '');
@@ -529,12 +529,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
               unitPrice: Number(ci.unitPrice) || 0
             }))
           );
-        } else {
-          // Category is deliberately not on this form — the owner asked for no category on combos,
-          // but the API still requires a CategoryId, so a new combo is filed silently under the
-          // combo category (created on first save when the store has none). Do not re-add the field.
-          const resolved = findComboCategory(flat);
-          if (resolved) setCategoryId(resolved.id);
         }
       } catch (error) {
         showToast(getServerErrorMessage(error, 'Failed to load the combo form'), 'error');
@@ -794,27 +788,22 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
 
     setIsSaving(true);
 
-    // An existing combo keeps whatever category it already has; only a new one (or a combo whose
-    // category never resolved) gets the hidden combo category resolved/created for it here.
-    let effectiveCategoryId = categoryId;
-    let effectiveCategoryName = categories.find((c) => c.id === categoryId)?.name || base.categoryName;
-    if (!effectiveCategoryId) {
-      try {
-        const comboCategory = await ensureComboCategory();
-        if (!comboCategory?.id) {
-          showToast('Could not prepare the Combos category. Please try saving again.', 'error');
-          setIsSaving(false);
-          return;
-        }
-        effectiveCategoryId = comboCategory.id;
-        effectiveCategoryName = comboCategory.name;
-        // Cached so a second save reuses it instead of creating a duplicate category.
-        setCategoryId(comboCategory.id);
-      } catch (error) {
-        showToast(getServerErrorMessage(error, 'Could not prepare the Combos category'), 'error');
+
+    let effectiveCategoryId: string;
+    let effectiveCategoryName: string | undefined;
+    try {
+      const comboCategory = await ensureComboCategory();
+      if (!comboCategory?.id) {
+        showToast('Could not prepare the Combos category. Please try saving again.', 'error');
         setIsSaving(false);
         return;
       }
+      effectiveCategoryId = comboCategory.id;
+      effectiveCategoryName = comboCategory.name;
+    } catch (error) {
+      showToast(getServerErrorMessage(error, 'Could not prepare the Combos category'), 'error');
+      setIsSaving(false);
+      return;
     }
 
     const payload: ProductWritePayload = {
@@ -874,6 +863,49 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+
+  const handleConvertToNormalProduct = async () => {
+    if (!comboId || !baseProduct) return;
+
+    setIsConverting(true);
+    try {
+      const base = stripReadOnlyComboFields(baseProduct);
+      const existingImageUrls = Array.from(
+        new Set(
+          [
+            (baseProduct.images || []).find((img) => img.isPrimary)?.url,
+            ...(baseProduct.images || []).map((img) => img.url),
+            baseProduct.primaryImageUrl
+          ]
+            .map((u) => (u || '').trim())
+            .filter(Boolean)
+        )
+      );
+
+      await productApi.updateProduct(comboId, {
+        ...base,
+        imageUrls: existingImageUrls,
+        // Explicit empty array = clear. Never omit this key here.
+        comboItems: []
+      });
+
+      showToast(
+        `"${baseProduct.name}" is a normal product again — the bundle contents were removed.`,
+        'success'
+      );
+      setShowConvertConfirm(false);
+      navigate('/admin/combos');
+    } catch (error) {
+      showToast(
+        getFirstValidationMessage(error) ||
+          getServerErrorMessage(error, 'Could not convert this combo back to a normal product'),
+        'error'
+      );
+    } finally {
+      setIsConverting(false);
     }
   };
 
@@ -1456,22 +1488,55 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex items-center justify-end space-x-3">
-          <button
-            onClick={() => navigate('/admin/combos')}
-            className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-100 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-6 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 transition-all disabled:opacity-60"
-          >
-            {isSaving ? 'Saving...' : isEdit ? 'Save Combo' : 'Create Combo'}
-          </button>
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex flex-wrap items-center justify-between gap-3">
+          {/* Escape hatch for a product that was never meant to be a combo. Edit mode only. */}
+          {isEdit ? (
+            <button
+              type="button"
+              onClick={() => setShowConvertConfirm(true)}
+              disabled={isSaving || isConverting}
+              className="text-xs font-bold text-slate-500 hover:text-navy underline underline-offset-4 decoration-slate-300 hover:decoration-navy transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isConverting ? 'Converting...' : 'Convert to normal product'}
+            </button>
+          ) : (
+            <span />
+          )}
+
+          <div className="flex items-center space-x-3 ml-auto">
+            <button
+              onClick={() => navigate('/admin/combos')}
+              className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-100 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving || isConverting}
+              className="px-6 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-md shadow-purple/20 transition-all disabled:opacity-60"
+            >
+              {isSaving ? 'Saving...' : isEdit ? 'Save Combo' : 'Create Combo'}
+            </button>
+          </div>
         </div>
       </div>
+
+      <ErpConfirmDialog
+        open={showConvertConfirm}
+        title="Convert this back to a normal product?"
+        message={
+          <>
+            The bundle contents of <span className="font-bold text-navy">{name || 'this combo'}</span>
+            {sku ? ` (${sku})` : ''} will be removed, so it stops being a combo. The product itself is
+            not deleted — it stays in your catalogue and on sale at its own price, and every product
+            that was inside the bundle is untouched. You can rebuild it as a combo later from Catalog
+            → Combo.
+          </>
+        }
+        confirmLabel={isConverting ? 'Converting...' : 'Convert to normal product'}
+        onConfirm={handleConvertToNormalProduct}
+        onCancel={() => setShowConvertConfirm(false)}
+      />
     </div>
   );
 };

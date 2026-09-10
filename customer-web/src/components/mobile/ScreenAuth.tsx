@@ -9,8 +9,6 @@ export interface AuthNavProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
-const IS_DEV: boolean = Boolean((import.meta as any).env?.DEV);
-
 const getErrorMessage = (error: any, fallback: string): string =>
   error?.response?.data?.message || error?.response?.data?.error || error?.message || fallback;
 
@@ -97,6 +95,9 @@ const AppleIcon = () => (
     <path d="M17.05 12.54c-.03-2.55 2.08-3.77 2.17-3.83-1.18-1.73-3.02-1.97-3.68-2-1.56-.16-3.05.92-3.85.92-.79 0-2.02-.9-3.32-.87-1.71.03-3.29.99-4.17 2.52-1.78 3.08-.45 7.64 1.28 10.14.85 1.22 1.86 2.6 3.18 2.55 1.28-.05 1.76-.83 3.3-.83s1.98.83 3.33.8c1.38-.02 2.24-1.25 3.08-2.48.97-1.43 1.37-2.81 1.39-2.88-.03-.02-2.67-1.02-2.71-4.04zM14.51 4.66c.7-.85 1.18-2.03 1.05-3.21-1.01.04-2.24.67-2.97 1.52-.65.75-1.22 1.96-1.07 3.11 1.13.09 2.28-.57 2.99-1.42z" />
   </svg>
 );
+
+/** Account screens whose login gate should still point guests at order tracking. */
+const ORDER_PAGES = new Set(['my-orders', 'orders', 'order-details']);
 
 /* ─────────────────────────────────────────────────────────────
    Design 16: Login / Register page with tabs.
@@ -398,6 +399,21 @@ export const ScreenAuth: React.FC<AuthNavProps & { initialTab?: 'login' | 'regis
           )}
         </div>
       </div>
+
+      {/* My Orders needs an account, but tracking never has. A guest who landed
+          here from the Orders tab gets a way out rather than a wall. */}
+      {ORDER_PAGES.has(redirectTo || '') && (
+        <p className="text-center text-[11px] text-slate-400 mt-4 px-4 leading-relaxed">
+          Ordered without an account?{' '}
+          <button
+            type="button"
+            onClick={() => onNavigate('track-order')}
+            className="font-bold text-purple hover:text-purple-dark underline underline-offset-2"
+          >
+            Track with your order number
+          </button>
+        </p>
+      )}
     </div>
   );
 };
@@ -420,7 +436,7 @@ export const ScreenForgotPassword: React.FC<AuthNavProps> = ({ onNavigate }) => 
     try {
       const res = await api.forgotPassword(identifier);
       showToast(res?.message || 'OTP sent successfully', 'success');
-      onNavigate('otp-verification', { identifier, devOtp: res?.devOtp });
+      onNavigate('otp-verification', { identifier });
     } catch (error: any) {
       showToast(getErrorMessage(error, 'Could not send OTP. Please try again.'), 'error');
     } finally {
@@ -470,17 +486,19 @@ export const ScreenForgotPassword: React.FC<AuthNavProps> = ({ onNavigate }) => 
    ───────────────────────────────────────────────────────────── */
 const RESEND_SECONDS = 45;
 
-export const ScreenOtpVerification: React.FC<AuthNavProps & { identifier?: string; devOtp?: string }> = ({
+// The reset OTP is NEVER shown in the app — it is delivered out of band and the
+// customer types it in. The API used to echo it back as `devOtp`; that field was
+// removed from the contract because an anonymous caller could read a reset code
+// for any account from a phone number alone.
+export const ScreenOtpVerification: React.FC<AuthNavProps & { identifier?: string }> = ({
   onNavigate,
-  identifier,
-  devOtp
+  identifier
 }) => {
   const { showToast } = useToast();
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [hint, setHint] = useState<string | undefined>(devOtp);
   const [shakeKey, setShakeKey] = useState(0);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -555,7 +573,6 @@ export const ScreenOtpVerification: React.FC<AuthNavProps & { identifier?: strin
     setResending(true);
     try {
       const res = await api.resendOtp(identifier);
-      if (res?.devOtp) setHint(res.devOtp);
       setSecondsLeft(RESEND_SECONDS);
       setDigits(['', '', '', '', '', '']);
       inputsRef.current[0]?.focus();
@@ -580,14 +597,6 @@ export const ScreenOtpVerification: React.FC<AuthNavProps & { identifier?: strin
             <span className="font-bold text-navy">{identifier || 'your mobile number'}</span>
           </p>
         </div>
-
-        {IS_DEV && hint && (
-          <div className="flex justify-center">
-            <span className="text-[10px] font-bold text-purple bg-purple-soft px-2.5 py-1 rounded-full">
-              DEV OTP: {hint}
-            </span>
-          </div>
-        )}
 
         {/* 6 digit boxes */}
         <div key={shakeKey} className={`flex justify-center gap-2 ${shakeKey ? 'animate-shake' : ''}`}>

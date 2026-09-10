@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Render static-site definition for the AADHI CRACKERS customer storefront.
+#
+# Render only reads a Blueprint from `render.yaml` AT THE REPOSITORY ROOT. This
+# copy lives with the app it configures; to make it authoritative, move it (or
+# merge this `services` entry into an existing root blueprint) to the repo root.
+#
+# If the site was created by hand in the Render dashboard instead of from a
+# blueprint, reproduce the two things that matter under
+# Settings → Redirects/Rewrites, IN THIS ORDER:
+#
+#   1. Source /robots.txt   Destination /robots.txt   Action Rewrite
+#   2. Source /sitemap.xml  Destination /sitemap.xml  Action Rewrite
+#   3. Source /*            Destination /index.html   Action Rewrite
+#
+# Rule 3 is the SPA fallback that makes deep links such as
+# /product/mega-celebration-box work on a hard refresh or a shared WhatsApp link.
+# Rules 1 and 2 keep the two real crawler files from being swallowed by it.
+# Static files that exist on disk are served before any rewrite is applied, so
+# the build-time prerendered pages (dist/product/<slug>/index.html, …) are served
+# as themselves and only unknown paths fall through to the SPA shell.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    runtime: static
+    name: aadhi-customer-web
+    rootDir: Aadhi_UI_live/customer-web
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      # Browser-side API base URL (proxied on the same origin in production).
+      - key: VITE_API_BASE_URL
+        value: /api/v1
+      # Public origin of the storefront. Drives canonical URLs, og:url,
+      # sitemap.xml and the robots.txt Sitemap line. SET THIS to the live domain.
+      - key: VITE_SITE_URL
+        value: ''
+      # Absolute API base URL reachable from the Render BUILD container. Without
+      # it the build still succeeds but emits a core sitemap with no product URLs
+      # and skips the prerendered product/category pages.
+      - key: VITE_SEO_API_BASE_URL
+        value: ''
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /sitemap.xml
+        name: Cache-Control
+        value: public, max-age=3600
+      - path: /robots.txt
+        name: Cache-Control
+        value: public, max-age=3600
+    routes:
+      # Real crawler files first — they must never fall through to the SPA shell.
+      - type: rewrite
+        source: /robots.txt
+        destination: /robots.txt
+      - type: rewrite
+        source: /sitemap.xml
+        destination: /sitemap.xml
+      # SPA fallback for every path the build did not prerender.
+      - type: rewrite
+        source: /*
+        destination: /index.html

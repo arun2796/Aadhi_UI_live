@@ -100,7 +100,11 @@ export const ShopPage: React.FC<ShopPageProps> = ({
       params.categorySlug = selectedCategory.toLowerCase().replace(/\s+/g, '-');
     }
     if (searchQuery.trim()) {
+      // Explicit text search: combos stay searchable ("gift box" must find one).
       params.search = searchQuery.trim();
+    } else {
+      // Plain category / all-products browsing: combos belong to the Combos view only.
+      params.excludeCombos = true;
     }
     api.getProducts(params).then(setBaseProducts);
   }, [combosView, selectedCategory, searchQuery]);

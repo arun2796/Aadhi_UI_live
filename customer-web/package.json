@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "prebuild": "node scripts/seo-prebuild.mjs",
+    "build": "tsc -b && vite build && node scripts/seo-prerender.mjs",
+    "preview": "vite preview",
+    "seo:assets": "node scripts/seo-prebuild.mjs",
+    "seo:assets:dev": "node scripts/seo-prebuild.mjs --dev",
+    "seo:prerender": "node scripts/seo-prerender.mjs"
   },
   "dependencies": {
     "axios": "^1.7.9",

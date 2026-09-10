@@ -142,6 +142,11 @@ export interface Category {
   isActive: boolean;
   productCount: number;
   subCategories?: Category[];
+  /** Category.SeoTitle — owner-editable <title> override. Undefined until the API
+   *  projects it onto CategoryDto (it exists on the entity and the write DTOs only). */
+  seoTitle?: string;
+  /** Category.SeoDescription — owner-editable meta description override. */
+  seoDescription?: string;
 }
 
 export interface Brand {

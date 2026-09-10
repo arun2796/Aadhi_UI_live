@@ -10,10 +10,18 @@ import {
   Truck
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { inrExact } from '../../utils/checkoutQuote';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../context/SettingsContext';
-import { CarrierTrackingCard, triggerFireworksConfetti } from '../../components/common/CommonComponents';
+import {
+  CarrierTrackingCard,
+  OrderNumberKeepsake,
+  PaymentProofUpdateCard,
+  RecentDeviceOrders,
+  triggerFireworksConfetti
+} from '../../components/common/CommonComponents';
+import { rememberOrderNumber } from '../../utils/guestOrders';
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
@@ -45,6 +53,8 @@ const statusToStepIndex = (status: string): number => {
 
 /* ── Desktop design 9 handoff: CheckoutPage sets this right before navigating ── */
 interface JustPlacedInfo {
+  /** Order GUID — needed to re-submit payment proof for this order. */
+  orderId?: string;
   orderNumber?: string;
   grandTotal?: number;
   /** Server-calculated packing charges on the created order. */
@@ -52,6 +62,9 @@ interface JustPlacedInfo {
   /** Percentage the server used for `packingCharges`. */
   packingChargePercent?: number;
   paymentMethod?: string;
+  utrNumber?: string;
+  /** True when the order was placed without signing in. */
+  isGuest?: boolean;
 }
 
 const readJustPlacedFlag = (): JustPlacedInfo | null => {
@@ -71,10 +84,16 @@ const readJustPlacedFlag = (): JustPlacedInfo | null => {
 
 interface TrackOrderPageProps {
   initialOrderNumber?: string;
+  /** Order GUID, present only right after checkout (navigation params). */
+  initialOrderId?: string;
   onNavigate: (page: string, params?: any) => void;
 }
 
-export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumber, onNavigate }) => {
+export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
+  initialOrderNumber,
+  initialOrderId,
+  onNavigate
+}) => {
   const { user } = useAuth();
   const { showToast } = useToast();
   const { thankYouMessage } = useSettings();
@@ -112,6 +131,9 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
     try {
       const res = await api.trackOrder(q.trim());
       setOrder(res);
+      // A number the API resolved is worth keeping on this device so a guest can
+      // reach it again without retyping. Convenience only — see utils/guestOrders.
+      if (res?.orderNumber) rememberOrderNumber(res.orderNumber);
     } catch {
       setOrder(null);
     } finally {
@@ -152,6 +174,10 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
   };
 
   const successOrderNumber = justPlaced?.orderNumber || initialOrderNumber || order?.orderNumber || '';
+  const successOrderId = justPlaced?.orderId || initialOrderId || '';
+  // Guests have no My Orders, so the confirmation screen has to carry more weight.
+  const placedAsGuest = justPlaced?.isGuest ?? !user;
+  const successIsUpi = (justPlaced?.paymentMethod || '') === 'UPI' || Boolean(justPlaced?.utrNumber);
   const successTotal = justPlaced?.grandTotal || totalAmount;
   // Packing charges as the SERVER calculated them on the created order.
   const successPacking = Number(justPlaced?.packingCharges ?? packingCharges) || 0;
@@ -174,10 +200,13 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
             </p>
           </div>
 
-          <div className="py-3 px-6 rounded-2xl bg-slate-50 border border-slate-200 inline-block">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Order ID</div>
-            <div className="text-xl sm:text-2xl font-black text-navy mt-0.5">{successOrderNumber}</div>
-          </div>
+          {/* The order number, large and copyable. For a guest it is the ONLY
+              handle on this order, so it carries the "save this" instruction. */}
+          <OrderNumberKeepsake
+            orderNumber={successOrderNumber}
+            isGuest={placedAsGuest}
+            className="max-w-md mx-auto"
+          />
 
           {/* Server-confirmed amounts for the placed order */}
           {successTotal > 0 && (
@@ -193,7 +222,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
               )}
               <div className="flex justify-between pt-1 border-t border-slate-100">
                 <span className="font-black text-navy text-sm">Order Total</span>
-                <span className="font-black text-purple text-sm">{inr(successTotal)}</span>
+                <span className="font-black text-purple text-sm">{inrExact(successTotal)}</span>
               </div>
             </div>
           )}
@@ -202,11 +231,20 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
             <div className="flex items-start space-x-2 text-xs text-slate-600">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
               <span>
-                A confirmation has been sent to{' '}
-                <strong className="text-navy">{user?.email || 'your registered contact'}</strong>.
+                {placedAsGuest ? (
+                  <>
+                    We will call or message you on the mobile number on your delivery address with
+                    updates.
+                  </>
+                ) : (
+                  <>
+                    A confirmation has been sent to{' '}
+                    <strong className="text-navy">{user?.email || 'your registered contact'}</strong>.
+                  </>
+                )}
               </span>
             </div>
-            {rewardPoints > 0 && (
+            {rewardPoints > 0 && !placedAsGuest && (
               <div className="flex items-start space-x-2 text-xs text-slate-600">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                 <span>
@@ -216,13 +254,29 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
             )}
           </div>
 
+          {/* UPI proof can be corrected without an account — the API accepts an
+              anonymous submission that carries the matching order number. */}
+          {successIsUpi && successOrderId && successOrderNumber && (
+            <div className="max-w-md mx-auto">
+              <PaymentProofUpdateCard
+                orderId={successOrderId}
+                orderNumber={successOrderNumber}
+                currentUtr={justPlaced?.utrNumber}
+              />
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
             <button
-              onClick={() => setShowSuccess(false)}
+              onClick={() =>
+                successOrderNumber
+                  ? onNavigate('track-order', { orderNumber: successOrderNumber })
+                  : setShowSuccess(false)
+              }
               className="px-8 py-3 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs uppercase tracking-wider shadow-glow-purple transition-colors flex items-center justify-center space-x-1.5"
             >
               <Truck className="w-4 h-4" />
-              <span>Track Order</span>
+              <span>Track This Order</span>
             </button>
             <button
               onClick={() => onNavigate('shop')}
@@ -231,6 +285,13 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
               Continue Shopping
             </button>
           </div>
+
+          {placedAsGuest && successOrderNumber && (
+            <p className="text-[11px] text-slate-400 leading-relaxed max-w-md mx-auto">
+              Bookmark <span className="font-mono text-slate-500">/track/{successOrderNumber}</span> to
+              come straight back to this order.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -276,6 +337,19 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
           </button>
         </form>
       </div>
+
+      {/* Orders placed from this browser — the only "order list" a guest has.
+          Renders nothing when storage is unavailable or empty. */}
+      {!order && (
+        <div className="max-w-xl mx-auto">
+          <RecentDeviceOrders
+            onTrack={(orderNumber) => {
+              setQuery(orderNumber);
+              handleSearch(orderNumber);
+            }}
+          />
+        </div>
+      )}
 
       {order ? (
         <div className="space-y-6 animate-fade-in">
@@ -454,13 +528,13 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({ initialOrderNumb
                   Packing Charges
                   {packingChargePercent > 0 ? ` (${packingChargePercent}%)` : ''}
                 </span>
-                <span className="font-bold text-navy">{inr(packingCharges)}</span>
+                <span className="font-bold text-navy">{inrExact(packingCharges)}</span>
               </div>
             )}
             {totalAmount > 0 && (
               <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-between">
                 <span className="text-sm font-black text-navy">Total Amount</span>
-                <span className="text-base font-black text-navy">{inr(totalAmount)}</span>
+                <span className="text-base font-black text-navy">{inrExact(totalAmount)}</span>
               </div>
             )}
           </div>

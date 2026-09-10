@@ -20,7 +20,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onNavigate }) => {
     couponCode,
     applyCoupon,
     removeCoupon,
-    grandTotal
+    itemsTotal
   } = useCart();
 
   const { showToast } = useToast();
@@ -177,9 +177,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onNavigate }) => {
               </div>
             )}
 
+            {/* Items total, not the payable amount — GST and packing charges are
+                billed by the server and quoted at checkout. */}
             <div className="flex justify-between text-sm font-black text-navy pt-2 border-t border-slate-200">
-              <span>Grand Total:</span>
-              <span className="text-base text-orange font-black">₹{grandTotal.toLocaleString('en-IN')}</span>
+              <span>Items Total:</span>
+              <span className="text-base text-orange font-black">₹{itemsTotal.toLocaleString('en-IN')}</span>
+            </div>
+            <div className="text-[10px] text-slate-400 leading-relaxed">
+              GST and packing charges are added at checkout.
             </div>
           </div>
 

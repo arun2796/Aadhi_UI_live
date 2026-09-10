@@ -1,11 +1,12 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 
 // Core Components
 import { LoginPage } from './pages/auth/LoginPage';
 import { ErpLayout } from './components/erp/ErpLayout';
+import { ErpErrorBoundary } from './components/common/ErpErrorBoundary';
 import { ErpLoadingState } from './components/common/ErpLoadingState';
 import { ErpUnauthorizedPage } from './components/common/ErpUnauthorizedPage';
 import { ErpNotFoundPage } from './components/common/ErpNotFoundPage';
@@ -33,6 +34,7 @@ interface ProtectedAdminShellProps {
 function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedAdminShellProps) {
   const { isAuthenticated, isInitializing, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   if (isInitializing) {
     return (
@@ -98,9 +100,17 @@ function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedA
 
   return (
     <ErpLayout currentTab={currentTab} onNavigateTab={handleTabNavigation}>
-      <Suspense fallback={<ErpLoadingState message="Loading module view..." height="h-96" />}>
-        {children}
-      </Suspense>
+      {/* A throw inside a routed module must never blank the whole console — the boundary keeps
+          the sidebar/header mounted and offers retry + an escape hatch. Keyed on the pathname so
+          navigating elsewhere clears the error automatically. */}
+      <ErpErrorBoundary
+        resetKey={location.pathname + location.search}
+        onGoHome={() => navigate('/admin/dashboard')}
+      >
+        <Suspense fallback={<ErpLoadingState message="Loading module view..." height="h-96" />}>
+          {children}
+        </Suspense>
+      </ErpErrorBoundary>
     </ErpLayout>
   );
 }
@@ -172,10 +182,12 @@ function AdminAppRoutes() {
       <Route path="/admin/combos" element={<ProtectedAdminShell currentTab="combos"><ErpComboModule /></ProtectedAdminShell>} />
       <Route path="/admin/combos/new" element={<ProtectedAdminShell currentTab="combos"><ErpComboModule mode="form" /></ProtectedAdminShell>} />
       <Route path="/admin/combos/:id" element={<ProtectedAdminShell currentTab="combos"><ComboFormWrapper /></ProtectedAdminShell>} />
-      <Route path="/admin/gift-boxes" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
-      <Route path="/admin/gift-boxes/:id" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
-      <Route path="/admin/combo-offers" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
-      <Route path="/admin/combo-offers/:id" element={<ProtectedAdminShell currentTab="combos"><ErpCatalogModule initialSubTab="combos" /></ProtectedAdminShell>} />
+      {/* Legacy gift-box / combo-offer screens were retired — ErpComboModule (/admin/combos) is the
+          supported surface. Old bookmarks are redirected instead of 404ing. */}
+      <Route path="/admin/gift-boxes" element={<Navigate to="/admin/combos" replace />} />
+      <Route path="/admin/gift-boxes/:id" element={<Navigate to="/admin/combos" replace />} />
+      <Route path="/admin/combo-offers" element={<Navigate to="/admin/combos" replace />} />
+      <Route path="/admin/combo-offers/:id" element={<Navigate to="/admin/combos" replace />} />
       <Route path="/admin/reviews" element={<ProtectedAdminShell currentTab="reviews"><ErpCatalogModule initialSubTab="reviews" /></ProtectedAdminShell>} />
       <Route path="/admin/banners" element={<ProtectedAdminShell currentTab="banners"><ErpCatalogModule initialSubTab="banners" /></ProtectedAdminShell>} />
 

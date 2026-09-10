@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { WishlistProvider } from './context/WishlistContext';
@@ -58,6 +58,10 @@ import { ScreenPaymentSuccess, ScreenPaymentFailed, ScreenPaymentPending } from 
 import { ScreenWishlist } from './components/mobile/ScreenWishlist';
 import { ScreenAddresses } from './components/mobile/ScreenAddresses';
 
+// URL scheme + per-page <head> metadata / JSON-LD
+import { buildPath, parsePath, compactParams, EPHEMERAL_PAGES, isCombosView } from './seo/routes.js';
+import { SeoHead } from './seo/SeoHead';
+
 const MOBILE_TITLES: Record<string, string | undefined> = {
   category: 'Products',
   shop: 'Combos',
@@ -82,11 +86,45 @@ const MOBILE_TITLES: Record<string, string | undefined> = {
   'payment-pending': 'Payment Status'
 };
 
+/** Mobile top-bar title. The `shop` screen is reached from the mobile UI only as
+ *  the Combos view, so it keeps that title — but a deep link to `/shop` or
+ *  `/shop/<category>` now lands there too and must read "Products". */
+const mobileTitleFor = (page: string, params: any): string | undefined => {
+  if (page === 'shop') return isCombosView(params) ? 'Combos' : 'Products';
+  return MOBILE_TITLES[page];
+};
+
+/** Strips values that cannot survive `history.pushState` (callbacks, DOM nodes). */
+const serialisableParams = (params: any): Record<string, any> => {
+  const out: Record<string, any> = {};
+  for (const [key, value] of Object.entries(params || {})) {
+    if (typeof value === 'function' || typeof value === 'symbol') continue;
+    try {
+      structuredClone(value);
+      out[key] = value;
+    } catch {
+      /* not cloneable — leave it in React state only */
+    }
+  }
+  return out;
+};
+
+/** The current URL as the app writes it (path + query, never the origin). */
+const currentUrl = (): string => `${window.location.pathname}${window.location.search}`;
+
 // Screens that need an authenticated customer — unauthenticated users see Login first.
-// 'checkout' is gated so every order is tied to an account (guests kept losing
-// their order reference after refresh; logged-in orders appear under My Orders).
+//
+// These are ACCOUNT screens only: each one renders data that belongs to a specific
+// signed-in customer, so there is nothing to show without a session.
+//
+// Buying is deliberately NOT on this list. Browsing, cart, checkout, placing an
+// order, submitting UPI payment proof and tracking all work with no account —
+// `POST /orders`, `POST /orders/{id}/payment-proof` and `GET /orders/track/{no}`
+// are all anonymous-capable. Checkout used to be gated here, which turned the
+// Login screen into a wall in front of every guest purchase; it now offers an
+// optional sign-in instead (see CheckoutPage / Screen5Checkout) and a guest's
+// order number is surfaced as their handle on the confirmation screen.
 const AUTH_REQUIRED_PAGES = new Set([
-  'checkout',
   'my-orders',
   'order-details',
   'addresses'
@@ -113,8 +151,33 @@ function MaintenanceNotice() {
 function CustomerAppRoot() {
   const { websiteStatus } = useSettings();
   const { user } = useAuth();
-  const [currentPage, setCurrentPage] = useState<string>('home');
-  const [pageParams, setPageParams] = useState<any>({});
+
+  /* ─────────────────────────────────────────────────────────────
+      URL ↔ screen synchronisation.
+
+      `navigate(page, params)` is unchanged as far as every caller is
+      concerned — it still just switches the screen. Underneath it now also
+      pushes the matching real URL (src/seo/routes.js owns the scheme), so
+      deep links, Back/Forward and link sharing all work.
+
+      Params travel in `history.state` as well as in React state, so Back
+      into a screen whose content lives in its params (a placed order, a
+      payment result) restores it instead of showing an empty screen.
+      ───────────────────────────────────────────────────────────── */
+  const initialRoute = React.useMemo(() => {
+    const fromHistory = window.history.state as { page?: string; params?: any; matched?: boolean } | null;
+    if (fromHistory && typeof fromHistory.page === 'string') {
+      return { page: fromHistory.page, params: fromHistory.params || {}, matched: fromHistory.matched !== false };
+    }
+    const parsed = parsePath(window.location.pathname, window.location.search);
+    // A cold load of a params-only screen has nothing to show — start at Home.
+    if (EPHEMERAL_PAGES.has(parsed.page)) return { page: 'home', params: {}, matched: true };
+    return parsed;
+  }, []);
+
+  const [currentPage, setCurrentPage] = useState<string>(initialRoute.page);
+  const [pageParams, setPageParams] = useState<any>(initialRoute.params);
+  const [urlMatched, setUrlMatched] = useState<boolean>(initialRoute.matched);
 
   // Mobile modal states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -133,15 +196,77 @@ function CustomerAppRoot() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const navigate = (page: string, params: any = {}) => {
+  const closeOverlays = useCallback(() => {
     setIsDrawerOpen(false);
     setIsSearchOpen(false);
     setIsFilterOpen(false);
     setIsNotificationsOpen(false);
+  }, []);
+
+  const navigate = useCallback((page: string, params: any = {}) => {
+    closeOverlays();
     setCurrentPage(page);
     setPageParams(params);
+    setUrlMatched(true);
+
+    // Write the URL for this screen. Re-applying filters on the screen you are
+    // already on keeps the same URL, so it replaces rather than stacking up
+    // history entries the Back button would have to walk through.
+    try {
+      const url = buildPath(page, params);
+      const state = { page, params: compactParams(serialisableParams(params)), matched: true };
+      if (url === currentUrl()) window.history.replaceState(state, '', url);
+      else window.history.pushState(state, '', url);
+    } catch {
+      /* history is unavailable (sandboxed iframe) — navigation still works */
+    }
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, [closeOverlays]);
+
+  // Normalise the entry URL once: a cold load of an ephemeral screen, an unknown
+  // path, or an alias (e.g. /shop/gift-boxes → /combos) settles on its canonical
+  // form, and the first history entry carries state so Back/Forward is symmetric.
+  useEffect(() => {
+    try {
+      const canonical = urlMatched ? buildPath(initialRoute.page, initialRoute.params) : currentUrl();
+      window.history.replaceState(
+        {
+          page: initialRoute.page,
+          params: compactParams(serialisableParams(initialRoute.params)),
+          matched: initialRoute.matched
+        },
+        '',
+        canonical
+      );
+    } catch {
+      /* ignore */
+    }
+    // Browser scroll restoration fights async SPA rendering; the app handles it.
+    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Back / Forward.
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      closeOverlays();
+      const state = event.state as { page?: string; params?: any; matched?: boolean } | null;
+      if (state && typeof state.page === 'string') {
+        setCurrentPage(state.page);
+        setPageParams(state.params || {});
+        setUrlMatched(state.matched !== false);
+      } else {
+        const parsed = parsePath(window.location.pathname, window.location.search);
+        setCurrentPage(parsed.page);
+        setPageParams(parsed.params);
+        setUrlMatched(parsed.matched);
+      }
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [closeOverlays]);
 
   const getBottomNavTab = (): 'home' | 'categories' | 'wishlist' | 'orders' | 'account' => {
     if (currentPage === 'category' || currentPage === 'category-menu' || currentPage === 'shop') return 'categories';
@@ -168,6 +293,10 @@ function CustomerAppRoot() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 antialiased">
+      {/* Per-page <title>, meta description, canonical, Open Graph / Twitter
+          cards and JSON-LD. Renders no markup. */}
+      <SeoHead page={currentPage} params={pageParams} matched={urlMatched} />
+
       {/* ─────────────────────────────────────────────────────────────
           1. MOBILE VIEW (Screen width < 768px)
           Renders the 25 design screens with native-style UI
@@ -176,7 +305,7 @@ function CustomerAppRoot() {
         <div className="flex-1 flex flex-col min-h-screen bg-[#fbfbfb] relative">
           {/* Mobile Sticky Top Header */}
           <MobileTopBar
-            title={MOBILE_TITLES[effectivePage]}
+            title={mobileTitleFor(effectivePage, effectiveParams)}
             showBack={!isMobileMainTabScreen}
             onBack={() => navigate('home')}
             onOpenDrawer={() => setIsDrawerOpen(true)}
@@ -229,6 +358,7 @@ function CustomerAppRoot() {
             {effectivePage === 'order-placed' && (
               <Screen6OrderPlaced
                 onNavigate={navigate}
+                orderId={effectiveParams?.orderId}
                 orderNumber={effectiveParams?.orderNumber}
                 utrNumber={effectiveParams?.utrNumber}
                 screenshotUrl={effectiveParams?.screenshotUrl}
@@ -236,6 +366,7 @@ function CustomerAppRoot() {
                 packingCharges={effectiveParams?.packingCharges}
                 packingChargePercent={effectiveParams?.packingChargePercent}
                 paymentMethod={effectiveParams?.paymentMethod}
+                isGuest={effectiveParams?.isGuest}
               />
             )}
 
@@ -287,7 +418,6 @@ function CustomerAppRoot() {
               <ScreenOtpVerification
                 onNavigate={navigate}
                 identifier={effectiveParams?.identifier}
-                devOtp={effectiveParams?.devOtp}
               />
             )}
 
@@ -443,6 +573,7 @@ function CustomerAppRoot() {
               effectivePage === 'payment-pending') && (
               <TrackOrderPage
                 initialOrderNumber={effectiveParams?.orderNumber}
+                initialOrderId={effectiveParams?.orderId}
                 onNavigate={navigate}
               />
             )}
@@ -470,7 +601,6 @@ function CustomerAppRoot() {
               <OtpVerificationPage
                 onNavigate={navigate}
                 identifier={effectiveParams?.identifier}
-                devOtp={effectiveParams?.devOtp}
               />
             )}
 

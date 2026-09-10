@@ -39,9 +39,9 @@ export const INVOICE_TERMS = [
   'Goods once sold are not returnable or exchangeable. Subject to Sivakasi jurisdiction.'
 ];
 
-/** Sivakasi trade convention: catalogue MRP is ~5x the selling rate (i.e. 80% off).
-    Used only as a fallback when the order line carries no real MRP / discount data. */
-export const FALLBACK_MRP_MULTIPLIER = 5;
+/** Printed in the MRP / Discount columns of a line whose order data carries no
+    genuine catalogue rate. The estimate states what it knows and nothing more. */
+const NO_DATA = '\u2014'; // em dash
 
 export interface InvoiceBranding {
   company: typeof INVOICE_COMPANY;
@@ -165,37 +165,63 @@ interface InvoiceLine {
   code: string;
   name: string;
   qty: number;
-  /** Rate per qty before discount (MRP). */
-  rate: number;
-  discountPercent: number;
+  /** Catalogue rate per qty before discount (MRP).
+   *  null when the order line carries no genuine MRP — printed as an em dash. */
+  rate: number | null;
+  /** null when no genuine discount is known — printed as an em dash. */
+  discountPercent: number | null;
   finalRate: number;
   amount: number;
 }
 
+/**
+ * An MRP is printed ONLY when it can be read out of, or derived from, data the
+ * order line actually carries:
+ *   (a) an explicit MRP / compareAtPrice snapshot on the line;
+ *   (b) a real rupee line discount  → MRP = charged rate + discount/qty;
+ *   (c) a real discount percentage  → MRP = charged rate / (1 − pct/100).
+ *
+ * There is deliberately no fourth branch. Order items returned by GET /orders/{id}
+ * are `{unitPrice, quantity, discount, tax, lineTotal}` and carry no MRP at all, so
+ * the old `finalRate * 5` "Sivakasi convention" fallback fired on every single line
+ * of every printed estimate: a ₹45 item whose true catalogue price is ₹60 printed
+ * as "MRP 225.00 / Discount 80%" — a 275% overstatement on a document headed
+ * "For AADHI CRACKERS / Authorized Signatory". A rate that cannot be sourced from
+ * the order is now left blank; the customer still sees the rate actually charged
+ * in the Final Rate column, and the line still foots to Amount.
+ */
 const buildInvoiceLines = (items: EstimateOrderItem[]): InvoiceLine[] =>
   (items || []).map((it, i) => {
     const qty = Number(it.quantity) || 1;
     const amount = num(it.lineTotal) || num(it.unitPrice, it.price) * qty;
     const finalRate = num(it.unitPrice, it.price) || (qty > 0 ? amount / qty : 0);
-    const lineDiscount = num(it.discount);
 
-    // Prefer real data: an explicit MRP, else the per-unit discount the order carries,
-    // else the shop's standard 80%-off catalogue convention.
-    let rate = num(it.mrp, it.compareAtPrice);
-    if (!(rate > finalRate)) {
-      rate = lineDiscount > 0 ? finalRate + lineDiscount / qty : finalRate * FALLBACK_MRP_MULTIPLIER;
+    const declaredMrp = num(it.mrp, it.compareAtPrice);
+    const lineDiscount = num(it.discount);
+    const explicitPercent = num(it.discountPercent, it.discountPercentage);
+
+    let rate: number | null = null;
+    if (declaredMrp > finalRate) {
+      rate = declaredMrp;
+    } else if (lineDiscount > 0 && qty > 0) {
+      rate = finalRate + lineDiscount / qty;
+    } else if (explicitPercent > 0 && explicitPercent < 100) {
+      rate = finalRate / (1 - explicitPercent / 100);
     }
 
-    const explicitPercent = num(it.discountPercent, it.discountPercentage);
-    const discountPercent =
-      explicitPercent > 0 ? explicitPercent : rate > 0 ? ((rate - finalRate) / rate) * 100 : 0;
+    let discountPercent: number | null = null;
+    if (explicitPercent > 0) {
+      discountPercent = explicitPercent;
+    } else if (rate !== null && rate > 0) {
+      discountPercent = ((rate - finalRate) / rate) * 100;
+    }
 
     return {
       code: it.sku || it.code || `AC-${String(i + 1).padStart(2, '0')}`,
       name: it.productName || it.name || '—',
       qty,
       rate,
-      discountPercent: Math.max(0, discountPercent),
+      discountPercent: discountPercent === null ? null : Math.max(0, discountPercent),
       finalRate,
       amount
     };
@@ -286,13 +312,24 @@ export const buildEstimateHtml = (
             <td class="c-code">${escapeHtml(l.code)}</td>
             <td class="c-name">${escapeHtml(l.name)}</td>
             <td class="c-qty">${escapeHtml(l.qty)}</td>
-            <td class="c-rate">${escapeHtml(formatMoney(l.rate))}</td>
-            <td class="c-disc">${escapeHtml(l.discountPercent.toFixed(l.discountPercent % 1 === 0 ? 0 : 2))}%</td>
+            <td class="c-rate">${l.rate === null ? NO_DATA : escapeHtml(formatMoney(l.rate))}</td>
+            <td class="c-disc">${
+              l.discountPercent === null
+                ? NO_DATA
+                : `${escapeHtml(l.discountPercent.toFixed(l.discountPercent % 1 === 0 ? 0 : 2))}%`
+            }</td>
             <td class="c-final">${escapeHtml(formatMoney(l.finalRate))}</td>
             <td class="c-amt">${escapeHtml(formatMoney(l.amount))}</td>
           </tr>`
           )
           .join('');
+
+  // All 8 columns are kept for every line so the ledger stays aligned; a line with
+  // no catalogue MRP shows an em dash in the MRP and Discount % columns, and this
+  // note explains it rather than leaving the reader to guess.
+  const missingMrpNote = lines.some(l => l.rate === null)
+    ? `<div class="mrp-note">${NO_DATA} under Rate/Qty (MRP) / Discount % : no catalogue MRP is recorded against that item; the rate charged is shown under Final Rate.</div>`
+    : '';
 
   const sumRow = (label: string, value: string, cls = '') =>
     `<tr${cls ? ` class="${cls}"` : ''}><td class="sum-k">${escapeHtml(label)}</td><td class="sum-v">${escapeHtml(
@@ -360,6 +397,7 @@ export const buildEstimateHtml = (
   .c-disc { width: 68px; text-align: right; }
   .c-final { width: 72px; text-align: right; }
   .c-amt { width: 80px; text-align: right; font-weight: bold; }
+  .mrp-note { padding: 4px 9px; border-bottom: 1.5px solid #000; font-size: 9.5px; line-height: 1.4; }
   .totals { display: flex; border-bottom: 1.5px solid #000; page-break-inside: avoid; }
   .totals-left { width: 52%; border-right: 1.5px solid #000; padding: 7px 9px; font-weight: bold; line-height: 1.9; }
   .totals-right { width: 48%; }
@@ -435,6 +473,8 @@ export const buildEstimateHtml = (
         ${rows}
       </tbody>
     </table>
+
+    ${missingMrpNote}
 
     <!-- 5. Totals -->
     <div class="totals">

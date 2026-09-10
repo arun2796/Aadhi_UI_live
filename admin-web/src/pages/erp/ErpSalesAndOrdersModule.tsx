@@ -369,9 +369,20 @@ const INVOICE_TERMS = [
   'Goods once sold are not returnable or exchangeable. Subject to Sivakasi jurisdiction.'
 ];
 
-/** Sivakasi trade convention: catalogue MRP is ~5x the selling rate (i.e. 80% off).
-    Used only as a fallback when the order line carries no real MRP / discount data. */
-const FALLBACK_MRP_MULTIPLIER = 5;
+/**
+ * There is deliberately NO fallback MRP here.
+ *
+ * This previously multiplied the selling rate by 5 ("the Sivakasi 80%-off convention") whenever a
+ * line carried no MRP — and since `OrderItemDto` never carries one (it is only
+ * {unitPrice, quantity, discount, tax, lineTotal}), that fired on EVERY line of EVERY estimate:
+ * a product with a true MRP of ₹60 printed as "₹225.00, 80% off". Inventing a price on a document
+ * headed "For AADHI CRACKERS / Authorized Signatory" is a fabricated commercial record, so a line
+ * with no genuine MRP now prints an em dash instead. The customer-facing template
+ * (customer-web/src/utils/invoiceTemplate.ts) was corrected the same way — keep the two in step.
+ *
+ * The real fix is server-side: snapshot the product's CompareAtPrice onto OrderItem and project it
+ * on OrderItemDto (CartItemDto already carries it, so the value exists at order time).
+ */
 
 interface InvoiceBranding {
   company: typeof INVOICE_COMPANY;
@@ -410,7 +421,17 @@ type OrderExtras = {
 
 const orderExtras = (order?: Order | null): OrderExtras => (order ?? {}) as OrderExtras;
 
-type OrderItemExtras = { mrp?: number; discountPercent?: number; discountPercentage?: number };
+type OrderItemExtras = {
+  mrp?: number;
+  /**
+   * `OrderItemDto.compareAtPrice` — the product's true MRP snapshotted onto the line when the order
+   * was placed (API: `OrderItem.CompareAtPriceSnapshot`). Null for orders placed before that column
+   * existed, and for products that never had a compare-at price above the rate actually charged.
+   */
+  compareAtPrice?: number | null;
+  discountPercent?: number;
+  discountPercentage?: number;
+};
 
 const formatMoney = (n?: number): string =>
   (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -426,9 +447,11 @@ interface InvoiceLine {
   code: string;
   name: string;
   qty: number;
-  /** Rate per qty before discount (MRP). */
-  rate: number;
-  discountPercent: number;
+  /** Rate per qty before discount (MRP). `null` when the order carries no genuine MRP — the
+   *  estimate then prints an em dash rather than inventing one. */
+  rate: number | null;
+  /** `null` whenever `rate` is null: with no real MRP there is no real discount to state. */
+  discountPercent: number | null;
   finalRate: number;
   amount: number;
 }
@@ -441,43 +464,74 @@ const buildInvoiceLines = (items: OrderItem[]): InvoiceLine[] =>
     const finalRate = Number(it.unitPrice) || (qty > 0 ? amount / qty : 0);
     const lineDiscount = Number(it.discount) || 0;
 
-    // Prefer real data: an explicit MRP, else the per-unit discount the order carries,
-    // else the shop's standard 80%-off catalogue convention.
-    let rate = Number(ex.mrp) || 0;
-    if (!(rate > finalRate)) {
-      rate = lineDiscount > 0 ? finalRate + lineDiscount / qty : finalRate * FALLBACK_MRP_MULTIPLIER;
-    }
-
+    // Only ever print an MRP that the ORDER genuinely carries. Three real sources, no invention:
+    //   1. an explicit MRP on the line,
+    //   2. a real rupee discount  -> rate = charged + discount/qty,
+    //   3. a real discount percent -> rate = charged / (1 - pct/100).
+    // Otherwise the MRP and discount columns print an em dash.
     const explicitPercent = Number(ex.discountPercent ?? ex.discountPercentage) || 0;
-    const discountPercent =
-      explicitPercent > 0 ? explicitPercent : rate > 0 ? ((rate - finalRate) / rate) * 100 : 0;
+    // `compareAtPrice` is the MRP the API snapshotted at order time — the authoritative source.
+    const explicitMrp = Number(ex.mrp) || Number(ex.compareAtPrice) || 0;
+
+    let rate: number | null = null;
+    let discountPercent: number | null = null;
+
+    if (explicitMrp > finalRate) {
+      rate = explicitMrp;
+      discountPercent = explicitPercent > 0 ? explicitPercent : ((rate - finalRate) / rate) * 100;
+    } else if (lineDiscount > 0 && qty > 0) {
+      rate = finalRate + lineDiscount / qty;
+      discountPercent = rate > 0 ? ((rate - finalRate) / rate) * 100 : 0;
+    } else if (explicitPercent > 0 && explicitPercent < 100) {
+      rate = finalRate / (1 - explicitPercent / 100);
+      discountPercent = explicitPercent;
+    }
 
     return {
       code: it.sku || `AC-${String(i + 1).padStart(2, '0')}`,
       name: it.productName || '—',
       qty,
       rate,
-      discountPercent: Math.max(0, discountPercent),
+      discountPercent: discountPercent === null ? null : Math.max(0, discountPercent),
       finalRate,
       amount
     };
   });
 
-interface InvoiceTotals {
+interface OrderTotals {
   subtotal: number;
   discount: number;
   packingCharge: number;
   packingChargePercent?: number;
   deliveryCharge: number;
   tax: number;
+  /**
+   * The order's authoritative payable amount: `order.grandTotal` from the API whenever it is
+   * present. Never recomputed over the API's own figure.
+   */
   overallTotal: number;
+  /**
+   * `overallTotal` minus the components above. Non-zero only when the API's grand total carries a
+   * charge this screen has no named row for — surfaced as an "Other charges" row so the printed
+   * rows always add up to the total the customer is asked to pay.
+   */
+  unaccounted: number;
+}
+
+interface InvoiceTotals extends OrderTotals {
   totalItems: number;
   totalQty: number;
 }
 
-const buildInvoiceTotals = (order: Order, lines: InvoiceLine[]): InvoiceTotals => {
+/**
+ * One breakdown of an order used by every surface that shows money: the order detail summary,
+ * the payment-verification panel, the orders table and the printed estimate.
+ *
+ * Packing charges (`packingCharges`, typically `packingChargePercent`% of the subtotal) are a real
+ * component of `grandTotal`; omitting the row understates what the admin is verifying.
+ */
+const computeOrderTotals = (order: Order, lineSum = 0): OrderTotals => {
   const ex = orderExtras(order);
-  const lineSum = lines.reduce((s, l) => s + l.amount, 0);
   const subtotal = Number(order.itemsSubtotal) > 0 ? Number(order.itemsSubtotal) : lineSum;
   const discount = Number(order.discount) || 0;
 
@@ -493,8 +547,10 @@ const buildInvoiceTotals = (order: Order, lines: InvoiceLine[]): InvoiceTotals =
   const deliveryCharge = Number(ex.deliveryCharge) || Number(order.shippingCharge) || 0;
   const tax = Number(order.tax) || 0;
 
-  const computed = Math.max(0, subtotal - discount) + packingCharge + deliveryCharge + tax;
-  const overallTotal = Number(order.grandTotal) > 0 ? Number(order.grandTotal) : computed;
+  const componentSum = Math.max(0, subtotal - discount) + packingCharge + deliveryCharge + tax;
+  // The API's grand total wins whenever it sent one; only fall back to the sum of parts.
+  const overallTotal = Number(order.grandTotal) > 0 ? Number(order.grandTotal) : componentSum;
+  const unaccounted = Math.round((overallTotal - componentSum) * 100) / 100;
 
   return {
     subtotal,
@@ -504,10 +560,18 @@ const buildInvoiceTotals = (order: Order, lines: InvoiceLine[]): InvoiceTotals =
     deliveryCharge,
     tax,
     overallTotal,
-    totalItems: lines.length,
-    totalQty: lines.reduce((s, l) => s + l.qty, 0)
+    unaccounted
   };
 };
+
+const buildInvoiceTotals = (order: Order, lines: InvoiceLine[]): InvoiceTotals => ({
+  ...computeOrderTotals(
+    order,
+    lines.reduce((s, l) => s + l.amount, 0)
+  ),
+  totalItems: lines.length,
+  totalQty: lines.reduce((s, l) => s + l.qty, 0)
+});
 
 /** The owner's A4 paper estimate, print-optimised (pure black on white, bordered ledger).
     Rendered both in the on-screen preview iframe and in the print window. */
@@ -546,8 +610,12 @@ const buildOrderInvoiceHtml = (
             <td class="c-code">${escapeHtml(l.code)}</td>
             <td class="c-name">${escapeHtml(l.name)}</td>
             <td class="c-qty">${escapeHtml(l.qty)}</td>
-            <td class="c-rate">${escapeHtml(formatMoney(l.rate))}</td>
-            <td class="c-disc">${escapeHtml(l.discountPercent.toFixed(l.discountPercent % 1 === 0 ? 0 : 2))}%</td>
+            <td class="c-rate">${l.rate === null ? '&mdash;' : escapeHtml(formatMoney(l.rate))}</td>
+            <td class="c-disc">${
+              l.discountPercent === null
+                ? '&mdash;'
+                : `${escapeHtml(l.discountPercent.toFixed(l.discountPercent % 1 === 0 ? 0 : 2))}%`
+            }</td>
             <td class="c-final">${escapeHtml(formatMoney(l.finalRate))}</td>
             <td class="c-amt">${escapeHtml(formatMoney(l.amount))}</td>
           </tr>`
@@ -573,6 +641,10 @@ const buildOrderInvoiceHtml = (
       totals.deliveryCharge > 0 ? formatMoney(totals.deliveryCharge) : 'To-Pay (Transport)'
     ),
     totals.tax > 0 ? sumRow('GST', formatMoney(totals.tax)) : '',
+    // Keeps the printed rows adding up to the order's authoritative grand total.
+    Math.abs(totals.unaccounted) >= 0.01
+      ? sumRow('Other Charges', formatMoney(totals.unaccounted))
+      : '',
     sumRow('Overall Total', formatMoney(totals.overallTotal), 'grand')
   ].join('');
 
@@ -918,7 +990,9 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
     setIsLoading(true);
     try {
       const [ords, custs, invs, pays] = await Promise.all([
-        api.getOrders(),
+        // Every order, not just the first server page — the tabs, filters and counters below
+        // are all computed client-side over this array.
+        api.getAllOrders(),
         customerApi.getCustomers(),
         api.getInvoices(),
         api.getPayments()
@@ -1571,7 +1645,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                         <div className="font-bold text-navy text-xs">{o.customerName}</div>
                         <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
                       </td>
-                      <td className="py-3 px-3 font-black text-navy">{formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))}</td>
+                      <td className="py-3 px-3 font-black text-navy">{formatINR(computeOrderTotals(o).overallTotal)}</td>
                       <td className="py-3 px-3">
                         {o.paymentMethod !== 'COD' ? (
                           <div className="flex items-center gap-2">
@@ -1583,7 +1657,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                                 setViewerImage({
                                   url: o.paymentScreenshotUrl || '',
                                   title: `Payment Proof - ${o.orderNumber}`,
-                                  subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(Math.max(0, o.itemsSubtotal - o.discount + (o.tax || 0)))} • ${o.customerName}`,
+                                  subtitle: `UTR: ${o.utrNumber || 'N/A'} • ${formatINR(computeOrderTotals(o).overallTotal)} • ${o.customerName}`,
                                   orderId: o.id,
                                   orderNumber: o.orderNumber,
                                   utrNumber: o.utrNumber
@@ -1781,7 +1855,7 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                             setViewerImage({
                               url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
                               title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                              subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}`,
+                              subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(computeOrderTotals(selectedOrder).overallTotal)}`,
                               orderId: selectedOrder.id,
                               orderNumber: selectedOrder.orderNumber,
                               utrNumber: selectedOrder.utrNumber
@@ -1843,10 +1917,36 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                           />
                         </div>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                        <span className="text-slate-500">Order Payable Total:</span>
-                        <span className="font-black text-sm text-navy">{formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}</span>
-                      </div>
+                      {/* The figure the admin is being asked to match against the bank statement:
+                          the order's real grandTotal, with its components spelled out. */}
+                      {(() => {
+                        const t = computeOrderTotals(selectedOrder);
+                        const parts = [
+                          `Items ${formatINR(t.subtotal)}`,
+                          t.discount > 0 ? `Discount -${formatINR(t.discount)}` : null,
+                          t.packingCharge > 0
+                            ? `Packing ${formatINR(t.packingCharge)}${
+                                t.packingChargePercent ? ` (${t.packingChargePercent}%)` : ''
+                              }`
+                            : null,
+                          t.tax > 0 ? `GST ${formatINR(t.tax)}` : null,
+                          t.deliveryCharge > 0 ? `Delivery ${formatINR(t.deliveryCharge)}` : null,
+                          Math.abs(t.unaccounted) >= 0.01 ? `Other ${formatINR(t.unaccounted)}` : null
+                        ].filter(Boolean);
+                        return (
+                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-0.5 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-500">Order Payable Total:</span>
+                              <span className="font-black text-sm text-navy">
+                                {formatINR(t.overallTotal)}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-medium">
+                              {parts.join('  •  ')}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -2062,38 +2162,62 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
               </table>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 h-fit">
-              <div className="space-y-2.5 text-xs text-slate-600">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span className="font-bold text-navy">{formatINR(selectedOrder.itemsSubtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Discount</span>
-                  <span className={`font-bold ${selectedOrder.discount > 0 ? 'text-emerald-600' : 'text-navy'}`}>
-                    {selectedOrder.discount > 0 ? `-${formatINR(selectedOrder.discount)}` : formatINR(0)}
-                  </span>
-                </div>
-                {selectedOrder.tax > 0 && (
-                  <div className="flex justify-between">
-                    <span>Tax (GST)</span>
-                    <span className="font-bold text-navy">{formatINR(selectedOrder.tax)}</span>
+            {/* Every component the order actually carries — packing charges included — adding up
+                to the API's own grandTotal, which is also what the generated invoice prints. */}
+            {(() => {
+              const t = computeOrderTotals(selectedOrder);
+              return (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 h-fit">
+                  <div className="space-y-2.5 text-xs text-slate-600">
+                    <div className="flex justify-between">
+                      <span>Subtotal</span>
+                      <span className="font-bold text-navy">{formatINR(t.subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Discount</span>
+                      <span className={`font-bold ${t.discount > 0 ? 'text-emerald-600' : 'text-navy'}`}>
+                        {t.discount > 0 ? `-${formatINR(t.discount)}` : formatINR(0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>
+                        Packing Charges
+                        {t.packingChargePercent ? (
+                          <span className="text-slate-400"> ({t.packingChargePercent}%)</span>
+                        ) : null}
+                      </span>
+                      <span className="font-bold text-navy">{formatINR(t.packingCharge)}</span>
+                    </div>
+                    {t.tax > 0 && (
+                      <div className="flex justify-between">
+                        <span>Tax (GST)</span>
+                        <span className="font-bold text-navy">{formatINR(t.tax)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span>Delivery Charges</span>
+                      {t.deliveryCharge > 0 ? (
+                        <span className="font-bold text-navy">{formatINR(t.deliveryCharge)}</span>
+                      ) : (
+                        <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-bold border border-emerald-200">
+                          ₹0 (Transport To-Pay)
+                        </span>
+                      )}
+                    </div>
+                    {Math.abs(t.unaccounted) >= 0.01 && (
+                      <div className="flex justify-between">
+                        <span>Other Charges</span>
+                        <span className="font-bold text-navy">{formatINR(t.unaccounted)}</span>
+                      </div>
+                    )}
+                    <div className="pt-2.5 border-t border-slate-200 flex justify-between font-black text-sm text-navy">
+                      <span>Total Amount</span>
+                      <span className="text-orange">{formatINR(t.overallTotal)}</span>
+                    </div>
                   </div>
-                )}
-                <div className="flex justify-between items-center">
-                  <span>Delivery Charges</span>
-                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-[11px] font-bold border border-emerald-200">
-                    ₹0 (Transport To-Pay)
-                  </span>
                 </div>
-                <div className="pt-2.5 border-t border-slate-200 flex justify-between font-black text-sm text-navy">
-                  <span>Total Amount</span>
-                  <span className="text-orange">
-                    {formatINR(Math.max(0, selectedOrder.itemsSubtotal - selectedOrder.discount + (selectedOrder.tax || 0)))}
-                  </span>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
 
           {/* Order Timeline (design 03) */}

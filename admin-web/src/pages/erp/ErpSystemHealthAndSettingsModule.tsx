@@ -24,7 +24,18 @@ import {
   Plus,
   Trash2,
   X,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Activity,
+  AlertTriangle,
+  Clock,
+  Cpu,
+  GitBranch,
+  HelpCircle,
+  Inbox,
+  ServerCrash,
+  Timer,
+  XCircle,
+  type LucideIcon
 } from 'lucide-react';
 import { SystemSetting, SystemHealthReport } from '../../types';
 import { api, settingsApi, getApiErrorDetails } from '../../services/api';
@@ -41,6 +52,71 @@ const SCREEN_HEADERS: Record<'settings' | 'health' | 'backup', { title: string; 
   health: { title: 'System Health', subtitle: 'Live API, database and background worker diagnostics.' },
   backup: { title: 'Backup & Restore', subtitle: 'Database snapshots and disaster recovery.' }
 };
+
+// ---------- System Health: rendering the flat GET /system-health report ----------
+
+/** Any field the endpoint stops sending renders as an em dash rather than throwing. */
+const healthText = (value: unknown): string =>
+  value === null || value === undefined || value === '' ? '—' : String(value);
+
+/** Colour + icon for a free-text status word ("Degraded", "Connected", "Unhealthy", ...). */
+const healthTone = (raw?: string): { text: string; chip: string; Icon: LucideIcon } => {
+  const s = (raw || '').trim().toLowerCase();
+  if (!s) return { text: 'text-slate-500', chip: 'bg-slate-100 text-slate-600', Icon: HelpCircle };
+  if (/^(healthy|connected|ok|up|online|running|active|available)/.test(s)) {
+    return { text: 'text-emerald-600', chip: 'bg-emerald-100 text-emerald-700', Icon: CheckCircle2 };
+  }
+  if (/degraded|warn|partial|slow/.test(s)) {
+    return { text: 'text-amber-600', chip: 'bg-amber-100 text-amber-700', Icon: AlertTriangle };
+  }
+  return { text: 'text-red-600', chip: 'bg-red-100 text-red-700', Icon: XCircle };
+};
+
+/** dd MMM yyyy, HH:mm:ss in local time — falls back to the raw string when unparseable. */
+const formatHealthTimestamp = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '—';
+  const d = new Date(String(value));
+  return isNaN(d.getTime()) ? String(value) : d.toLocaleString('en-IN');
+};
+
+/** The fields GET /system-health is known to return, in reading order. */
+const HEALTH_FIELDS: {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  isStatus?: boolean;
+  format?: (value: unknown) => string;
+}[] = [
+  { key: 'status', label: 'Overall Service Status', icon: ShieldCheck, isStatus: true },
+  { key: 'databaseStatus', label: 'Primary Database', icon: Database, isStatus: true },
+  {
+    key: 'outboxPendingCount',
+    label: 'Outbox Events Pending Dispatch',
+    icon: Inbox,
+    format: (v) => (v === null || v === undefined ? '—' : `${v} events`)
+  },
+  {
+    key: 'outboxFailedCount',
+    label: 'Outbox Events Failed',
+    icon: Zap,
+    format: (v) => (v === null || v === undefined ? '—' : `${v} events`)
+  },
+  {
+    key: 'outboxDeadLetterCount',
+    label: 'Outbox Dead-Letter Queue',
+    icon: ServerCrash,
+    format: (v) => (v === null || v === undefined ? '—' : `${v} events`)
+  },
+  {
+    key: 'processMemoryMb',
+    label: 'Process Memory',
+    icon: Cpu,
+    format: (v) => (v === null || v === undefined ? '—' : `${v} MB`)
+  },
+  { key: 'uptime', label: 'Process Uptime', icon: Timer },
+  { key: 'serverTimeUtc', label: 'Server Time (UTC)', icon: Clock, format: formatHealthTimestamp },
+  { key: 'version', label: 'API Version', icon: GitBranch }
+];
 
 // ---------- Spec 16: left sub-nav sections over SystemSettings keys ----------
 
@@ -991,84 +1067,134 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
         </div>
       )}
 
-      {/* 2. SYSTEM HEALTH SCREEN */}
-      {subTab === 'health' && health && (
+      {/* 2. SYSTEM HEALTH SCREEN — driven entirely by the flat GET /system-health DTO */}
+      {subTab === 'health' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Overall Status</div>
-              <div className="text-lg font-black text-emerald-600 flex items-center space-x-1.5">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                <span>{health.status}</span>
-              </div>
-              <div className="text-[10px] text-slate-400">Live report from the API health endpoint</div>
+          {isLoading && !health && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-10 text-center text-xs text-slate-400">
+              Loading system diagnostics...
             </div>
+          )}
 
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">API Roundtrip Latency</div>
-              <div className="text-lg font-black text-navy">{health.apiLatencyMs} ms</div>
-              <div className="text-[10px] text-emerald-600 font-bold">Optimal Low-Latency (.NET 10)</div>
+          {!isLoading && !health && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-10 text-center space-y-1">
+              <div className="text-sm font-black text-navy">Diagnostics unavailable</div>
+              <p className="text-xs text-slate-500">
+                The health endpoint did not return a report. Use Refresh above to try again.
+              </p>
             </div>
+          )}
 
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">SQLite DB Provider</div>
-              <div className="text-lg font-black text-purple">{health.database.status}</div>
-              <div className="text-[10px] text-slate-500 font-mono">Latency: {health.database.latencyMs}ms (WAL Mode)</div>
-            </div>
+          {health && (
+            <>
+              {(() => {
+                const overall = healthTone(health.status);
+                const db = healthTone(health.databaseStatus);
+                const deadLetters = Number(health.outboxDeadLetterCount) || 0;
+                const failed = Number(health.outboxFailedCount) || 0;
+                const outboxTone =
+                  deadLetters > 0 || failed > 0
+                    ? 'text-red-600'
+                    : Number(health.outboxPendingCount) > 0
+                    ? 'text-amber-600'
+                    : 'text-emerald-600';
 
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outbox Backlog Queue</div>
-              <div className="text-lg font-black text-navy">{health.elasticsearch.outboxBacklogCount} items</div>
-              <div className="text-[10px] text-emerald-600 font-bold">Asynchronous Worker Synced</div>
-            </div>
-          </div>
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Overall Status</div>
+                      <div className={`text-lg font-black flex items-center space-x-1.5 ${overall.text}`}>
+                        <overall.Icon className="w-5 h-5" />
+                        <span>{healthText(health.status)}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">Live report from GET /system-health</div>
+                    </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-4">
-            <h3 className="font-black text-sm text-navy uppercase tracking-wider">
-              Diagnostic Subsystems & Health Probes
-            </h3>
+                    <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Database</div>
+                      <div className={`text-lg font-black flex items-center space-x-1.5 ${db.text}`}>
+                        <db.Icon className="w-5 h-5" />
+                        <span>{healthText(health.databaseStatus)}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400">Field: databaseStatus</div>
+                    </div>
 
-            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 text-xs">
-              <div className="p-3.5 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <Database className="w-5 h-5 text-purple" />
-                  <div>
-                    <div className="font-bold text-navy">Primary Database Service</div>
-                    <div className="text-[10px] text-slate-400 font-mono">{health.database.provider}</div>
+                    <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outbox Queue</div>
+                      <div className={`text-lg font-black ${outboxTone}`}>
+                        {healthText(health.outboxPendingCount)} pending
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        {healthText(health.outboxFailedCount)} failed &middot; {healthText(health.outboxDeadLetterCount)} dead-letter
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">API Round-trip</div>
+                      <div className="text-lg font-black text-navy">
+                        {health.apiLatencyMs === undefined ? '—' : `${health.apiLatencyMs} ms`}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Measured in the browser, not reported by the API</div>
+                    </div>
                   </div>
-                </div>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                  {health.database.status} ({health.database.latencyMs}ms)
-                </span>
-              </div>
+                );
+              })()}
 
-              <div className="p-3.5 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <Zap className="w-5 h-5 text-orange" />
-                  <div>
-                    <div className="font-bold text-navy">Background Worker Engine</div>
-                    <div className="text-[10px] text-slate-400">Audit indexing, low-stock triggers, email dispatchers</div>
-                  </div>
-                </div>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                  Running
-                </span>
-              </div>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-6 space-y-4">
+                <h3 className="font-black text-sm text-navy uppercase tracking-wider">Health Report Fields</h3>
+                <p className="text-[11px] text-slate-500 -mt-2">
+                  Every value below is read straight off the health payload. A field the API stops
+                  sending shows as an em dash instead of breaking this screen.
+                </p>
 
-              <div className="p-3.5 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <ShieldCheck className="w-5 h-5 text-blue-600" />
-                  <div>
-                    <div className="font-bold text-navy">ASP.NET Core Rate Limiter</div>
-                    <div className="text-[10px] text-slate-400">Granular policies active (Public, Login, Checkout, AdminApi, Reports)</div>
-                  </div>
+                <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 text-xs">
+                  {HEALTH_FIELDS.map((f) => {
+                    const raw = (health as Record<string, unknown>)[f.key];
+                    const Icon = f.icon;
+                    const tone = f.isStatus ? healthTone(typeof raw === 'string' ? raw : undefined) : null;
+                    return (
+                      <div key={f.key} className="p-3.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center space-x-3 min-w-0">
+                          <Icon className="w-5 h-5 text-purple shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-bold text-navy">{f.label}</div>
+                            <div className="text-[10px] text-slate-400 font-mono truncate">{f.key}</div>
+                          </div>
+                        </div>
+                        {tone ? (
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${tone.chip}`}>
+                            {healthText(raw)}
+                          </span>
+                        ) : (
+                          <span className="font-mono font-bold text-navy text-right shrink-0">
+                            {f.format ? f.format(raw) : healthText(raw)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Anything the API added that this screen does not know about yet. */}
+                  {Object.keys(health)
+                    .filter((k) => k !== 'apiLatencyMs' && !HEALTH_FIELDS.some((f) => f.key === k))
+                    .map((k) => (
+                      <div key={k} className="p-3.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center space-x-3 min-w-0">
+                          <Activity className="w-5 h-5 text-slate-400 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-bold text-navy">{k}</div>
+                            <div className="text-[10px] text-slate-400">Reported by the API</div>
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-navy text-right shrink-0 truncate max-w-[45%]">
+                          {healthText((health as Record<string, unknown>)[k])}
+                        </span>
+                      </div>
+                    ))}
                 </div>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                  Active Protection
-                </span>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
       )}
 

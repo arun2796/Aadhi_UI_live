@@ -146,6 +146,68 @@ apiClient.interceptors.response.use(
 let publicSettingsCache: Record<string, string> | null = null;
 let publicSettingsPromise: Promise<Record<string, string>> | null = null;
 
+/* ── Short-lived caches for public catalogue reads ──────────────────────────
+   The <head> builder (src/seo/SeoHead.tsx) needs the same product/category data
+   the visible page already fetches. A short TTL de-duplicates those concurrent
+   requests instead of doubling them; anything older than the TTL is refetched,
+   so stock/price changes still show up. */
+const CATALOGUE_TTL_MS = 30_000;
+
+interface CacheEntry<T> { at: number; value: Promise<T>; }
+const catalogueCache = new Map<string, CacheEntry<any>>();
+
+const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
+  const hit = catalogueCache.get(key);
+  if (hit && Date.now() - hit.at < CATALOGUE_TTL_MS) return hit.value as Promise<T>;
+  const value = load().catch((error) => {
+    catalogueCache.delete(key);
+    throw error;
+  });
+  catalogueCache.set(key, { at: Date.now(), value });
+  return value;
+};
+
+/* ── The authoritative price quote ────────────────────────────────────────────
+   POST /cart/calculate runs the SAME arithmetic the order will
+   (OrderPricingService.Calculate on the server), so the components below are the
+   components the created order will carry. The storefront must never re-derive a
+   payable amount from these parts — it displays them and pays `grandTotal`.
+
+   `subtotal` is a legacy alias for `itemsSubtotal` kept for older callers. The
+   breakdown fields (`itemsSubtotal`, `tax`, `packingCharges`, `packingChargePercent`)
+   are only present on an API build that carries the quote fix; a response missing
+   any of them is NOT a quote we can charge against — see isAuthoritativeQuote. */
+export interface CartQuoteLine {
+  productId: string;
+  sku: string;
+  name: string;
+  imageUrl?: string;
+  unitPrice: number;
+  compareAtPrice?: number;
+  quantity: number;
+  maxStock: number;
+  lineTotal: number;
+}
+
+export interface CartQuote {
+  items: CartQuoteLine[];
+  totalItems: number;
+  /** Legacy alias of itemsSubtotal. */
+  subtotal: number;
+  itemsSubtotal: number;
+  discount: number;
+  couponCode?: string | null;
+  /** GST on the lines, at each product's own tax rate. */
+  tax: number;
+  packingCharges: number;
+  /** The rate packingCharges was computed at, e.g. 1.5 for 1.5%. */
+  packingChargePercent: number;
+  /** Always 0 — freight is To-Pay, settled with the transport company. */
+  shippingCharge: number;
+  /** itemsSubtotal - discount + tax + shippingCharge + packingCharges. */
+  grandTotal: number;
+}
+
 export const api = {
   // PUBLIC STOREFRONT SETTINGS (anonymous; tolerant to the endpoint being absent)
   async getPublicSettings(): Promise<Record<string, string>> {
@@ -242,12 +304,16 @@ export const api = {
     sortBy?: string;
     page?: number;
     pageSize?: number;
+    excludeCombos?: boolean;
   }): Promise<Product[]> {
     try {
       const queryParams: Record<string, any> = { ...params };
       if (params?.category && !params.categorySlug) {
         queryParams.categorySlug = params.category.toLowerCase().replace(/\s+/g, '-');
       }
+      // Only ever send the flag when it is on; never `excludeCombos=false`.
+      if (params?.excludeCombos) queryParams.excludeCombos = true;
+      else delete queryParams.excludeCombos;
       const res = await apiClient.get('/products', { params: queryParams });
       if (res.data?.data?.items) {
         return mapProductList(res.data.data.items);
@@ -260,22 +326,24 @@ export const api = {
   },
 
   async getProductBySlug(slug: string): Promise<Product | null> {
-    try {
-      const res = await apiClient.get(`/products/${slug}`);
-      if (res.data?.data) {
-        return mapProductDto(res.data.data);
+    return cached(`product:${slug}`, async () => {
+      try {
+        const res = await apiClient.get(`/products/${slug}`);
+        if (res.data?.data) {
+          return mapProductDto(res.data.data);
+        }
+        return null;
+      } catch (error) {
+        console.error(`Failed to fetch live product slug '${slug}':`, error);
+        return null;
       }
-      return null;
-    } catch (error) {
-      console.error(`Failed to fetch live product slug '${slug}':`, error);
-      return null;
-    }
+    });
   },
 
   async getFeaturedProducts(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/featured');
-      return mapProductList(res.data?.data);
+      return mapProductList(res.data?.data).filter((p) => !p.isCombo);
     } catch {
       return [];
     }
@@ -284,7 +352,7 @@ export const api = {
   async getBestSellers(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/best-sellers');
-      return mapProductList(res.data?.data);
+      return mapProductList(res.data?.data).filter((p) => !p.isCombo);
     } catch {
       return [];
     }
@@ -293,7 +361,7 @@ export const api = {
   async getNewArrivals(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/new-arrivals');
-      return mapProductList(res.data?.data);
+      return mapProductList(res.data?.data).filter((p) => !p.isCombo);
     } catch {
       return [];
     }
@@ -317,11 +385,6 @@ export const api = {
     }
   },
 
-  /** The storefront's single source of combos / gift boxes.
-   *  GET /products/combo-offers also matches loose legacy rows (name contains
-   *  "combo", DiscountValue > 20), so the response is narrowed to products the
-   *  API actually flagged `isCombo` and de-duplicated by id. Returns [] on any
-   *  failure — every combo surface collapses to nothing rather than faking data. */
   async getCombos(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/combo-offers', { params: { count: 50 } });
@@ -372,25 +435,34 @@ export const api = {
 
   // CATEGORIES & BRANDS
   async getCategories(): Promise<Category[]> {
-    try {
-      const res = await apiClient.get('/categories');
-      if (res.data?.data) {
-        return res.data.data.map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          slug: c.slug,
-          description: c.description,
-          imageUrl: normalizeImageUrl(c.imageUrl),
-          displayOrder: c.displayOrder || 1,
-          isActive: c.isActive ?? true,
-          productCount: c.productCount || 0
-        }));
+    return cached('categories', async () => {
+      try {
+        const res = await apiClient.get('/categories');
+        if (res.data?.data) {
+          return res.data.data.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            slug: c.slug,
+            description: c.description,
+            imageUrl: normalizeImageUrl(c.imageUrl),
+            displayOrder: c.displayOrder || 1,
+            isActive: c.isActive ?? true,
+            productCount: c.productCount || 0,
+            // Owner-editable category SEO overrides. Present on the Category entity and
+            // on Create/UpdateCategoryRequest, but NOT yet projected onto CategoryDto —
+            // they stay undefined until the API exposes them, and the storefront then
+            // falls back to a derived title/description. See the SEO notes in README.
+            seoTitle: c.seoTitle || undefined,
+            seoDescription: c.seoDescription || undefined,
+            subCategories: Array.isArray(c.subCategories) ? c.subCategories : []
+          }));
+        }
+        return [];
+      } catch (error) {
+        console.error('Failed to fetch live categories:', error);
+        return [];
       }
-      return [];
-    } catch (error) {
-      console.error('Failed to fetch live categories:', error);
-      return [];
-    }
+    });
   },
 
   async getBrands(): Promise<Brand[]> {
@@ -402,15 +474,11 @@ export const api = {
     }
   },
 
-  // CART PRICING CALCULATION
-  async calculateCart(items: Array<{ productId: string; quantity: number }>, couponCode?: string): Promise<{
-    items: Array<{ productId: string; sku: string; name: string; imageUrl?: string; unitPrice: number; quantity: number; maxStock: number; lineTotal: number }>;
-    totalItems: number;
-    subtotal: number;
-    discount: number;
-    couponCode?: string;
-    grandTotal: number;
-  }> {
+  // CART PRICING CALCULATION — the authoritative quote (see CartQuote above).
+  // Returned raw: callers that state a payable amount MUST first run it through
+  // isAuthoritativeQuote() (src/utils/checkoutQuote.ts) rather than reading fields
+  // straight off it, because an older API build answers with a partial breakdown.
+  async calculateCart(items: Array<{ productId: string; quantity: number }>, couponCode?: string): Promise<CartQuote> {
     const res = await apiClient.post('/cart/calculate', {
       items: items.map(i => ({ productId: i.productId, quantity: i.quantity })),
       couponCode: couponCode || undefined
@@ -511,12 +579,12 @@ export const api = {
     throw new Error(res.data?.message || 'Login failed');
   },
 
-  async forgotPassword(identifier: string): Promise<{ message?: string; devOtp?: string }> {
+  async forgotPassword(identifier: string): Promise<{ message?: string }> {
     const res = await apiClient.post('/auth/forgot-password', { identifier });
     return res.data?.data ?? res.data ?? {};
   },
 
-  async resendOtp(identifier: string): Promise<{ message?: string; devOtp?: string }> {
+  async resendOtp(identifier: string): Promise<{ message?: string }> {
     const res = await apiClient.post('/auth/resend-otp', { identifier });
     return res.data?.data ?? res.data ?? {};
   },
@@ -600,8 +668,36 @@ export const api = {
   },
 
   // PAYMENT PROOF SUBMISSION
-  async submitPaymentProof(orderId: string, utrNumber: string, screenshotBase64?: string): Promise<void> {
-    await apiClient.post(`/orders/${orderId}/payment-proof`, { utrNumber, screenshotBase64 });
+  //
+  // POST /orders/{id}/payment-proof is [AllowAnonymous], but an anonymous caller
+  // MUST send the matching `orderNumber` in the body — the API compares it against
+  // the order as an IDOR guard and answers 401 when it is missing or wrong. A
+  // logged-in customer is matched on their own customer id instead and the extra
+  // field is simply ignored, so ONE code path serves guests and account holders.
+  //
+  // The server stores `PaymentScreenshotUrl ?? PaymentScreenshotBase64 ?? ScreenshotBase64`
+  // and overwrites the stored screenshot with whatever arrives — passing none clears
+  // it — so callers should always resend the image alongside the UTR.
+  async submitPaymentProof(params: {
+    orderId: string;
+    /** Required for guests; harmless (and still sent) for logged-in customers. */
+    orderNumber: string;
+    utrNumber: string;
+    screenshotBase64?: string;
+    paymentScreenshotUrl?: string;
+    notes?: string;
+  }): Promise<any> {
+    const screenshot = params.screenshotBase64 || undefined;
+    const res = await apiClient.post(`/orders/${params.orderId}/payment-proof`, {
+      orderNumber: (params.orderNumber || '').trim(),
+      utrNumber: (params.utrNumber || '').trim(),
+      // Both aliases carry the same image so the API reads it whichever it prefers.
+      screenshotBase64: screenshot,
+      paymentScreenshotBase64: screenshot,
+      paymentScreenshotUrl: params.paymentScreenshotUrl || undefined,
+      notes: params.notes || undefined
+    });
+    return res.data?.data ?? null;
   },
 
   // ORDER DETAIL

@@ -161,33 +161,6 @@ export interface Brand {
   productCount: number;
 }
 
-export interface GiftBox {
-  id: string;
-  name: string;
-  sku: string;
-  theme: string;
-  occasion: string;
-  price: number;
-  mrp: number;
-  itemCount: number;
-  description: string;
-  imageUrl: string;
-  isActive: boolean;
-}
-
-export interface ComboOffer {
-  id: string;
-  name: string;
-  slug: string;
-  normalValue: number;
-  comboPrice: number;
-  savings: number;
-  discountPercentage: number;
-  description: string;
-  imageUrl: string;
-  isActive: boolean;
-}
-
 export interface ProductReview {
   id: string;
   productId: string;
@@ -528,30 +501,22 @@ export interface RateLimitLogItem {
   reason: string;
 }
 
+/**
+ * GET /system-health — a FLAT DTO. Every field is optional so a renamed or dropped field
+ * degrades to an "—" cell instead of throwing during render.
+ */
 export interface SystemHealthReport {
-  status: 'Healthy' | 'Degraded' | 'Unhealthy';
-  apiLatencyMs: number;
-  database: {
-    status: 'Healthy' | 'Degraded' | 'Unhealthy';
-    provider: string;
-    latencyMs: number;
-    openConnections: number;
-  };
-  elasticsearch: {
-    status: 'Healthy' | 'Degraded' | 'Disabled';
-    clusterName?: string;
-    outboxBacklogCount: number;
-  };
-  backgroundWorkers: {
-    status: 'Running' | 'Degraded' | 'Stopped';
-    activeJobsCount: number;
-    lastRunUtc: string;
-  };
-  rateLimiter: {
-    status: 'Active';
-    activePoliciesCount: number;
-    blockedRequestsPast24h: number;
-  };
+  status?: string;
+  databaseStatus?: string;
+  outboxPendingCount?: number;
+  outboxFailedCount?: number;
+  outboxDeadLetterCount?: number;
+  processMemoryMb?: number;
+  uptime?: string;
+  serverTimeUtc?: string;
+  version?: string;
+  /** Round-trip time of the health request, measured in the browser (not sent by the API). */
+  apiLatencyMs?: number;
 }
 
 export interface StoreSettings {
@@ -591,13 +556,23 @@ export type LoginHistory = LoginHistoryItem;
 export type RateLimitLog = RateLimitLogItem;
 export type AuditLogDetail = AuditLog;
 
+/**
+ * GET /reports/sales-overview?period=… — the live API sends `salesTrend` with
+ * `{ date, sales, orders }` points. The older `salesByDate`/`revenue` contract is kept as an
+ * optional alias so either shape is readable.
+ */
 export interface SalesReport {
-  period: string;
-  totalRevenue: number;
-  totalOrders: number;
-  averageOrderValue: number;
-  grossProfit: number;
-  salesByDate: Array<{ date: string; revenue: number; orders: number }>;
+  period?: string;
+  totalSales?: number;
+  totalOrders?: number;
+  totalDiscount?: number;
+  totalTax?: number;
+  averageOrderValue?: number;
+  salesTrend?: Array<{ date: string; sales: number; orders: number }>;
+  /** Legacy alias — some deployments return this instead of `salesTrend`. */
+  totalRevenue?: number;
+  grossProfit?: number;
+  salesByDate?: Array<{ date: string; revenue: number; orders: number }>;
 }
 
 export interface ProfitLoss {

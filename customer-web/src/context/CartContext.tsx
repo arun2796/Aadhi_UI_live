@@ -14,7 +14,11 @@ interface CartContextType {
   couponCode: string;
   applyCoupon: (code: string) => Promise<boolean>;
   removeCoupon: () => void;
-  grandTotal: number;
+  /** Items subtotal less any coupon discount — NOT the payable amount.
+   *  GST, packing charges and the grand total exist only on the server's quote
+   *  (POST /cart/calculate, see utils/checkoutQuote.ts). Anything that states an
+   *  amount the customer is asked to PAY must use that quote, never this. */
+  itemsTotal: number;
   isCartDrawerOpen: boolean;
   setIsCartDrawerOpen: (open: boolean) => void;
 }
@@ -139,9 +143,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const totalItems = items.reduce((acc, i) => acc + i.quantity, 0);
   const subtotal = items.reduce((acc, i) => acc + (i.lineTotal || (i.unitPrice * i.quantity)), 0);
   const discount = serverDiscount;
-  // There is no delivery charge anywhere in the storefront: the lorry freight is paid
-  // by the customer directly to the transport company on collection.
-  const grandTotal = Math.max(0, subtotal - discount);
+  // Deliberately NOT a payable total: it carries no GST and no packing charge, both
+  // of which the server bills. The cart screens label it as an items total and say
+  // that taxes and charges are added at checkout; the checkout quote is the only
+  // place a payable figure is ever produced.
+  const itemsTotal = Math.max(0, subtotal - discount);
 
   return (
     <CartContext.Provider value={{
@@ -156,7 +162,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       couponCode,
       applyCoupon,
       removeCoupon,
-      grandTotal,
+      itemsTotal,
       isCartDrawerOpen,
       setIsCartDrawerOpen
     }}>

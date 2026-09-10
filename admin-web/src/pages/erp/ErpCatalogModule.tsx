@@ -7,7 +7,6 @@ import {
   Edit2,
   Trash2,
   Image as ImageIcon,
-  Sparkles,
   XCircle,
   RefreshCw,
   Gift,
@@ -19,9 +18,8 @@ import {
   Award,
   X
 } from 'lucide-react';
-import { Product, Category, GiftBox, ComboOffer, ProductReview, HomepageBanner, Brand } from '../../types';
+import { Product, Category, ProductReview, HomepageBanner, Brand } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
-import { productApi } from '../../services/productApi';
 import { brandApi } from '../../services/brandApi';
 import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
@@ -68,14 +66,13 @@ const EMPTY_BANNER_FORM: Partial<BannerRow> = {
   placement: 'Home'
 };
 
-type CatalogSubTab = 'products' | 'categories' | 'brands' | 'combos' | 'reviews' | 'banners';
+type CatalogSubTab = 'products' | 'categories' | 'brands' | 'reviews' | 'banners';
 
 /** Every sidebar item is its own standalone screen — per-screen header copy. */
 const SCREEN_HEADERS: Record<CatalogSubTab, { title: string; subtitle: string }> = {
   products: { title: 'Products', subtitle: 'Manage the live product catalog.' },
   categories: { title: 'Categories', subtitle: 'Top-level catalog categories.' },
   brands: { title: 'Brands', subtitle: 'Manage product manufacturer brands.' },
-  combos: { title: 'Gift Boxes & Combos', subtitle: 'Pre-packed gift boxes and special combo deals.' },
   reviews: { title: 'Reviews & Moderation', subtitle: 'Approve, reject or hide customer product reviews.' },
   banners: { title: 'Banners', subtitle: 'Manage homepage web and mobile app promotional banners.' }
 };
@@ -124,14 +121,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   const [categoriesPage, setCategoriesPage] = useState(1);
   const [deleteCategoryTarget, setDeleteCategoryTarget] = useState<Category | null>(null);
 
-  // Combo products built in the product form (ProductDto.isCombo)
-  const [comboProducts, setComboProducts] = useState<Product[]>([]);
-  const [isComboProductsLoading, setIsComboProductsLoading] = useState(false);
-  const [isComboProductsUnavailable, setIsComboProductsUnavailable] = useState(false);
-
   // Other catalog data
-  const [giftBoxes, setGiftBoxes] = useState<GiftBox[]>([]);
-  const [combos, setCombos] = useState<ComboOffer[]>([]);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [banners, setBanners] = useState<BannerRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -191,17 +181,13 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   const loadAuxData = async () => {
     setIsLoading(true);
     try {
-      const [cats, gbs, cmbs, revs, bans, brds] = await Promise.all([
+      const [cats, revs, bans, brds] = await Promise.all([
         api.getCategories(true),
-        api.getGiftBoxes(),
-        api.getComboOffers(),
         api.getProductReviews(),
         api.getHomepageBanners(),
         brandApi.getBrands(true)
       ]);
       setCategories(flattenCategories(cats || []));
-      setGiftBoxes(gbs);
-      setCombos(cmbs);
       setReviews(revs);
       setBanners(bans);
       setBrands(brds || []);
@@ -271,37 +257,6 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productsPage, debouncedSearch, selectedCategoryFilter]);
-
-  /**
-   * Gift boxes / combos built in the product form live on the products endpoint
-   * (ProductDto.isCombo), not on the legacy /gift-boxes and /combo-offers feeds —
-   * so this screen pulls the catalogue once and filters it. Failures are silent
-   * apart from a friendly note: the legacy sections below still render.
-   */
-  useEffect(() => {
-    if (subTab !== 'combos') return;
-    let isMounted = true;
-
-    const loadComboProducts = async () => {
-      setIsComboProductsLoading(true);
-      try {
-        const all = await productApi.getAllProducts();
-        if (!isMounted) return;
-        setComboProducts(all.filter((p) => p.isCombo));
-        setIsComboProductsUnavailable(false);
-      } catch {
-        if (!isMounted) return;
-        setIsComboProductsUnavailable(true);
-      } finally {
-        if (isMounted) setIsComboProductsLoading(false);
-      }
-    };
-
-    loadComboProducts();
-    return () => {
-      isMounted = false;
-    };
-  }, [subTab]);
 
   // Deep link: /admin/products/:id → dedicated edit page
   useEffect(() => {
@@ -1008,184 +963,54 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         </div>
       )}
 
-      {/* 3. GIFT BOXES & COMBOS SCREEN */}
-      {subTab === 'combos' && (
-        <div className="space-y-6">
-          {/* Combo products assembled in the product form (ProductDto.isCombo) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-black text-navy uppercase tracking-wider flex items-center space-x-2">
-                <Gift className="w-4 h-4 text-purple" />
-                <span>Combo Products ({comboProducts.length})</span>
-              </h2>
-              <button
-                onClick={() => navigate('/admin/products/new')}
-                className="px-3.5 py-1.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Build a Combo</span>
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-500 -mt-1">
-              Gift boxes built from other catalogue products. The contents total is the struck-through
-              price; the selling price is set by hand in the product form.
-            </p>
-
-            {isComboProductsLoading && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-400">
-                Loading combo products...
-              </div>
-            )}
-
-            {!isComboProductsLoading && isComboProductsUnavailable && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-400">
-                Combo products could not be loaded right now.
-              </div>
-            )}
-
-            {!isComboProductsLoading && !isComboProductsUnavailable && comboProducts.length === 0 && (
-              <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-6 text-center">
-                <p className="text-xs font-bold text-navy">No combo products yet</p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Open any product and fill in "Combo / Gift Box Contents" to turn it into a gift box.
-                </p>
-              </div>
-            )}
-
-            {comboProducts.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {comboProducts.map((cp) => {
-                  const struck = Number(cp.compareAtPrice) || 0;
-                  const selling = Number(cp.price) || 0;
-                  const saving = struck > selling ? struck - selling : 0;
-                  const savingPct = saving > 0 ? Math.round((saving / struck) * 100) : 0;
-                  return (
-                    <div
-                      key={cp.id}
-                      className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex items-start space-x-3"
-                    >
-                      <img
-                        src={
-                          normalizeImageUrl(cp.primaryImageUrl) ||
-                          'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=200&auto=format&fit=crop&q=80'
-                        }
-                        alt={cp.name}
-                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-bold text-xs text-navy truncate">{cp.name}</h3>
-                          <span className="font-mono text-[10px] text-purple font-bold shrink-0">{cp.sku}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] font-black uppercase tracking-wide text-purple bg-purple/10 border border-purple/20 px-1.5 py-0.5 rounded-full">
-                            {cp.comboItemCount ?? 0} items inside
-                          </span>
-                          <span
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                              cp.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            {cp.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </div>
-                        <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1 pt-0.5">
-                          <span className="font-black text-sm text-navy">
-                            ₹{selling.toLocaleString('en-IN')}
-                          </span>
-                          {struck > 0 && (
-                            <span className="text-[10px] line-through text-slate-400">
-                              ₹{struck.toLocaleString('en-IN')}
-                            </span>
-                          )}
-                          {saving > 0 ? (
-                            <span className="text-[10px] font-black text-orange bg-orange/10 px-1.5 py-0.5 rounded-full">
-                              Save ₹{saving.toLocaleString('en-IN')} ({savingPct}% OFF)
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
-                              No struck price set
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => navigate(`/admin/products/${cp.id}/edit`)}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 shrink-0"
-                        title="Edit combo contents"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Gift Boxes */}
-          <div className="space-y-3 pt-4 border-t border-slate-200">
-            <h2 className="text-sm font-black text-navy uppercase tracking-wider flex items-center space-x-2">
-              <Gift className="w-4 h-4 text-orange" />
-              <span>Pre-Packed Gift Boxes ({giftBoxes.length})</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {giftBoxes.map((gb) => (
-                <div key={gb.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 space-y-3">
-                  <div className="flex items-start space-x-3">
-                    <img src={gb.imageUrl} alt={gb.name} className="w-16 h-16 rounded-xl object-cover border" />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-xs text-navy">{gb.name}</h3>
-                        <span className="font-mono text-[10px] text-purple font-bold">{gb.sku}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">{gb.theme} • {gb.occasion}</div>
-                      <div className="flex items-baseline space-x-2 mt-1">
-                        <span className="font-black text-sm text-navy">₹{gb.price.toLocaleString('en-IN')}</span>
-                        <span className="text-[10px] line-through text-slate-400">MRP ₹{gb.mrp}</span>
-                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded">
-                          {gb.itemCount} items inside
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Combos */}
-          <div className="space-y-3 pt-4 border-t border-slate-200">
-            <h2 className="text-sm font-black text-navy uppercase tracking-wider flex items-center space-x-2">
-              <Sparkles className="w-4 h-4 text-purple" />
-              <span>Special Combo Deals ({combos.length})</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {combos.map((cmb) => (
-                <div key={cmb.id} className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex items-start space-x-3">
-                  <img src={cmb.imageUrl} alt={cmb.name} className="w-16 h-16 rounded-xl object-cover border" />
-                  <div className="flex-1 space-y-1">
-                    <h3 className="font-bold text-xs text-navy">{cmb.name}</h3>
-                    <p className="text-[10px] text-slate-500">{cmb.description}</p>
-                    <div className="flex items-baseline space-x-2 pt-1">
-                      <span className="font-black text-sm text-navy">₹{cmb.comboPrice.toLocaleString('en-IN')}</span>
-                      <span className="text-[10px] line-through text-slate-400">₹{cmb.normalValue}</span>
-                      <span className="text-[10px] font-black text-orange bg-orange/10 px-1.5 py-0.5 rounded-full">
-                        Save ₹{cmb.savings} ({cmb.discountPercentage}% OFF)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. REVIEWS & MODERATION SCREEN */}
+      {/* 3. REVIEWS & MODERATION SCREEN */}
       {subTab === 'reviews' && (
         <div className="space-y-4">
+          {/* Moderation counters — GET /reviews returns every review with its status. */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center gap-2.5 text-xs">
+            <span className="font-bold text-slate-500">
+              Total Reviews: <span className="text-navy">{reviews.length}</span>
+            </span>
+            {(['Pending', 'Approved', 'Rejected', 'Hidden'] as const).map((st) => (
+              <span
+                key={st}
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  st === 'Approved'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : st === 'Rejected'
+                    ? 'bg-red-100 text-red-700'
+                    : st === 'Hidden'
+                    ? 'bg-slate-100 text-slate-600'
+                    : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                {st} {reviews.filter((r) => r.status === st).length}
+              </span>
+            ))}
+          </div>
+
+          {isLoading && reviews.length === 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-10 text-center text-xs text-slate-400">
+              Loading reviews...
+            </div>
+          )}
+
+          {!isLoading && reviews.length === 0 && (
+            <div className="p-10 rounded-3xl bg-white border border-slate-200 shadow-2xs text-center space-y-3 max-w-md mx-auto my-4">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-500 flex items-center justify-center mx-auto text-2xl">
+                ★
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-black text-navy">No customer reviews yet</h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Reviews left by customers on the storefront land here for approval. Nothing is
+                  waiting for moderation right now.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {reviews.length > 0 && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs divide-y divide-slate-100 overflow-hidden">
             {reviews.map((r) => (
               <div key={r.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50">
@@ -1236,10 +1061,11 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
-      {/* 5. BANNERS SCREEN */}
+      {/* 4. BANNERS SCREEN */}
       {subTab === 'banners' && (
         <div className="space-y-4">
           {/* Top Placement Segmented Switch & Size Guidance */}

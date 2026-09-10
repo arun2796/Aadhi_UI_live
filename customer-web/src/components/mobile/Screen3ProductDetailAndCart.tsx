@@ -143,6 +143,14 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
   const comboItems = Array.isArray(product.comboItems) ? product.comboItems : [];
   const comboItemsTotal = product.comboItemsTotal ?? 0;
 
+
+  const isCombo = product.isCombo === true;
+  const crumbLabel = isCombo ? 'Combos' : product.categoryName || 'Crackers';
+  const goToCrumb = () =>
+    isCombo
+      ? onNavigate('shop', { view: 'combos' })
+      : onNavigate('category', { category: product.categoryId || product.categoryName });
+
   // Real review data only — the rating line is omitted entirely when the DTO has none.
   const rating = typeof product.rating === 'number' && product.rating > 0 ? product.rating : 0;
   const reviews =
@@ -259,11 +267,8 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
       <div className="px-4 pt-3 space-y-1.5">
         <div className="text-[10px] text-slate-400 font-medium truncate">
           Home &gt;{' '}
-          <button
-            className="text-slate-500 font-semibold"
-            onClick={() => onNavigate('category', { category: product.categoryId || product.categoryName })}
-          >
-            {product.categoryName || 'Crackers'}
+          <button className="text-slate-500 font-semibold" onClick={goToCrumb}>
+            {crumbLabel}
           </button>{' '}
           &gt; <span className="text-slate-600 font-semibold">{product.name}</span>
         </div>
@@ -481,7 +486,7 @@ export const Screen4Cart: React.FC<{
     couponCode,
     applyCoupon,
     removeCoupon,
-    grandTotal
+    itemsTotal
   } = useCart();
   const { showToast } = useToast();
   const { promotionCodeEnabled } = useSettings();
@@ -669,9 +674,14 @@ export const Screen4Cart: React.FC<{
             )}
           </div>
 
+          {/* Items total, not the payable amount — GST and packing charges are
+              billed by the server and quoted at checkout. */}
           <div className="flex justify-between items-baseline pt-2.5 border-t border-slate-100">
-            <span className="text-sm font-black text-navy">Total</span>
-            <span className="text-lg font-black text-navy">{inr(grandTotal)}</span>
+            <span className="text-sm font-black text-navy">Items Total</span>
+            <span className="text-lg font-black text-navy">{inr(itemsTotal)}</span>
+          </div>
+          <div className="text-[10px] text-slate-400 leading-relaxed">
+            GST and packing charges are added at checkout.
           </div>
         </div>
 

@@ -25,7 +25,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
     couponCode,
     applyCoupon,
     removeCoupon,
-    grandTotal,
+    itemsTotal,
     updateQuantity,
     removeFromCart
   } = useCart();
@@ -180,9 +180,15 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                 </div>
               )}
 
+              {/* An items total, explicitly not the payable amount: GST and packing
+                  charges are billed by the server and quoted at checkout. */}
               <div className="flex justify-between items-center text-sm font-black text-navy pt-3 border-t border-slate-100">
-                <span>Total</span>
-                <span className="text-base">{inr(grandTotal)}</span>
+                <span>Items Total</span>
+                <span className="text-base">{inr(itemsTotal)}</span>
+              </div>
+              <div className="text-[10px] text-slate-400 leading-relaxed">
+                GST and packing charges are added at checkout, where the exact amount payable is
+                confirmed before you pay.
               </div>
             </div>
 

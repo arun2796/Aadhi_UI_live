@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Check, X, Clock } from 'lucide-react';
 import { api } from '../../services/api';
+import { inrExact } from '../../utils/checkoutQuote';
 
 interface NavProps {
   onNavigate: (page: string, params?: any) => void;
@@ -42,7 +43,7 @@ export const ScreenPaymentSuccess: React.FC<PaymentResultProps> = ({
         <h2 className="text-xl font-black text-navy">Payment Successful!</h2>
         <p className="text-xs text-slate-500 font-medium leading-relaxed">
           {typeof amount === 'number' && amount > 0 ? (
-            <>Your payment of <strong className="text-navy">{inr(amount)}</strong> was successful.</>
+            <>Your payment of <strong className="text-navy">{inrExact(amount)}</strong> was successful.</>
           ) : (
             <>Your payment was successful.</>
           )}
@@ -83,7 +84,7 @@ export const ScreenPaymentFailed: React.FC<PaymentResultProps> = ({
       <div className="space-y-2">
         <h2 className="text-xl font-black text-navy">Payment Failed!</h2>
         <p className="text-xs text-slate-500 font-medium leading-relaxed">
-          Your payment{typeof amount === 'number' && amount > 0 ? <> of <strong className="text-navy">{inr(amount)}</strong></> : null} could not be completed.
+          Your payment{typeof amount === 'number' && amount > 0 ? <> of <strong className="text-navy">{inrExact(amount)}</strong></> : null} could not be completed.
           <br />
           Please try again or use another payment method.
         </p>

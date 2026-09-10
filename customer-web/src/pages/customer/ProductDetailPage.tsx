@@ -58,8 +58,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
         setQuantity(1);
         setActiveTab('description');
 
-        // Other products from the same category (Frequently Bought Together + related)
-        api.getProducts({ category: prod.categoryName }).then((list) => {
+        // Other products from the same category (Frequently Bought Together + related).
+        // Combos never appear here — they live in the Combos section only.
+        api.getProducts({ category: prod.categoryName, excludeCombos: true }).then((list) => {
           setRelatedProducts(list.filter(p => p.id !== prod.id).slice(0, 7));
         });
       }
@@ -131,6 +132,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
     showToast(`Added "${p.name}" to cart!`, 'success');
   };
 
+  // A combo presents itself as a combo, never as the category it happens to be
+  // filed under. Driven by the `isCombo` flag only — never by the category name.
+  const isCombo = product.isCombo === true;
+  const crumbLabel = isCombo ? 'Combos' : product.categoryName;
+  const goToCrumb = () =>
+    isCombo
+      ? onNavigate('shop', { view: 'combos' })
+      : onNavigate('shop', { category: product.categoryName.toLowerCase().replace(/\s+/g, '-') });
+
   const tabs: Array<{ id: TabId; label: string }> = [
     { id: 'description', label: 'Description' },
     { id: 'specifications', label: 'Specifications' },
@@ -140,7 +150,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
 
   const specifications: Array<{ label: string; value: string }> = [
     { label: 'SKU', value: product.sku },
-    { label: 'Category', value: product.categoryName },
+    { label: 'Category', value: isCombo ? 'Combo / Gift Box' : product.categoryName },
     { label: 'Brand', value: product.brandName || 'Aadhi' },
     { label: 'Unit', value: product.unit },
     { label: 'GST', value: 'Inclusive' },
@@ -150,15 +160,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-12">
-      {/* Breadcrumb: Home › Category › Name */}
+      {/* Breadcrumb: Home › Category › Name — "Combos" in place of the stored category for a combo */}
       <div className="flex items-center space-x-2 text-xs text-slate-400">
         <button onClick={() => onNavigate('home')} className="hover:text-navy">Home</button>
         <span>›</span>
-        <button
-          onClick={() => onNavigate('shop', { category: product.categoryName.toLowerCase().replace(/\s+/g, '-') })}
-          className="hover:text-navy"
-        >
-          {product.categoryName}
+        <button onClick={goToCrumb} className="hover:text-navy">
+          {crumbLabel}
         </button>
         <span>›</span>
         <span className="text-slate-800 font-semibold truncate">{product.name}</span>
@@ -205,7 +212,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             <div className="flex items-center space-x-2 text-xs font-bold text-orange uppercase tracking-wider mb-1">
               <span>{product.brandName || 'AADHI CRACKERS'}</span>
               <span>•</span>
-              <span>{product.categoryName}</span>
+              <span>{isCombo ? 'COMBO' : product.categoryName}</span>
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black text-navy leading-snug">

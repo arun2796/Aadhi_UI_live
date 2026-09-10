@@ -12,7 +12,11 @@ export interface DeliveryZone {
   allCities: boolean;
   cities: string[];
   minOrder: number;
-  packingChargesPercent: number;
+  /* NOTE: DeliveryZones.Config used to be read for a per-zone packing percentage.
+     It never was the store's packing rate — the server bills packing from the
+     SystemSettings key Order.PackingChargePercent — so a zone value silently
+     resolved to 0 and the checkout total came out ~19.5% short of the order.
+     The billed packing amount now comes only from POST /cart/calculate. */
 }
 
 export interface StorefrontSettings {
@@ -46,6 +50,10 @@ export interface StorefrontSettings {
   accountNumber: string;
   /** Payment.IfscCode */
   ifscCode: string;
+  /** Order.PackingChargePercent — LABEL ONLY (e.g. "Packing Charges (1.5%)").
+   *  The billed amount and the payable total always come from POST /cart/calculate;
+   *  this key never takes part in any arithmetic on the client. 0 when absent. */
+  packingChargePercent: number;
   /** True once the settings request has resolved (successfully or not). */
   isLoaded: boolean;
 }
@@ -68,6 +76,7 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
   accountName: '',
   accountNumber: '',
   ifscCode: '',
+  packingChargePercent: 0,
   isLoaded: false
 };
 
@@ -82,8 +91,7 @@ const parseDeliveryZones = (raw?: string): DeliveryZone[] => {
         state: String(z?.state ?? '').trim(),
         allCities: z?.allCities !== false && String(z?.allCities ?? 'true').toLowerCase() !== 'false',
         cities: Array.isArray(z?.cities) ? z.cities.map((c: any) => String(c)).filter(Boolean) : [],
-        minOrder: Number(z?.minOrder) > 0 ? Number(z.minOrder) : 0,
-        packingChargesPercent: Number(z?.packingChargesPercent) > 0 ? Number(z.packingChargesPercent) : 0
+        minOrder: Number(z?.minOrder) > 0 ? Number(z.minOrder) : 0
       }))
       .filter((z: DeliveryZone) => z.state.length > 0);
   } catch {
@@ -122,6 +130,7 @@ const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   accountName: (values['Payment.AccountName'] || '').trim(),
   accountNumber: (values['Payment.AccountNumber'] || '').trim(),
   ifscCode: (values['Payment.IfscCode'] || '').trim(),
+  packingChargePercent: parseThreshold(values['Order.PackingChargePercent']),
   isLoaded: true
 });
 

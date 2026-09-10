@@ -514,6 +514,15 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {rateLimitLogs.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-slate-400">
+                      {isLoading
+                        ? 'Loading rate limit logs...'
+                        : 'No rate limit events recorded — no client has tripped a throttling policy.'}
+                    </td>
+                  </tr>
+                )}
                 {rateLimitLogs.map((rl) => (
                   <tr key={rl.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
@@ -556,6 +565,13 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {loginHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-slate-400">
+                      {isLoading ? 'Loading login history...' : 'No sign-in attempts recorded yet.'}
+                    </td>
+                  </tr>
+                )}
                 {loginHistory.map((lh) => (
                   <tr key={lh.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">

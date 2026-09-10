@@ -250,6 +250,15 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {expenses.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-slate-400">
+                      {isLoading
+                        ? 'Loading expenses...'
+                        : 'No operating expenses recorded yet. Use "Add Operating Expense" to post the first entry.'}
+                    </td>
+                  </tr>
+                )}
                 {expenses.map((exp) => (
                   <tr key={exp.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 font-mono font-bold text-navy">{exp.expenseNumber}</td>
@@ -290,6 +299,15 @@ export const ErpFinanceAndPnlModule: React.FC<ErpFinanceAndPnlModuleProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {receivables.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-slate-400">
+                      {isLoading
+                        ? 'Loading receivables...'
+                        : 'No outstanding receivables — every invoice is settled.'}
+                    </td>
+                  </tr>
+                )}
                 {receivables.map((rec) => (
                   <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 font-bold text-navy">{rec.customerName}</td>
