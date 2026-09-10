@@ -124,7 +124,7 @@ const OrderProofThumbnail: React.FC<OrderProofThumbnailProps> = ({ url, orderNum
         type="button"
         onClick={onClick}
         className="w-9 h-9 rounded-lg border border-purple/30 bg-purple/10 hover:bg-purple/20 flex flex-col items-center justify-center flex-shrink-0 transition cursor-zoom-in group shadow-xs"
-        title="Payment proof attached (Click to view or replace)"
+        title="Payment proof attached (Click to view)"
       >
         <span className="text-[9px] font-black text-purple tracking-tight leading-none">UPI</span>
         <Eye className="w-2.5 h-2.5 text-purple/80 mt-0.5 opacity-70 group-hover:opacity-100" />
@@ -157,15 +157,13 @@ interface OrderDetailsProofPreviewProps {
   orderNumber: string;
   customerName: string;
   onOpenViewer: () => void;
-  onUploadClick: () => void;
 }
 
 const OrderDetailsProofPreview: React.FC<OrderDetailsProofPreviewProps> = ({
   url,
   orderNumber,
   customerName,
-  onOpenViewer,
-  onUploadClick
+  onOpenViewer
 }) => {
   const [hasError, setHasError] = useState(false);
 
@@ -181,17 +179,10 @@ const OrderDetailsProofPreview: React.FC<OrderDetailsProofPreviewProps> = ({
           <span>Image Not Found on Server (404)</span>
         </div>
         <p className="text-[11px] text-amber-800/80 leading-relaxed max-w-sm mx-auto">
-          Previous ephemeral file storage was cleared during a cloud restart. You can attach or re-upload the screenshot now to permanently save it in the database.
+          Previous ephemeral file storage was cleared during a cloud restart. The customer's submitted proof cannot be
+          replaced from here - verify the payment against the UTR and your bank statement instead.
         </p>
         <div className="flex items-center justify-center gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onUploadClick}
-            className="px-3 py-1.5 rounded-lg bg-purple hover:bg-purple-dark text-white text-[11px] font-bold inline-flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Re-upload Proof</span>
-          </button>
           <button
             type="button"
             onClick={onOpenViewer}
@@ -1950,23 +1941,27 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                         <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                           Payment Proof Screenshot
                         </label>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setViewerImage({
-                              url: selectedOrder.paymentScreenshotUrl || '',
-                              title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                              subtitle: `Customer: ${selectedOrder.customerName}`,
-                              orderId: selectedOrder.id,
-                              orderNumber: selectedOrder.orderNumber,
-                              utrNumber: selectedOrder.utrNumber
-                            })
-                          }
-                          className="text-[11px] font-bold text-purple hover:text-purple-dark flex items-center gap-1 cursor-pointer"
-                        >
-                          <Upload className="w-3 h-3" />
-                          <span>{selectedOrder.paymentScreenshotUrl ? 'Replace' : 'Upload'}</span>
-                        </button>
+                        {/* Attach is offered only while no proof exists. A proof the customer
+                            already submitted is evidence and can never be replaced from here. */}
+                        {!selectedOrder.paymentScreenshotUrl && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewerImage({
+                                url: '',
+                                title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
+                                subtitle: `Customer: ${selectedOrder.customerName}`,
+                                orderId: selectedOrder.id,
+                                orderNumber: selectedOrder.orderNumber,
+                                utrNumber: selectedOrder.utrNumber
+                              })
+                            }
+                            className="text-[11px] font-bold text-purple hover:text-purple-dark flex items-center gap-1 cursor-pointer"
+                          >
+                            <Upload className="w-3 h-3" />
+                            <span>Upload</span>
+                          </button>
+                        )}
                       </div>
                       {selectedOrder.paymentScreenshotUrl ? (
                         <OrderDetailsProofPreview
@@ -1978,16 +1973,6 @@ export const ErpSalesAndOrdersModule: React.FC<ErpSalesAndOrdersModuleProps> = (
                               url: normalizeImageUrl(selectedOrder.paymentScreenshotUrl),
                               title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
                               subtitle: `Customer: ${selectedOrder.customerName} • Total: ${formatINR(computeOrderTotals(selectedOrder).overallTotal)}`,
-                              orderId: selectedOrder.id,
-                              orderNumber: selectedOrder.orderNumber,
-                              utrNumber: selectedOrder.utrNumber
-                            })
-                          }
-                          onUploadClick={() =>
-                            setViewerImage({
-                              url: selectedOrder.paymentScreenshotUrl || '',
-                              title: `Payment Proof - Order #${selectedOrder.orderNumber}`,
-                              subtitle: `Customer: ${selectedOrder.customerName}`,
                               orderId: selectedOrder.id,
                               orderNumber: selectedOrder.orderNumber,
                               utrNumber: selectedOrder.utrNumber

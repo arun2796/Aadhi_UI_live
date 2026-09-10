@@ -53,6 +53,12 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   // Normalize image URL
   const resolvedUrl = normalizeImageUrl(currentUrl);
 
+  // A submitted payment proof is the customer's evidence and must never be overwritten
+  // from the admin app. Attaching a screenshot is therefore allowed ONLY when the order
+  // carries no proof at all (e.g. the customer sent it over WhatsApp) - never as a replace.
+  const hasExistingProof = !!normalizeImageUrl(imageUrl);
+  const canUpload = !hasExistingProof && !!orderId;
+
   // Reset transform and url whenever modal opens or image changes
   useEffect(() => {
     if (isOpen) {
@@ -120,6 +126,11 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Hard guard: never overwrite an existing proof, even if a stale input event fires.
+    if (!canUpload) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setIsUploading(true);
     try {
       // Compress with canvas to ~100KB JPEG
@@ -173,14 +184,16 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 animate-fade-in">
-      {/* Hidden file input for uploading / replacing screenshot */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/jpg"
-        className="hidden"
-        onChange={handleFileSelect}
-      />
+      {/* Hidden file input - only mounted when the order has no proof yet (attach, never replace) */}
+      {canUpload && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/jpg"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+      )}
 
       {/* Backdrop */}
       <div
@@ -205,21 +218,6 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
-            {/* Upload / Replace button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/60 transition flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50 cursor-pointer"
-              title="Upload or Replace Screenshot"
-            >
-              {isUploading ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple" />
-              ) : (
-                <Upload className="w-3.5 h-3.5 text-purple" />
-              )}
-              <span className="hidden sm:inline">{isUploading ? 'Uploading...' : 'Replace Proof'}</span>
-            </button>
-
             {resolvedUrl && !hasError && (
               <>
                 <button
@@ -286,14 +284,20 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               <AlertCircle className="w-10 h-10 mx-auto text-amber-400" />
               <div className="font-bold text-slate-200">No screenshot attached</div>
               <p className="text-xs text-slate-500">The customer has not submitted an image proof for this transaction.</p>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5 shadow-md transition disabled:opacity-50 cursor-pointer mt-2"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Upload Payment Proof</span>
-              </button>
+              {canUpload && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5 shadow-md transition disabled:opacity-50 cursor-pointer mt-2"
+                >
+                  {isUploading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isUploading ? 'Uploading & Saving...' : 'Upload Payment Proof'}</span>
+                </button>
+              )}
             </div>
           ) : hasError ? (
             <div className="text-center p-8 max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl space-y-3">
@@ -301,7 +305,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               <div>
                 <h4 className="font-bold text-slate-200 text-sm">Image File Not Found on Server (404)</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  The original screenshot was stored on ephemeral cloud storage that was cleared during a server restart. You can attach or re-upload the payment screenshot now to permanently save it in the database.
+                  The original screenshot was stored on ephemeral cloud storage that was cleared during a server restart. The submitted proof cannot be replaced from here - verify the payment against the UTR and your bank statement instead.
                 </p>
               </div>
 
@@ -317,18 +321,6 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               </div>
 
               <div className="flex flex-wrap justify-center gap-2 pt-2">
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="px-4 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold inline-flex items-center space-x-1.5 shadow-md shadow-purple/20 transition disabled:opacity-50 cursor-pointer"
-                >
-                  {isUploading ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isUploading ? 'Uploading & Saving...' : 'Re-upload / Replace Screenshot'}</span>
-                </button>
                 <button
                   onClick={() => setHasError(false)}
                   className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold cursor-pointer"
