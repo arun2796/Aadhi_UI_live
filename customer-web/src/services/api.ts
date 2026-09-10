@@ -13,6 +13,10 @@ const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://loca
 
 const API_ORIGIN = API_BASE_URL.replace(/\/api.*$/i, '');
 
+/** `PaymentMethod.UPI` in the API enum — the only method a storefront order is
+ *  ever created with (see createOrder). */
+const UPI_PAYMENT_METHOD = 2;
+
 /** Converts Google Drive share links into direct-image URLs usable in <img> tags,
  *  and resolves server-hosted /storage/... paths to absolute API origin.
  *  Any other URL passes through unchanged. */
@@ -487,10 +491,16 @@ export const api = {
   },
 
   // LIVE ORDER CREATION & TRACKING
+  //
+  // Every storefront order is paid up front by UPI / bank transfer and evidenced by
+  // a UTR the store verifies — there is no cash at delivery, because the goods go by
+  // lorry and the customer pays the freight to the transport company on collection.
+  // So the payment method is not a choice the caller makes: it is always UPI (2 in
+  // the API's PaymentMethod enum), and POST /orders rejects COD outright. Historical
+  // COD orders keep their own value and still display everywhere they always did.
   async createOrder(payload: {
     shippingAddress: Address;
     items: Array<{ product: Product; quantity: number }>;
-    paymentMethod: string | number;
     couponCode?: string;
     notes?: string;
     utrNumber?: string;
@@ -518,7 +528,7 @@ export const api = {
         postalCode: (payload.shippingAddress.postalCode || '').trim(),
         country: payload.shippingAddress.country || 'India'
       },
-      paymentMethod: typeof payload.paymentMethod === 'number' ? payload.paymentMethod : (payload.paymentMethod === 'COD' ? 1 : 2),
+      paymentMethod: UPI_PAYMENT_METHOD,
       couponCode: payload.couponCode,
       notes: payload.notes,
       deliveryMethod: payload.deliveryMethod || 'transport',

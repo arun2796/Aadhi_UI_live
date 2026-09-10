@@ -22,7 +22,11 @@ const SOCIAL_LINKS = [
   { icon: Youtube, label: 'YouTube' }
 ];
 
-const PAYMENT_BADGES = ['VISA', 'Mastercard', 'UPI', 'RuPay', 'COD'];
+/* Only what the store actually accepts. Orders are paid by UPI or bank transfer
+   before dispatch — there is no card gateway and no cash at delivery (goods travel
+   by lorry and the customer settles freight with the transport company on
+   collection), so no card network or COD badge belongs here. */
+const PAYMENT_BADGES = ['UPI', 'Bank Transfer'];
 
 export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) => {
   const { footerMessage, storeName, storeTagline, storeEmail, storePhone, storeAddress } = useSettings();

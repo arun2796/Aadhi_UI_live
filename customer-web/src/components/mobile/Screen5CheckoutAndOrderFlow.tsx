@@ -16,7 +16,6 @@ import {
   Plus,
   Home,
   Briefcase,
-  Banknote,
   Package,
   PackageCheck,
   Headphones,
@@ -399,8 +398,11 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
     [deliveryOption]
   );
 
-  /* ── Payment state ── */
-  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'COD'>('UPI');
+  /* ── Payment state ──
+     There is one way to pay: UPI / bank transfer before dispatch, evidenced by a
+     UTR the store verifies. Nothing is collected at delivery — the order travels
+     by lorry and the customer settles freight with the transport company when
+     collecting it — so there is no payment method to choose between. */
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
@@ -478,15 +480,14 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
       setErrorMessage('Your cart is empty.');
       return;
     }
-    if (paymentMethod === 'UPI') {
-      if (!utrNumber.trim()) {
-        setErrorMessage('Please enter the 12-digit UPI UTR / Transaction Reference ID');
-        return;
-      }
-      if (!screenshotPreview) {
-        setErrorMessage('Please attach the Payment Screenshot from GPay / PhonePe / Paytm');
-        return;
-      }
+    // The order is paid before it is placed, so the proof is not optional.
+    if (!utrNumber.trim()) {
+      setErrorMessage('Please enter the 12-digit UPI UTR / Transaction Reference ID');
+      return;
+    }
+    if (!screenshotPreview) {
+      setErrorMessage('Please attach the Payment Screenshot from GPay / PhonePe / Paytm');
+      return;
     }
     if (minOrderShortfall && zone) {
       setErrorMessage(`Minimum order for ${selectedAddress.state} is ${inr(zone.minOrder)}`);
@@ -538,15 +539,11 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
           },
           quantity: i.quantity
         })),
-        paymentMethod,
         couponCode: couponCode || undefined,
         deliveryMethod: deliveryMethodCode,
-        utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
-        paymentScreenshotBase64: paymentMethod === 'UPI' ? (screenshotPreview || undefined) : undefined,
-        notes:
-          (paymentMethod === 'UPI'
-            ? `UPI Payment Proof Uploaded. UTR: ${utrNumber.trim()}`
-            : 'Cash on Delivery order.') + transportNote
+        utrNumber: utrNumber.trim(),
+        paymentScreenshotBase64: screenshotPreview || undefined,
+        notes: `UPI Payment Proof Uploaded. UTR: ${utrNumber.trim()}` + transportNote
       });
 
       // The created order's own grandTotal is definitive; the verified quote is
@@ -584,8 +581,8 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
         packingCharges: Number.isFinite(serverPacking) && serverPacking > 0 ? serverPacking : undefined,
         packingChargePercent:
           Number.isFinite(serverPackingPercent) && serverPackingPercent > 0 ? serverPackingPercent : undefined,
-        paymentMethod,
-        utrNumber: paymentMethod === 'UPI' ? utrNumber.trim() : undefined,
+        paymentMethod: 'UPI',
+        utrNumber: utrNumber.trim(),
         isGuest: !user
       });
     } catch (err: any) {
@@ -1003,7 +1000,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
       {/* ═══════════ STEP 3: PAYMENT & PLACE ORDER ═══════════ */}
       {step === 3 && (
         <div className="px-4 space-y-3 animate-fade-in">
-          <h3 className="font-black text-sm text-navy">Select Payment Method</h3>
+          <h3 className="font-black text-sm text-navy">Payment</h3>
 
           {/* Order Total summary bar */}
           <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between text-xs">
@@ -1031,190 +1028,165 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             </div>
           </div>
 
-          {/* UPI / QR option */}
-          <button
-            onClick={() => setPaymentMethod('UPI')}
-            className={`w-full flex items-center justify-between p-3.5 rounded-2xl bg-white border text-left transition-all shadow-xs ${
-              paymentMethod === 'UPI' ? 'border-purple ring-1 ring-purple/30' : 'border-slate-200'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <div
-                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                  paymentMethod === 'UPI' ? 'border-purple' : 'border-slate-300'
-                }`}
-              >
-                {paymentMethod === 'UPI' && <div className="w-2 h-2 rounded-full bg-purple" />}
+          {/* UPI / bank transfer — the one way this store is paid. The order is paid
+              before it is placed and the UTR below is the proof the store verifies;
+              nothing is ever collected at delivery. */}
+          <div className="flex items-start space-x-2 px-1">
+            <QrCode className="w-4 h-4 text-purple flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+              Pay by UPI (GPay, PhonePe, Paytm, BHIM) or bank transfer, then submit the UTR below so
+              the store can verify it.
+            </p>
+          </div>
+
+          {/* Pay, then submit the proof: QR + UTR + screenshot */}
+          <div className="space-y-3">
+            {/* The encoded am= is the server's grandTotal, never a client sum.
+                With no verified quote NO QR is rendered: a QR carrying the wrong
+                amount is the worst form of this bug. */}
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card text-center space-y-3">
+              <div className="flex items-center justify-center space-x-1.5 text-xs font-bold text-navy">
+                <QrCode className="w-4 h-4 text-purple" />
+                <span>Scan & Pay via any UPI App</span>
               </div>
-              <QrCode className="w-4 h-4 text-purple" />
-              <div>
-                <div className="text-xs font-bold text-navy">UPI / QR</div>
-                <div className="text-[10px] text-slate-400">GPay • PhonePe • Paytm • BHIM</div>
-              </div>
-            </div>
-          </button>
 
-          {/* UPI details: QR + UTR + screenshot proof */}
-          {paymentMethod === 'UPI' && (
-            <div className="space-y-3 animate-fade-in">
-              {/* The encoded am= is the server's grandTotal, never a client sum.
-                  With no verified quote NO QR is rendered: a QR carrying the wrong
-                  amount is the worst form of this bug. */}
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card text-center space-y-3">
-                <div className="flex items-center justify-center space-x-1.5 text-xs font-bold text-navy">
-                  <QrCode className="w-4 h-4 text-purple" />
-                  <span>Scan & Pay via any UPI App</span>
-                </div>
-
-                {quote ? (
-                  <>
-                    <div className="w-44 h-44 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${officialUpiId}%26pn=AADHI%20CRACKERS%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
-                        alt="Aadhi Crackers UPI QR Code"
-                        className="w-36 h-36 object-contain rounded-lg"
-                      />
-                      <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
-                        GPay • PhonePe • Paytm • BHIM
-                      </div>
+              {quote ? (
+                <>
+                  <div className="w-44 h-44 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${officialUpiId}%26pn=AADHI%20CRACKERS%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
+                      alt="Aadhi Crackers UPI QR Code"
+                      className="w-36 h-36 object-contain rounded-lg"
+                    />
+                    <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
+                      GPay • PhonePe • Paytm • BHIM
                     </div>
-
-                    <div className="bg-purple/5 border border-purple/15 rounded-xl p-2.5 space-y-1 text-xs">
-                      <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                        Amount to Transfer
-                      </div>
-                      <div className="text-lg font-black text-navy">{inrExact(quote.grandTotal)}</div>
-                      <div className="flex items-center justify-center space-x-2 pt-1">
-                        <span className="font-mono text-purple font-bold text-xs">{officialUpiId}</span>
-                        <button
-                          onClick={handleCopyUpi}
-                          className="p-1 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] flex items-center space-x-1"
-                          title="Copy UPI ID"
-                        >
-                          <Copy className="w-3 h-3" />
-                          <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : quoteStatus === 'loading' ? (
-                  <div className="w-44 h-44 mx-auto rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center space-y-2 px-4">
-                    <Clock className="w-5 h-5 text-purple animate-spin" />
-                    <span className="text-[10px] font-semibold text-slate-500 text-center leading-relaxed">
-                      Confirming the exact amount before showing the QR code...
-                    </span>
                   </div>
-                ) : (
-                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 space-y-2 text-left">
-                    <div className="flex items-start space-x-1.5 text-amber-800">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                      <span className="text-[11px] font-semibold leading-relaxed">
-                        {quoteProblem
-                          ? QUOTE_PROBLEM_MESSAGE[quoteProblem]
-                          : 'The payable amount is not available yet.'}{' '}
-                        No QR code is shown until the amount is confirmed, so that you never pay the
-                        wrong figure.
-                      </span>
+
+                  <div className="bg-purple/5 border border-purple/15 rounded-xl p-2.5 space-y-1 text-xs">
+                    <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
+                      Amount to Transfer
                     </div>
-                    <button
-                      onClick={retryQuote}
-                      className="w-full py-2 rounded-lg bg-amber-600 text-white text-[11px] font-bold"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Bank transfer alternative to the QR (hidden until the store configures it) */}
-              <BankTransferDetailsCard compact />
-
-              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card space-y-3">
-                <h4 className="text-xs font-bold text-navy flex items-center space-x-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Submit Payment Proof</span>
-                </h4>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700">
-                    12-Digit UPI UTR / Ref No. <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 423456789012"
-                    maxLength={20}
-                    value={utrNumber}
-                    onChange={(e) => setUtrNumber(e.target.value.replace(/[^0-9a-zA-Z]/g, ''))}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-mono font-bold focus:ring-2 focus:ring-purple/20 focus:border-purple outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700">
-                    Upload Payment Screenshot <span className="text-rose-500">*</span>
-                  </label>
-
-                  {screenshotPreview ? (
-                    <div className="relative rounded-xl border border-emerald-300 bg-emerald-50/50 p-2 flex items-center space-x-3">
-                      <img
-                        src={screenshotPreview}
-                        alt="Payment Proof Preview"
-                        className="w-14 h-14 rounded-lg object-cover border border-emerald-200"
-                      />
-                      <div className="flex-1 min-w-0 text-left">
-                        <div className="text-xs font-bold text-emerald-800 truncate">
-                          {screenshotFileName || 'Payment_Proof.jpg'}
-                        </div>
-                        <div className="text-[10px] text-emerald-600 font-medium flex items-center space-x-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Screenshot attached</span>
-                        </div>
-                      </div>
+                    <div className="text-lg font-black text-navy">{inrExact(quote.grandTotal)}</div>
+                    <div className="flex items-center justify-center space-x-2 pt-1">
+                      <span className="font-mono text-purple font-bold text-xs">{officialUpiId}</span>
                       <button
-                        onClick={() => {
-                          setScreenshotPreview(null);
-                          setScreenshotFileName('');
-                        }}
-                        className="text-slate-400 hover:text-rose-600 p-1 text-xs font-bold"
+                        onClick={handleCopyUpi}
+                        className="p-1 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] flex items-center space-x-1"
+                        title="Copy UPI ID"
                       >
-                        Change
+                        <Copy className="w-3 h-3" />
+                        <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
                       </button>
                     </div>
-                  ) : (
-                    <label className="border-2 border-dashed border-purple/30 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer hover:bg-purple/5 transition-colors text-center">
-                      <Upload className="w-6 h-6 text-purple mb-1" />
-                      <span className="text-xs font-bold text-purple">Click to Upload Payment Screenshot</span>
-                      <span className="text-[10px] text-slate-400 mt-0.5">JPG, PNG, WebP up to 5MB</span>
-                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                    </label>
-                  )}
+                  </div>
+                </>
+              ) : quoteStatus === 'loading' ? (
+                <div className="w-44 h-44 mx-auto rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center space-y-2 px-4">
+                  <Clock className="w-5 h-5 text-purple animate-spin" />
+                  <span className="text-[10px] font-semibold text-slate-500 text-center leading-relaxed">
+                    Confirming the exact amount before showing the QR code...
+                  </span>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 space-y-2 text-left">
+                  <div className="flex items-start space-x-1.5 text-amber-800">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span className="text-[11px] font-semibold leading-relaxed">
+                      {quoteProblem
+                        ? QUOTE_PROBLEM_MESSAGE[quoteProblem]
+                        : 'The payable amount is not available yet.'}{' '}
+                      No QR code is shown until the amount is confirmed, so that you never pay the
+                      wrong figure.
+                    </span>
+                  </div>
+                  <button
+                    onClick={retryQuote}
+                    className="w-full py-2 rounded-lg bg-amber-600 text-white text-[11px] font-bold"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
             </div>
-          )}
 
-          {/* Cash on Delivery option */}
-          <button
-            onClick={() => setPaymentMethod('COD')}
-            className={`w-full flex items-center justify-between p-3.5 rounded-2xl bg-white border text-left transition-all shadow-xs ${
-              paymentMethod === 'COD' ? 'border-purple ring-1 ring-purple/30' : 'border-slate-200'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <div
-                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                  paymentMethod === 'COD' ? 'border-purple' : 'border-slate-300'
-                }`}
-              >
-                {paymentMethod === 'COD' && <div className="w-2 h-2 rounded-full bg-purple" />}
+            {/* Bank transfer alternative to the QR (hidden until the store configures it) */}
+            <BankTransferDetailsCard compact />
+
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card space-y-3">
+              <h4 className="text-xs font-bold text-navy flex items-center space-x-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Submit Payment Proof</span>
+              </h4>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">
+                  12-Digit UPI UTR / Ref No. <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 423456789012"
+                  maxLength={20}
+                  value={utrNumber}
+                  onChange={(e) => setUtrNumber(e.target.value.replace(/[^0-9a-zA-Z]/g, ''))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-mono font-bold focus:ring-2 focus:ring-purple/20 focus:border-purple outline-none"
+                />
               </div>
-              <Banknote className="w-4 h-4 text-emerald-600" />
-              <div>
-                <div className="text-xs font-bold text-navy">Cash on Delivery</div>
-                <div className="text-[10px] text-slate-400">Pay cash when order arrives</div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-700">
+                  Upload Payment Screenshot <span className="text-rose-500">*</span>
+                </label>
+
+                {screenshotPreview ? (
+                  <div className="relative rounded-xl border border-emerald-300 bg-emerald-50/50 p-2 flex items-center space-x-3">
+                    <img
+                      src={screenshotPreview}
+                      alt="Payment Proof Preview"
+                      className="w-14 h-14 rounded-lg object-cover border border-emerald-200"
+                    />
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="text-xs font-bold text-emerald-800 truncate">
+                        {screenshotFileName || 'Payment_Proof.jpg'}
+                      </div>
+                      <div className="text-[10px] text-emerald-600 font-medium flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>Screenshot attached</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setScreenshotPreview(null);
+                        setScreenshotFileName('');
+                      }}
+                      className="text-slate-400 hover:text-rose-600 p-1 text-xs font-bold"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <label className="border-2 border-dashed border-purple/30 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer hover:bg-purple/5 transition-colors text-center">
+                    <Upload className="w-6 h-6 text-purple mb-1" />
+                    <span className="text-xs font-bold text-purple">Click to Upload Payment Screenshot</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">JPG, PNG, WebP up to 5MB</span>
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                  </label>
+                )}
               </div>
             </div>
-          </button>
+          </div>
+
+          {/* Freight, not payment: the parcel travels by lorry and the customer settles
+              the transport company's charge on collection. Saying so here is what
+              replaces the cash-on-delivery option this store never ran. */}
+          <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-2">
+            <Truck className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+            <p className="text-[10px] text-amber-800 leading-relaxed">
+              Your order is dispatched only after this payment is verified. Lorry freight is
+              <strong> not</strong> part of the amount above — you pay it directly to the transport
+              company when you collect the parcel from their office.
+            </p>
+          </div>
 
           {errorBanner}
 
