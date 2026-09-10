@@ -33,6 +33,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : 0;
 
+  // A combo's whole pitch is the bundle price, so the same orange discount slot
+  // spells the saving out in rupees instead of just a percentage.
+  const comboSaving =
+    showComboChip && product.compareAtPrice && product.compareAtPrice > product.price
+      ? Math.round(product.compareAtPrice - product.price)
+      : 0;
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isOutOfStock) return;
@@ -121,8 +128,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
                 ₹{product.compareAtPrice.toLocaleString('en-IN')}
               </span>
             )}
-            {discountPct > 0 && (
-              <span className="text-xs font-bold text-orange">{discountPct}% OFF</span>
+            {(discountPct > 0 || comboSaving > 0) && (
+              <span className="text-xs font-bold text-orange">
+                {comboSaving > 0
+                  ? `Save ₹${comboSaving.toLocaleString('en-IN')}${discountPct > 0 ? ` (${discountPct}% OFF)` : ''}`
+                  : `${discountPct}% OFF`}
+              </span>
             )}
           </div>
 

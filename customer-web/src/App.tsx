@@ -59,7 +59,8 @@ import { ScreenWishlist } from './components/mobile/ScreenWishlist';
 import { ScreenAddresses } from './components/mobile/ScreenAddresses';
 
 const MOBILE_TITLES: Record<string, string | undefined> = {
-  category: 'Gift Boxes',
+  category: 'Products',
+  shop: 'Combos',
   'product-detail': 'Product Detail',
   cart: 'My Cart',
   checkout: 'Checkout',
@@ -197,7 +198,8 @@ function CustomerAppRoot() {
 
             {(effectivePage === 'category' || effectivePage === 'shop') && (
               <Screen2Category
-                categorySlug={effectiveParams?.category || 'gift-boxes'}
+                categorySlug={effectiveParams?.category}
+                view={effectiveParams?.view}
                 filters={effectiveParams?.filters}
                 onNavigate={navigate}
                 onOpenFilter={() => setIsFilterOpen(true)}
@@ -375,7 +377,9 @@ function CustomerAppRoot() {
           <MobileFiltersModal
             isOpen={isFilterOpen}
             onClose={() => setIsFilterOpen(false)}
-            onApplyFilters={(filters) => navigate('category', { ...pageParams, filters })}
+            onApplyFilters={(filters) =>
+              navigate(currentPage === 'shop' ? 'shop' : 'category', { ...pageParams, filters })
+            }
           />
 
           <MobileNotificationsModal
@@ -398,6 +402,7 @@ function CustomerAppRoot() {
             {effectivePage === 'shop' && (
               <ShopPage
                 onNavigate={navigate}
+                initialView={effectiveParams?.view}
                 initialCategory={effectiveParams?.category}
                 initialSearch={effectiveParams?.search}
                 initialSortBy={effectiveParams?.sortBy}
@@ -407,7 +412,8 @@ function CustomerAppRoot() {
             {effectivePage === 'category' && (
               <ShopPage
                 onNavigate={navigate}
-                initialCategory={effectiveParams?.category || 'gift-boxes'}
+                initialView={effectiveParams?.view}
+                initialCategory={effectiveParams?.category}
               />
             )}
 

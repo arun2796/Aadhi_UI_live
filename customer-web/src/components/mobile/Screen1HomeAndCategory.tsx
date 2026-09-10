@@ -56,6 +56,24 @@ const ComboChip: React.FC<{ product: Product }> = ({ product }) => {
   );
 };
 
+/* ── Combos view (shared by the mobile home section and the listing screen) ── */
+
+const COMBOS_TITLE = 'Combo Packs & Gift Boxes';
+const COMBOS_SUBTITLE = 'Everything you need in one bundle — at one price.';
+
+/** Legacy category slugs the old (dead) nav links used — routed to the combos
+ *  view so saved links still land somewhere real. */
+const COMBO_VIEW_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes']);
+
+const wantsCombosView = (view?: string, category?: string): boolean =>
+  view === 'combos' || COMBO_VIEW_SLUGS.has((category || '').trim().toLowerCase());
+
+/** ₹ saved on a combo versus its struck MRP — 0 when there is nothing to shout about. */
+const comboSaving = (p: Product): number =>
+  p.isCombo === true && p.compareAtPrice && p.compareAtPrice > p.price
+    ? Math.round(p.compareAtPrice - p.price)
+    : 0;
+
 const prettifySlug = (slug: string) => {
   if (!slug) return 'Products';
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(slug)) {
@@ -79,10 +97,21 @@ interface Screen1HomeProps {
 export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSearch }) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [combos, setCombos] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
 
   useEffect(() => {
     let live = true;
+
+    // Real combos only — the section below renders nothing when this is empty.
+    api
+      .getCombos()
+      .then((list) => {
+        if (live) setCombos(list);
+      })
+      .catch(() => {
+        if (live) setCombos([]);
+      });
 
     api
       .getCategories()
@@ -333,6 +362,76 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
           </div>
         )}
       </div>
+
+      {/* 6. Combo Packs & Gift Boxes — real combos only; hidden entirely when empty */}
+      {combos.length > 0 && (
+        <div className="space-y-3">
+          <div className="px-4 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-black text-navy">{COMBOS_TITLE}</h3>
+              <p className="text-[10px] text-slate-500 font-medium leading-snug">{COMBOS_SUBTITLE}</p>
+            </div>
+            <button
+              onClick={() => onNavigate('shop', { view: 'combos' })}
+              className="text-[11px] font-bold text-purple flex items-center gap-0.5 active:opacity-70 flex-shrink-0 pt-0.5"
+            >
+              View All <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 px-4">
+            {combos.slice(0, 6).map((p) => {
+              const off = pctOff(p);
+              const saving = comboSaving(p);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => onNavigate('product-detail', { slug: p.slug })}
+                  className="w-full bg-white rounded-2xl border border-slate-100 shadow-card p-2.5 text-left active:scale-[0.98] transition-transform flex flex-col justify-between"
+                >
+                  <div className="w-full">
+                    <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 mb-2">
+                      <img
+                        src={productImage(p)}
+                        alt={p.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      {off > 0 && (
+                        <span className="absolute top-1.5 left-1.5 bg-orange text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs">
+                          {off}% OFF
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[30px] mb-1">
+                      {p.name}
+                    </h4>
+
+                    <ComboChip product={p} />
+                  </div>
+
+                  <div className="w-full mt-1">
+                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                      <span className="font-black text-[13px] text-navy">{inr(p.price ?? 0)}</span>
+                      {(p.compareAtPrice ?? 0) > p.price && p.compareAtPrice && (
+                        <span className="text-[10px] text-slate-400 line-through">
+                          {inr(p.compareAtPrice)}
+                        </span>
+                      )}
+                    </div>
+                    {saving > 0 && (
+                      <div className="text-[9.5px] font-black text-orange mt-0.5">
+                        Save {inr(saving)}{off > 0 ? ` (${off}% OFF)` : ''}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -351,6 +450,8 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 interface Screen2CategoryProps {
   categorySlug?: string;
+  /** `view: 'combos'` switches the listing over to api.getCombos(). */
+  view?: string;
   /** Applied filters from MobileFiltersModal: { maxPrice, categories, brands, minRating? } */
   filters?: { maxPrice: number; categories: string[]; brands: string[]; minRating?: number };
   onNavigate: (page: string, params?: any) => void;
@@ -359,7 +460,8 @@ interface Screen2CategoryProps {
 }
 
 export const Screen2Category: React.FC<Screen2CategoryProps> = ({
-  categorySlug = 'gift-boxes',
+  categorySlug = '',
+  view,
   filters,
   onNavigate,
   onOpenFilter,
@@ -374,14 +476,25 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
   const [sortBy, setSortBy] = useState<SortKey>('popularity');
   const [sortSheetOpen, setSortSheetOpen] = useState(false);
 
+  const combosView = wantsCombosView(view, categorySlug);
+
+  /** Where "Clear filters" goes back to — the combos view keeps its own param. */
+  const clearFilters = () =>
+    combosView ? onNavigate('shop', { view: 'combos' }) : onNavigate('category', { category: categorySlug });
+
   useEffect(() => {
     let live = true;
     setLoading(true);
-    Promise.all([api.getCategories().catch(() => [] as Category[]), api.getProducts().catch(() => [] as Product[])])
+    Promise.all([
+      api.getCategories().catch(() => [] as Category[]),
+      combosView
+        ? api.getCombos().catch(() => [] as Product[])
+        : api.getProducts().catch(() => [] as Product[])
+    ])
       .then(([cats, prods]) => {
         if (!live) return;
-        setCategories(cats);
-        setProducts(prods);
+        setCategories(cats as Category[]);
+        setProducts(prods as Product[]);
       })
       .finally(() => {
         if (live) setLoading(false);
@@ -389,9 +502,10 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     return () => {
       live = false;
     };
-  }, [categorySlug]);
+  }, [categorySlug, combosView]);
 
   const categoryName = useMemo(() => {
+    if (combosView) return COMBOS_TITLE;
     if (categorySlug === 'best-sellers') return 'Best Sellers';
     const found = categories.find((c) => c.slug === categorySlug || c.id === categorySlug);
     if (found) return found.name;
@@ -408,14 +522,16 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     );
     if (prodMatch?.categoryName) return prodMatch.categoryName;
     return prettifySlug(categorySlug);
-  }, [categories, categorySlug, products]);
+  }, [categories, categorySlug, products, combosView]);
 
   /* Client-side filtering (categorySlug + filters prop) and sorting */
   const visible = useMemo(() => {
     let list = [...products];
 
     const selectedCats = filters?.categories ?? [];
-    if (selectedCats.length > 0) {
+    if (combosView) {
+      // Already the combos list — no category narrowing on top of it.
+    } else if (selectedCats.length > 0) {
       const set = new Set(selectedCats.map((n) => n.toLowerCase()));
       list = list.filter((p) => set.has((p.categoryName || '').toLowerCase()));
     } else if (categorySlug === 'best-sellers') {
@@ -453,10 +569,10 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       );
     }
     return list;
-  }, [products, filters, categorySlug, sortBy]);
+  }, [products, filters, categorySlug, sortBy, combosView]);
 
   const activeFilterCount =
-    (filters?.categories?.length ? 1 : 0) +
+    (combosView ? 0 : filters?.categories?.length ? 1 : 0) +
     (filters?.brands?.length ? 1 : 0) +
     (filters?.maxPrice && filters.maxPrice < 100000 ? 1 : 0) +
     (filters?.minRating ? 1 : 0);
@@ -479,6 +595,11 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
             ({visible.length} Products)
           </span>
         </div>
+        {combosView && (
+          <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-snug">
+            {COMBOS_SUBTITLE}
+          </p>
+        )}
         <div className="text-[10px] text-slate-400 font-medium mt-0.5">
           Home &gt; <span className="text-slate-600 font-semibold">{categoryName}</span>
         </div>
@@ -514,7 +635,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       {/* Active filter chips */}
       {activeFilterCount > 0 && (
         <div className="px-4 mt-2.5 flex items-center gap-1.5 flex-wrap">
-          {(filters?.categories ?? []).map((c) => (
+          {(combosView ? [] : filters?.categories ?? []).map((c) => (
             <span key={c} className="px-2 py-0.5 rounded-full bg-orange/10 text-orange text-[9px] font-bold">
               {c}
             </span>
@@ -535,7 +656,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
             </span>
           ) : null}
           <button
-            onClick={() => onNavigate('category', { category: categorySlug })}
+            onClick={clearFilters}
             className="px-2 py-0.5 rounded-full bg-slate-800 text-white text-[9px] font-bold flex items-center gap-0.5 active:opacity-80"
           >
             <X className="w-2.5 h-2.5" /> Clear
@@ -557,21 +678,40 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
         </div>
       ) : visible.length === 0 ? (
         <div className="px-4 mt-6">
-          <div className="p-8 rounded-2xl bg-white border border-slate-100 text-center space-y-3">
-            <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 flex items-center justify-center">
-              <Search className="w-6 h-6 text-slate-400" />
+          {combosView ? (
+            <div className="p-8 rounded-2xl bg-white border border-slate-100 text-center space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-full bg-purple-soft flex items-center justify-center">
+                <Gift className="w-6 h-6 text-purple" />
+              </div>
+              <div className="text-sm font-bold text-navy">No combo packs available right now</div>
+              <p className="text-[11px] text-slate-500">
+                Our combo packs and gift boxes are being put together. New bundles show
+                up here as soon as they go live.
+              </p>
+              <button
+                onClick={() => onNavigate('category-menu')}
+                className="px-5 py-2 rounded-xl bg-orange text-white text-[11px] font-bold shadow-glow active:scale-95 transition-transform"
+              >
+                Browse All Products
+              </button>
             </div>
-            <div className="text-sm font-bold text-navy">No products found</div>
-            <p className="text-[11px] text-slate-500">
-              No products match the selected filters. Try widening your filters.
-            </p>
-            <button
-              onClick={() => onNavigate('category', { category: categorySlug })}
-              className="px-5 py-2 rounded-xl bg-orange text-white text-[11px] font-bold shadow-glow active:scale-95 transition-transform"
-            >
-              Clear Filters
-            </button>
-          </div>
+          ) : (
+            <div className="p-8 rounded-2xl bg-white border border-slate-100 text-center space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 flex items-center justify-center">
+                <Search className="w-6 h-6 text-slate-400" />
+              </div>
+              <div className="text-sm font-bold text-navy">No products found</div>
+              <p className="text-[11px] text-slate-500">
+                No products match the selected filters. Try widening your filters.
+              </p>
+              <button
+                onClick={clearFilters}
+                className="px-5 py-2 rounded-xl bg-orange text-white text-[11px] font-bold shadow-glow active:scale-95 transition-transform"
+              >
+                Clear Filters
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-4 mt-3 grid grid-cols-2 gap-3">
@@ -627,7 +767,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
                   )}
                   {off > 0 && (
                     <span className="text-[8px] font-black text-white bg-orange px-1.5 py-0.5 rounded">
-                      {off}% OFF
+                      {comboSaving(p) > 0 ? `Save ${inr(comboSaving(p))} · ${off}% OFF` : `${off}% OFF`}
                     </span>
                   )}
                 </div>

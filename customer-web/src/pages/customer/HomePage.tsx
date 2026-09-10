@@ -52,6 +52,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [combos, setCombos] = useState<Product[]>([]);
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([LOGO_HERO_SLIDE]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
@@ -67,6 +68,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         api.getFeaturedProducts().then(setBestSellers);
       }
     });
+    // Real combos only — the section renders nothing at all when this is empty.
+    api.getCombos().then(setCombos);
 
     // Hero slides come from admin-managed banners; single logo slide when none exist.
     api.getBanners('Home').then((banners) => {
@@ -314,6 +317,36 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
+      {/* 4b. Combo Packs & Gift Boxes — real combos only; hidden entirely when empty */}
+      {combos.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-black text-navy">Combo Packs &amp; Gift Boxes</h2>
+              <p className="text-xs text-slate-500">Everything you need in one bundle — at one price.</p>
+            </div>
+            <button
+              onClick={() => onNavigate('shop', { view: 'combos' })}
+              className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
+            >
+              <span>View All</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {combos.slice(0, 8).map((combo) => (
+              <ProductCard
+                key={combo.id}
+                product={combo}
+                onNavigate={onNavigate}
+                onQuickView={setQuickViewProduct}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* 5. Special Festival Offers Banner — storefront-controlled (Website.HeaderPromoText) */}
       {headerPromoText && (
         <section className="max-w-7xl mx-auto px-4">
@@ -356,7 +389,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               <h2 className="text-2xl font-black text-navy">Exclusive Gift Boxes</h2>
             </div>
             <button
-              onClick={() => onNavigate('shop', { category: 'gift-boxes' })}
+              onClick={() => onNavigate('shop', { view: 'combos' })}
               className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
             >
               <span>View All Boxes</span>

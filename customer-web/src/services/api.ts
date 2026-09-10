@@ -63,6 +63,54 @@ const mapComboFields = (p: any): Partial<Product> => {
   };
 };
 
+/** Single ProductDto → Product mapper. EVERY product-returning endpoint funnels
+ *  through here, so image URLs and combo fields are normalized identically no
+ *  matter which list a product arrived in (grid, detail, featured, combos …). */
+const mapProductDto = (p: any): Product => ({
+  id: p.id,
+  sku: p.sku,
+  name: p.name,
+  slug: p.slug,
+  description: p.description,
+  shortDescription: p.shortDescription,
+  categoryId: p.categoryId,
+  categoryName: p.categoryName || 'Crackers',
+  brandId: p.brandId,
+  brandName: p.brandName,
+  price: p.price,
+  compareAtPrice: p.compareAtPrice,
+  costPrice: p.costPrice,
+  taxRate: p.taxRate,
+  discountType: p.discountType || 'None',
+  discountValue: p.discountValue || 0,
+  discountPercentage: p.discountPercentage,
+  stockQuantity: p.stockQuantity,
+  availableQuantity: p.availableQuantity,
+  reorderLevel: p.reorderLevel,
+  unit: p.unit || 'Box',
+  weightKg: p.weightKg || 0.5,
+  isActive: p.isActive,
+  isFeatured: p.isFeatured,
+  isBestSeller: p.isBestSeller,
+  isNewArrival: p.isNewArrival,
+  primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
+  images: (p.images || []).map((img: any) =>
+    typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
+  ),
+  safetyInformation: p.safetyInformation,
+  minOrderQuantity: p.minOrderQuantity,
+  maxOrderQuantity: p.maxOrderQuantity,
+  rating: p.rating,
+  reviewCount: p.reviewCount,
+  ...mapComboFields(p)
+});
+
+/** Accepts either a bare array or a `{ items: [] }` page and maps both. */
+const mapProductList = (raw: any): Product[] => {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+  return list.filter((p: any) => p && p.id).map((p: any) => mapProductDto(p));
+};
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -202,39 +250,7 @@ export const api = {
       }
       const res = await apiClient.get('/products', { params: queryParams });
       if (res.data?.data?.items) {
-        return res.data.data.items.map((p: any) => ({
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          slug: p.slug,
-          description: p.description,
-          shortDescription: p.shortDescription,
-          categoryId: p.categoryId,
-          categoryName: p.categoryName || 'Crackers',
-          brandId: p.brandId,
-          brandName: p.brandName,
-          price: p.price,
-          compareAtPrice: p.compareAtPrice,
-          costPrice: p.costPrice,
-          taxRate: p.taxRate,
-          discountType: p.discountType || 'None',
-          discountValue: p.discountValue || 0,
-          discountPercentage: p.discountPercentage,
-          stockQuantity: p.stockQuantity,
-          availableQuantity: p.availableQuantity,
-          reorderLevel: p.reorderLevel,
-          unit: p.unit || 'Box',
-          weightKg: p.weightKg || 0.5,
-          isActive: p.isActive,
-          isFeatured: p.isFeatured,
-          isBestSeller: p.isBestSeller,
-          isNewArrival: p.isNewArrival,
-          primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
-          images: (p.images || []).map((img: any) =>
-            typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
-          ),
-          ...mapComboFields(p)
-        }));
+        return mapProductList(res.data.data.items);
       }
       return [];
     } catch (error) {
@@ -247,40 +263,7 @@ export const api = {
     try {
       const res = await apiClient.get(`/products/${slug}`);
       if (res.data?.data) {
-        const p = res.data.data;
-        return {
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          slug: p.slug,
-          description: p.description,
-          shortDescription: p.shortDescription,
-          categoryId: p.categoryId,
-          categoryName: p.categoryName,
-          brandId: p.brandId,
-          brandName: p.brandName,
-          price: p.price,
-          compareAtPrice: p.compareAtPrice,
-          costPrice: p.costPrice,
-          taxRate: p.taxRate,
-          discountType: p.discountType,
-          discountValue: p.discountValue,
-          discountPercentage: p.discountPercentage,
-          stockQuantity: p.stockQuantity,
-          availableQuantity: p.availableQuantity,
-          reorderLevel: p.reorderLevel,
-          unit: p.unit,
-          weightKg: p.weightKg,
-          isActive: p.isActive,
-          isFeatured: p.isFeatured,
-          isBestSeller: p.isBestSeller,
-          isNewArrival: p.isNewArrival,
-          primaryImageUrl: normalizeImageUrl(p.primaryImageUrl),
-          images: (p.images || []).map((img: any) =>
-            typeof img === 'string' ? normalizeImageUrl(img) : { ...img, url: normalizeImageUrl(img?.url) }
-          ),
-          ...mapComboFields(p)
-        };
+        return mapProductDto(res.data.data);
       }
       return null;
     } catch (error) {
@@ -292,7 +275,7 @@ export const api = {
   async getFeaturedProducts(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/featured');
-      return res.data?.data || [];
+      return mapProductList(res.data?.data);
     } catch {
       return [];
     }
@@ -301,7 +284,7 @@ export const api = {
   async getBestSellers(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/best-sellers');
-      return res.data?.data || [];
+      return mapProductList(res.data?.data);
     } catch {
       return [];
     }
@@ -310,7 +293,7 @@ export const api = {
   async getNewArrivals(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/new-arrivals');
-      return res.data?.data || [];
+      return mapProductList(res.data?.data);
     } catch {
       return [];
     }
@@ -319,7 +302,7 @@ export const api = {
   async getGiftBoxes(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/gift-boxes');
-      return res.data?.data || [];
+      return mapProductList(res.data?.data);
     } catch {
       return [];
     }
@@ -328,7 +311,28 @@ export const api = {
   async getComboOffers(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/combo-offers');
-      return res.data?.data || [];
+      return mapProductList(res.data?.data);
+    } catch {
+      return [];
+    }
+  },
+
+  /** The storefront's single source of combos / gift boxes.
+   *  GET /products/combo-offers also matches loose legacy rows (name contains
+   *  "combo", DiscountValue > 20), so the response is narrowed to products the
+   *  API actually flagged `isCombo` and de-duplicated by id. Returns [] on any
+   *  failure — every combo surface collapses to nothing rather than faking data. */
+  async getCombos(): Promise<Product[]> {
+    try {
+      const res = await apiClient.get('/products/combo-offers', { params: { count: 50 } });
+      const seen = new Set<string>();
+      return mapProductList(res.data?.data).filter((p) => {
+        if (p.isCombo !== true) return false;
+        const key = String(p.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     } catch {
       return [];
     }

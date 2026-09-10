@@ -11,7 +11,8 @@ import {
   LayoutDashboard,
   Menu,
   X,
-  ChevronDown
+  ChevronDown,
+  Gift
 } from 'lucide-react';
 import { Category } from '../../types';
 import { api } from '../../services/api';
@@ -246,16 +247,11 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
             </div>
 
             <button
-              onClick={() => onNavigate('shop', { category: 'gift-boxes' })}
-              className={`px-3 py-2.5 font-medium hover:text-gold transition-colors ${currentPage === 'gift-boxes' ? 'text-gold font-bold' : ''}`}
+              onClick={() => onNavigate('shop', { view: 'combos' })}
+              className="px-3 py-2.5 font-medium hover:text-gold transition-colors flex items-center space-x-1.5"
             >
-              Gift Boxes
-            </button>
-            <button
-              onClick={() => onNavigate('shop', { category: 'combo-offers' })}
-              className={`px-3 py-2.5 font-medium hover:text-gold transition-colors ${currentPage === 'combo-offers' ? 'text-gold font-bold' : ''}`}
-            >
-              Combo Offers
+              <Gift className="w-3.5 h-3.5 text-gold" />
+              <span>Combos</span>
             </button>
             <button
               onClick={() => onNavigate('shop', { sortBy: 'new' })}
@@ -305,16 +301,11 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               Home
             </button>
             <button
-              onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop', { category: 'gift-boxes' }); }}
-              className="block w-full text-left py-2 font-medium border-b border-navy-border/40"
+              onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop', { view: 'combos' }); }}
+              className="w-full text-left py-2 font-medium border-b border-navy-border/40 flex items-center space-x-2"
             >
-              Gift Boxes
-            </button>
-            <button
-              onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop', { category: 'combo-offers' }); }}
-              className="block w-full text-left py-2 font-medium border-b border-navy-border/40"
-            >
-              Combo Offers
+              <Gift className="w-4 h-4 text-gold" />
+              <span>Combos</span>
             </button>
             <button
               onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop'); }}

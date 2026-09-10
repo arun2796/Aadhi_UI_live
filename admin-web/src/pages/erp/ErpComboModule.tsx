@@ -95,6 +95,52 @@ const RequiredMark = () => <span className="text-red-500"> *</span>;
 /** A combo is a product with contents — tolerate list DTOs that only send the count. */
 const isComboProduct = (p: Product) => Boolean(p.isCombo) || (p.comboItemCount ?? 0) > 0;
 
+/** Slugs that already mean "the combo bucket", most preferred first. */
+const COMBO_CATEGORY_SLUGS = ['combos', 'combo-offers', 'gift-boxes'];
+/** Last-resort match on the category name when none of the known slugs exist. */
+const COMBO_CATEGORY_NAME_PATTERN = /gift\s*box|combo|hamper/i;
+/** Payload used the first time a combo is saved on a store that has no combo category yet. */
+const COMBO_CATEGORY_SEED = {
+  name: 'Combos',
+  slug: 'combos',
+  description: 'Combo packs and gift boxes bundled from catalogue products.',
+  displayOrder: 1,
+  isActive: true
+};
+/** How many product names the auto-written description spells out before "and N more". */
+const DESCRIPTION_ITEM_LIMIT = 3;
+
+/**
+ * Picks the category every combo is silently filed under: an exact `combos` slug, then the other
+ * known combo slugs, then anything whose name reads like a gift box / combo / hamper.
+ */
+const findComboCategory = (list: Category[]): Category | undefined => {
+  for (const slug of COMBO_CATEGORY_SLUGS) {
+    const bySlug = list.find((c) => (c.slug || '').trim().toLowerCase() === slug);
+    if (bySlug) return bySlug;
+  }
+  return list.find((c) => COMBO_CATEGORY_NAME_PATTERN.test(c.name || ''));
+};
+
+/**
+ * Description is optional on this screen, but the API's validator is NotEmpty — so when the admin
+ * leaves it blank we write one from the contents, e.g.
+ * "Combo pack containing Sparkler 10cm ×2, Flower Pot ×1 and 2 more."
+ */
+const buildComboDescription = (comboName: string, rows: ComboRow[]): string => {
+  if (rows.length === 0) return `Combo pack: ${comboName.trim() || 'gift box'}.`;
+  const listed = rows
+    .slice(0, DESCRIPTION_ITEM_LIMIT)
+    .map((r) => `${r.productName} ×${Math.max(1, Math.round(Number(r.quantity) || 1))}`);
+  const remaining = rows.length - listed.length;
+  const parts = remaining > 0 ? [...listed, `${remaining} more`] : listed;
+  const sentence =
+    parts.length === 1
+      ? parts[0]
+      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `Combo pack containing ${sentence}.`;
+};
+
 // ===========================================================================
 // LIST VIEW
 // ===========================================================================
@@ -417,7 +463,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
 
   const nameRef = useRef<HTMLInputElement>(null);
   const skuRef = useRef<HTMLInputElement>(null);
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
 
   // ---- Combo contents ----------------------------------------------------
@@ -431,8 +476,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
   const pickerInputRef = useRef<HTMLInputElement>(null);
   const pickerListRef = useRef<HTMLUListElement>(null);
   const pickerListboxId = 'combo-module-picker-listbox';
-
-  const topCategories = useMemo(() => categories.filter((c) => !c.parentCategoryId), [categories]);
 
   // ---- Data loading ------------------------------------------------------
 
@@ -487,9 +530,11 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
             }))
           );
         } else {
-          // Default a brand-new combo into a "Gift Boxes" / "Combo" category when one exists.
-          const preferred = flat.find((c) => /gift\s*box|combo|hamper/i.test(c.name || ''));
-          if (preferred) setCategoryId(preferred.id);
+          // Category is deliberately not on this form — the owner asked for no category on combos,
+          // but the API still requires a CategoryId, so a new combo is filed silently under the
+          // combo category (created on first save when the store has none). Do not re-add the field.
+          const resolved = findComboCategory(flat);
+          if (resolved) setCategoryId(resolved.id);
         }
       } catch (error) {
         showToast(getServerErrorMessage(error, 'Failed to load the combo form'), 'error');
@@ -690,6 +735,29 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
 
   // ---- Save --------------------------------------------------------------
 
+  /**
+   * Resolves the hidden combo category, creating it once if the store has none. A duplicate-slug
+   * 400 (another admin/tab got there first) is recovered by re-reading the category list.
+   */
+  const ensureComboCategory = async (): Promise<Category | undefined> => {
+    const existing = findComboCategory(categories);
+    if (existing) return existing;
+
+    try {
+      const created = await api.createCategory({ ...COMBO_CATEGORY_SEED });
+      if (created?.id) {
+        setCategories((prev) => [...prev, created]);
+        return created;
+      }
+    } catch {
+      // Falls through to the re-fetch below — the API answers a duplicate slug with a plain 400.
+    }
+
+    const refreshed = flattenCategories(await api.getCategories(true));
+    setCategories(refreshed);
+    return findComboCategory(refreshed);
+  };
+
   const handleSave = async () => {
     if (!name.trim()) {
       showToast('Combo Name is required', 'warning');
@@ -699,15 +767,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
     if (!sku.trim()) {
       showToast('SKU is required', 'warning');
       skuRef.current?.focus();
-      return;
-    }
-    if (!categoryId) {
-      showToast('Please select a Category for this combo', 'warning');
-      return;
-    }
-    if (!description.trim()) {
-      showToast('Description is required', 'warning');
-      descriptionRef.current?.focus();
       return;
     }
     if (comboRows.length === 0) {
@@ -723,12 +782,9 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
       return;
     }
 
-    const category = categories.find((c) => c.id === categoryId);
-
     // The API persists images from `imageUrls: string[]` (first url = primary).
     const orderedImageUrls = imageUrl.trim() ? [imageUrl.trim()] : [];
 
-   
     const comboItemsPayload: ComboItemInput[] = comboRows.map((r) => ({
       componentProductId: r.componentProductId,
       quantity: Math.max(1, Math.round(Number(r.quantity) || 1))
@@ -736,13 +792,39 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
 
     const base = stripReadOnlyComboFields(baseProduct || {});
 
+    setIsSaving(true);
+
+    // An existing combo keeps whatever category it already has; only a new one (or a combo whose
+    // category never resolved) gets the hidden combo category resolved/created for it here.
+    let effectiveCategoryId = categoryId;
+    let effectiveCategoryName = categories.find((c) => c.id === categoryId)?.name || base.categoryName;
+    if (!effectiveCategoryId) {
+      try {
+        const comboCategory = await ensureComboCategory();
+        if (!comboCategory?.id) {
+          showToast('Could not prepare the Combos category. Please try saving again.', 'error');
+          setIsSaving(false);
+          return;
+        }
+        effectiveCategoryId = comboCategory.id;
+        effectiveCategoryName = comboCategory.name;
+        // Cached so a second save reuses it instead of creating a duplicate category.
+        setCategoryId(comboCategory.id);
+      } catch (error) {
+        showToast(getServerErrorMessage(error, 'Could not prepare the Combos category'), 'error');
+        setIsSaving(false);
+        return;
+      }
+    }
+
     const payload: ProductWritePayload = {
       ...base,
       name: name.trim(),
       sku: sku.trim().toUpperCase(),
-      description: description.trim(),
-      categoryId,
-      categoryName: category?.name || base.categoryName,
+      // Blank is allowed on this screen; the server's NotEmpty rule is met by an auto-written one.
+      description: description.trim() || buildComboDescription(name, comboRows),
+      categoryId: effectiveCategoryId,
+      categoryName: effectiveCategoryName,
       // Manual selling price; the server never writes price / compareAtPrice itself.
       price: sellingPrice,
       compareAtPrice: struckPrice > 0 ? struckPrice : undefined,
@@ -768,7 +850,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
       comboItems: comboItemsPayload
     };
 
-    setIsSaving(true);
     try {
       if (isEdit && comboId) {
         await productApi.updateProduct(comboId, payload);
@@ -874,49 +955,26 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
                 </div>
               </div>
 
-              {/* Category */}
+              {/* Description (optional — written from the contents when left blank) */}
               <div>
-                <label className="font-bold text-navy" htmlFor="combo-category">
-                  Category
-                  <RequiredMark />
-                </label>
-                <select
-                  id="combo-category"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className={inputCls}
+                <label
+                  className="font-bold text-navy flex items-center justify-between"
+                  htmlFor="combo-description"
                 >
-                  <option value="">Select Category</option>
-                  {topCategories.map((parent) => (
-                    <React.Fragment key={parent.id}>
-                      <option value={parent.id}>{parent.name}</option>
-                      {categories
-                        .filter((c) => c.parentCategoryId === parent.id)
-                        .map((sub) => (
-                          <option key={sub.id} value={sub.id}>
-                            {`  — ${sub.name}`}
-                          </option>
-                        ))}
-                    </React.Fragment>
-                  ))}
-                </select>
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="font-bold text-navy" htmlFor="combo-description">
-                  Description
-                  <RequiredMark />
+                  <span>Description</span>
+                  <span className="text-[10px] font-semibold text-slate-400">Optional</span>
                 </label>
                 <textarea
                   id="combo-description"
-                  ref={descriptionRef}
-                  rows={4}
+                  rows={5}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Describe what's inside this gift box, who it's for and any safety guidelines..."
                   className={inputCls}
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Leave this blank and we'll write one from the combo contents for you.
+                </p>
               </div>
 
               {/* ---- Combo Contents ---- */}

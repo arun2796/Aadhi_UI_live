@@ -1,15 +1,27 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Filter, X, Sparkles, Star } from 'lucide-react';
+import { Filter, X, Sparkles, Star, Gift } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { api } from '../../services/api';
 import { ProductCard } from '../../components/customer/ProductCard';
 
 interface ShopPageProps {
   onNavigate: (page: string, params?: any) => void;
+  /** `view: 'combos'` switches the whole listing over to api.getCombos(). */
+  initialView?: string;
   initialCategory?: string;
   initialSearch?: string;
   initialSortBy?: string;
 }
+
+/** Legacy category slugs the old (dead) nav links used. They are not real
+ *  categories, so they route to the combos view instead of an empty page. */
+const COMBO_VIEW_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes']);
+
+const wantsCombosView = (view?: string, category?: string): boolean =>
+  view === 'combos' || COMBO_VIEW_SLUGS.has((category || '').trim().toLowerCase());
+
+const COMBOS_TITLE = 'Combo Packs & Gift Boxes';
+const COMBOS_SUBTITLE = 'Everything you need in one bundle — at one price.';
 
 const SORT_OPTIONS = [
   { value: 'popular', label: 'Popularity' },
@@ -23,6 +35,7 @@ const PRICE_MAX = 5000;
 
 export const ShopPage: React.FC<ShopPageProps> = ({
   onNavigate,
+  initialView,
   initialCategory,
   initialSearch,
   initialSortBy = 'popular'
@@ -30,8 +43,15 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   const [baseProducts, setBaseProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
 
+  // Combos view: the listing is fed by api.getCombos() instead of the category query.
+  const [combosView, setCombosView] = useState<boolean>(() => wantsCombosView(initialView, initialCategory));
+  const [combos, setCombos] = useState<Product[]>([]);
+  const [combosLoaded, setCombosLoaded] = useState<boolean>(false);
+
   // Filter states
-  const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory || 'all');
+  const [selectedCategory, setSelectedCategory] = useState<string>(
+    wantsCombosView(initialView, initialCategory) ? 'all' : initialCategory || 'all'
+  );
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
   const [maxPrice, setMaxPrice] = useState<number>(PRICE_MAX);
   const [minRating, setMinRating] = useState<number | null>(null);
@@ -46,17 +66,35 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   }, []);
 
   useEffect(() => {
-    if (initialCategory) setSelectedCategory(initialCategory);
-  }, [initialCategory]);
+    const wantCombos = wantsCombosView(initialView, initialCategory);
+    setCombosView(wantCombos);
+    if (wantCombos) setSelectedCategory('all');
+    else if (initialCategory) setSelectedCategory(initialCategory);
+  }, [initialView, initialCategory]);
 
   useEffect(() => {
     if (initialSearch !== undefined) setSearchQuery(initialSearch);
   }, [initialSearch]);
 
+  // Combos come straight from the (filtered) combo endpoint — never from the
+  // category query, which has no combos/gift-boxes category to point at.
+  useEffect(() => {
+    if (!combosView) return;
+    let live = true;
+    setCombosLoaded(false);
+    api.getCombos().then((list) => {
+      if (!live) return;
+      setCombos(list);
+      setCombosLoaded(true);
+    });
+    return () => { live = false; };
+  }, [combosView]);
+
   // Fetch products for the current category / search scope.
   // Price, brand, rating and stock filters are applied client-side so
   // sidebar counts stay live.
   useEffect(() => {
+    if (combosView) return;
     const params: Record<string, any> = { pageSize: 100 };
     if (selectedCategory && selectedCategory !== 'all') {
       params.categorySlug = selectedCategory.toLowerCase().replace(/\s+/g, '-');
@@ -65,19 +103,25 @@ export const ShopPage: React.FC<ShopPageProps> = ({
       params.search = searchQuery.trim();
     }
     api.getProducts(params).then(setBaseProducts);
-  }, [selectedCategory, searchQuery]);
+  }, [combosView, selectedCategory, searchQuery]);
 
   const brandKeyOf = (p: Product) => p.brandName?.trim() || 'Others';
 
+  // The listing source: combos endpoint in combos view, category query otherwise.
+  const sourceProducts = combosView ? combos : baseProducts;
+
   // Everything except the brand filter — used for live brand counts.
   const preBrandFiltered = useMemo(() => {
-    return baseProducts.filter(p => {
+    const term = combosView ? searchQuery.trim().toLowerCase() : '';
+    return sourceProducts.filter(p => {
       if (maxPrice < PRICE_MAX && p.price > maxPrice) return false;
       if (minRating !== null && (p.rating ?? 0) < minRating) return false;
       if (inStockOnly && p.availableQuantity <= 0) return false;
+      // The combos endpoint takes no search term, so match it client-side.
+      if (term && !`${p.name} ${p.sku}`.toLowerCase().includes(term)) return false;
       return true;
     });
-  }, [baseProducts, maxPrice, minRating, inStockOnly]);
+  }, [sourceProducts, combosView, searchQuery, maxPrice, minRating, inStockOnly]);
 
   // Brand list with live counts, derived from products.
   const brandOptions = useMemo(() => {
@@ -133,11 +177,19 @@ export const ShopPage: React.FC<ShopPageProps> = ({
     setSortBy('popular');
   };
 
+  /** Picking a category leaves the combos view and goes back to the normal query. */
+  const selectCategory = (slug: string) => {
+    setCombosView(false);
+    setSelectedCategory(slug);
+  };
+
   const activeCategory = categories.find(
     c => c.slug === selectedCategory || c.id === selectedCategory ||
       (c.slug || c.name.toLowerCase().replace(/\s+/g, '-')) === selectedCategory
   );
-  const pageTitle = selectedCategory === 'all'
+  const pageTitle = combosView
+    ? COMBOS_TITLE
+    : selectedCategory === 'all'
     ? 'All Products'
     : activeCategory?.name || selectedCategory.replace(/-/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
 
@@ -147,8 +199,8 @@ export const ShopPage: React.FC<ShopPageProps> = ({
       <div className="flex items-center space-x-2 text-xs text-slate-400 mb-4">
         <button onClick={() => onNavigate('home')} className="hover:text-navy">Home</button>
         <span>›</span>
-        <span className={selectedCategory === 'all' ? 'text-slate-700 font-semibold' : ''}>Shop</span>
-        {selectedCategory !== 'all' && (
+        <span className={selectedCategory === 'all' && !combosView ? 'text-slate-700 font-semibold' : ''}>Shop</span>
+        {(combosView || selectedCategory !== 'all') && (
           <>
             <span>›</span>
             <span className="text-slate-700 font-semibold capitalize">{pageTitle}</span>
@@ -178,20 +230,31 @@ export const ShopPage: React.FC<ShopPageProps> = ({
             <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider mb-3">Categories</h4>
             <div className="space-y-1.5">
               <button
-                onClick={() => setSelectedCategory('all')}
+                onClick={() => selectCategory('all')}
                 className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
-                  selectedCategory === 'all' ? 'bg-purple text-white font-bold' : 'text-slate-600 hover:bg-purple-soft hover:text-purple'
+                  selectedCategory === 'all' && !combosView ? 'bg-purple text-white font-bold' : 'text-slate-600 hover:bg-purple-soft hover:text-purple'
                 }`}
               >
                 <span>All Categories</span>
               </button>
+              <button
+                onClick={() => { setCombosView(true); setSelectedCategory('all'); }}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
+                  combosView ? 'bg-purple text-white font-bold' : 'text-slate-600 hover:bg-purple-soft hover:text-purple'
+                }`}
+              >
+                <span className="flex items-center space-x-1.5">
+                  <Gift className="w-3.5 h-3.5" />
+                  <span>Combos &amp; Gift Boxes</span>
+                </span>
+              </button>
               {categories.map((c) => {
                 const slug = c.slug || c.name.toLowerCase().replace(/\s+/g, '-');
-                const isSelected = selectedCategory === slug || selectedCategory === c.id;
+                const isSelected = !combosView && (selectedCategory === slug || selectedCategory === c.id);
                 return (
                   <button
                     key={c.id}
-                    onClick={() => setSelectedCategory(slug)}
+                    onClick={() => selectCategory(slug)}
                     className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
                       isSelected ? 'bg-purple text-white font-bold' : 'text-slate-600 hover:bg-purple-soft hover:text-purple'
                     }`}
@@ -297,10 +360,15 @@ export const ShopPage: React.FC<ShopPageProps> = ({
         <div className="md:col-span-3 space-y-6">
           {/* Title + Sort Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <h1 className="text-xl sm:text-2xl font-black text-navy capitalize">
-              {pageTitle}{' '}
-              <span className="text-sm font-bold text-slate-400">({products.length} Products)</span>
-            </h1>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-navy capitalize">
+                {pageTitle}{' '}
+                <span className="text-sm font-bold text-slate-400">({products.length} Products)</span>
+              </h1>
+              {combosView && (
+                <p className="text-xs text-slate-500 mt-1">{COMBOS_SUBTITLE}</p>
+              )}
+            </div>
 
             {/* Sort Dropdown */}
             <div className="flex items-center space-x-2">
@@ -332,7 +400,35 @@ export const ShopPage: React.FC<ShopPageProps> = ({
           )}
 
           {/* Products Grid */}
-          {products.length === 0 ? (
+          {combosView && !combosLoaded ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-5">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="rounded-2xl bg-white border border-slate-100 p-4">
+                  <div className="aspect-square rounded-xl bg-slate-100 animate-pulse mb-3" />
+                  <div className="h-3 rounded bg-slate-100 animate-pulse mb-2" />
+                  <div className="h-3 w-2/3 rounded bg-slate-100 animate-pulse" />
+                </div>
+              ))}
+            </div>
+          ) : products.length === 0 ? (
+            combosView ? (
+              <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-purple-soft flex items-center justify-center text-purple mx-auto">
+                  <Gift className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-bold text-navy">No combo packs available right now</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Our combo packs and gift boxes are being put together. Browse the full
+                  collection meanwhile — new bundles land here as soon as they go live.
+                </p>
+                <button
+                  onClick={() => { setCombosView(false); resetFilters(); }}
+                  className="px-5 py-2.5 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold"
+                >
+                  Browse All Products
+                </button>
+              </div>
+            ) : (
             <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center space-y-4">
               <div className="w-16 h-16 rounded-full bg-purple-soft flex items-center justify-center text-purple mx-auto">
                 <Sparkles className="w-8 h-8" />
@@ -348,6 +444,7 @@ export const ShopPage: React.FC<ShopPageProps> = ({
                 Clear All Filters
               </button>
             </div>
+            )
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-5">
               {products.map((product) => (

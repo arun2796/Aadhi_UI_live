@@ -3,7 +3,6 @@ import {
   X,
   Home,
   Grid,
-  Package,
   Gift,
   Truck,
   Info,
@@ -35,8 +34,7 @@ export const MobileSideDrawer: React.FC<MobileSideDrawerProps> = ({
   const menuItems = [
     { id: 'home', label: 'Home', icon: Home, page: 'home' },
     { id: 'categories', label: 'Categories', icon: Grid, page: 'category-menu' },
-    { id: 'combo-offers', label: 'Combo Offers', icon: Package, page: 'category', params: { category: 'combo-offers' } },
-    { id: 'gift-boxes', label: 'Gift Boxes', icon: Gift, page: 'category', params: { category: 'gift-boxes' } },
+    { id: 'combos', label: 'Combos', icon: Gift, page: 'shop', params: { view: 'combos' } },
     { id: 'bulk-orders', label: 'Bulk Orders', icon: Truck, page: 'contact' },
     { id: 'about', label: 'About Us', icon: Info, page: 'about' },
     { id: 'track-order', label: 'Track Order', icon: MapPin, page: 'track-order' },
