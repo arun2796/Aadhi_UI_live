@@ -32,6 +32,7 @@ import {
   GuestCheckoutNotice,
   InvoiceActions,
   OrderNumberKeepsake,
+  OrderUpdates,
   PaymentProofUpdateCard,
   RecentDeviceOrders,
   triggerFireworksConfetti,
@@ -1644,6 +1645,16 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
             trackingNumber={trackingNumber}
             carrierPhone={carrierPhone}
             carrierAddress={carrierAddress}
+            compact
+          />
+
+          {/* This order's updates, read anonymously by order number. A guest has
+              no account and no bell, so this is how they learn what has happened
+              — above all which transport office to collect from. The shipment
+              card is suppressed when the order above already shows it. */}
+          <OrderUpdates
+            orderNumber={order.orderNumber || activeOrderNumber}
+            showCarrierDetails={!carrierName && !trackingNumber}
             compact
           />
 

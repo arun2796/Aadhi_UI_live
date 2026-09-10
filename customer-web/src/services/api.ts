@@ -212,6 +212,134 @@ export interface CartQuote {
   grandTotal: number;
 }
 
+/* ── Order notifications ─────────────────────────────────────────────
+   The shop tells the customer what is happening to their order out of OUR OWN
+   database — no third-party SMS / WhatsApp / e-mail provider is in the loop. The
+   row that matters most is `OrderDispatched`: it carries the transport company,
+   the LR / waybill number and the transport office phone + address, which is how
+   the customer knows where to collect the goods from.
+
+   `type` stays a plain string so an unknown value from a newer API build still
+   renders as its own title / message instead of breaking the list. The four
+   carrier fields are populated on `OrderDispatched` (and repeated on an
+   `OrderStatusChanged` → Shipped row); phone and address are null on orders
+   dispatched before the API recorded them. Every optional string is trimmed to
+   `undefined` by the mapper below, so a caller renders a row only when it
+   actually has a value — never an empty line or a stray dash. */
+export type NotificationType =
+  | 'OrderPlaced'
+  | 'PaymentVerified'
+  | 'PaymentRejected'
+  | 'OrderStatusChanged'
+  | 'OrderDispatched';
+
+export interface AppNotification {
+  id: string;
+  /** One of NotificationType — left open so an unrecognised value still shows. */
+  type: string;
+  title: string;
+  message: string;
+  orderId?: string;
+  orderNumber?: string;
+  isRead: boolean;
+  createdAtUtc?: string;
+  readAtUtc?: string;
+  orderStatus?: string;
+  carrierName?: string;
+  trackingNumber?: string;
+  carrierPhone?: string;
+  carrierAddress?: string;
+  /** Flat string map the API may attach, or undefined. */
+  data?: Record<string, string>;
+}
+
+export interface NotificationPage {
+  items: AppNotification[];
+  pageNumber: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+  unreadCount: number;
+}
+
+/** Answer of POST /notifications/{id}/read and /notifications/read-all. Both
+ *  carry the NEW unread count, so the bell badge never needs a refetch. */
+export interface NotificationReadResult {
+  markedCount: number;
+  unreadCount: number;
+}
+
+const emptyNotificationPage = (pageSize = 20): NotificationPage => ({
+  items: [],
+  pageNumber: 1,
+  pageSize,
+  totalCount: 0,
+  totalPages: 0,
+  hasPreviousPage: false,
+  hasNextPage: false,
+  unreadCount: 0
+});
+
+/** Trimmed text, or undefined when the API sent null / '' / whitespace. */
+const optionalText = (value: any): string | undefined => {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text.length > 0 ? text : undefined;
+};
+
+const mapNotificationData = (raw: any): Record<string, string> | undefined => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const map: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (value !== null && value !== undefined) map[key] = String(value);
+  }
+  return Object.keys(map).length > 0 ? map : undefined;
+};
+
+/** Single NotificationDto → AppNotification. EVERY notification-returning
+ *  endpoint funnels through here, so the signed-in feed and the anonymous
+ *  per-order feed are normalized identically. */
+const mapNotificationDto = (n: any): AppNotification => ({
+  id: String(n?.id ?? ''),
+  type: String(n?.type ?? '').trim(),
+  title: String(n?.title ?? '').trim(),
+  message: String(n?.message ?? '').trim(),
+  orderId: optionalText(n?.orderId),
+  orderNumber: optionalText(n?.orderNumber),
+  isRead: n?.isRead === true,
+  createdAtUtc: optionalText(n?.createdAtUtc),
+  readAtUtc: optionalText(n?.readAtUtc),
+  orderStatus: optionalText(n?.orderStatus),
+  carrierName: optionalText(n?.carrierName),
+  trackingNumber: optionalText(n?.trackingNumber),
+  carrierPhone: optionalText(n?.carrierPhone),
+  carrierAddress: optionalText(n?.carrierAddress),
+  data: mapNotificationData(n?.data)
+});
+
+/** Accepts either a bare array or a `{ items: [] }` page and maps both. A row
+ *  carrying neither a title nor a message would render as an empty line, so it
+ *  is dropped rather than shown. */
+const mapNotificationList = (raw: any): AppNotification[] => {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : [];
+  return list
+    .filter((n: any) => n && n.id)
+    .map((n: any) => mapNotificationDto(n))
+    .filter((n: AppNotification) => n.title.length > 0 || n.message.length > 0);
+};
+
+const mapNotificationReadResult = (raw: any): NotificationReadResult | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const unreadCount = Number(raw.unreadCount);
+  if (!Number.isFinite(unreadCount)) return null;
+  return {
+    markedCount: Number(raw.markedCount) || 0,
+    unreadCount: Math.max(0, unreadCount)
+  };
+};
+
 export const api = {
   // PUBLIC STOREFRONT SETTINGS (anonymous; tolerant to the endpoint being absent)
   async getPublicSettings(): Promise<Record<string, string>> {
@@ -677,17 +805,6 @@ export const api = {
     }
   },
 
-  // PAYMENT PROOF SUBMISSION
-  //
-  // POST /orders/{id}/payment-proof is [AllowAnonymous], but an anonymous caller
-  // MUST send the matching `orderNumber` in the body — the API compares it against
-  // the order as an IDOR guard and answers 401 when it is missing or wrong. A
-  // logged-in customer is matched on their own customer id instead and the extra
-  // field is simply ignored, so ONE code path serves guests and account holders.
-  //
-  // The server stores `PaymentScreenshotUrl ?? PaymentScreenshotBase64 ?? ScreenshotBase64`
-  // and overwrites the stored screenshot with whatever arrives — passing none clears
-  // it — so callers should always resend the image alongside the UTR.
   async submitPaymentProof(params: {
     orderId: string;
     /** Required for guests; harmless (and still sent) for logged-in customers. */
@@ -715,6 +832,77 @@ export const api = {
     try {
       const res = await apiClient.get(`/orders/${id}`);
       return res.data?.data || null;
+    } catch {
+      return null;
+    }
+  },
+
+  // NOTIFICATIONS — order updates, straight out of the store's own database.
+  //
+  // Every call here is tolerant: a failure (endpoint absent on an older API
+  // build, network down, 401 after the token expired) answers with an empty page
+  // / empty list / null, so the bell and the tracking screen show nothing at all
+  // rather than throwing into the UI.
+
+  /** The signed-in customer's feed, newest first. Paged — the caller walks the
+   *  pages with `hasNextPage` instead of asking for everything at once. */
+  async getNotifications(page: number = 1, pageSize: number = 20): Promise<NotificationPage> {
+    try {
+      const res = await apiClient.get('/notifications', { params: { page, pageSize } });
+      const d = res.data?.data;
+      if (!d) return emptyNotificationPage(pageSize);
+      const items = mapNotificationList(d.items);
+      const pageNumber = Number(d.pageNumber) || page;
+      const totalPages = Number(d.totalPages) || (items.length > 0 ? pageNumber : 0);
+      return {
+        items,
+        pageNumber,
+        pageSize: Number(d.pageSize) || pageSize,
+        totalCount: Number(d.totalCount) || items.length,
+        totalPages,
+        hasPreviousPage:
+          typeof d.hasPreviousPage === 'boolean' ? d.hasPreviousPage : pageNumber > 1,
+        hasNextPage:
+          typeof d.hasNextPage === 'boolean' ? d.hasNextPage : pageNumber < totalPages,
+        unreadCount: Math.max(0, Number(d.unreadCount) || 0)
+      };
+    } catch {
+      return emptyNotificationPage(pageSize);
+    }
+  },
+
+  /** ANONYMOUS — a guest has no account and so the bell can never help them.
+   *  Their order number is the only handle they have, and this is how they learn
+   *  which transport company to collect the goods from. Newest first. */
+  async getOrderNotifications(orderNumber: string): Promise<AppNotification[]> {
+    const number = (orderNumber || '').trim();
+    if (!number) return [];
+    try {
+      const res = await apiClient.get(`/notifications/order/${encodeURIComponent(number)}`);
+      return mapNotificationList(res.data?.data);
+    } catch {
+      return [];
+    }
+  },
+
+  /** Marks one notification read. Returns the server's NEW unread count, which
+   *  the badge adopts directly; null means the call did not land. */
+  async markNotificationRead(id: string): Promise<NotificationReadResult | null> {
+    const key = (id || '').trim();
+    if (!key) return null;
+    try {
+      const res = await apiClient.post(`/notifications/${encodeURIComponent(key)}/read`);
+      return mapNotificationReadResult(res.data?.data);
+    } catch {
+      return null;
+    }
+  },
+
+  /** Marks the whole feed read. Same contract as markNotificationRead. */
+  async markAllNotificationsRead(): Promise<NotificationReadResult | null> {
+    try {
+      const res = await apiClient.post('/notifications/read-all');
+      return mapNotificationReadResult(res.data?.data);
     } catch {
       return null;
     }

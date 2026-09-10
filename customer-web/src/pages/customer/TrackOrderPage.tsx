@@ -18,6 +18,7 @@ import {
   CarrierTrackingCard,
   InvoiceActions,
   OrderNumberKeepsake,
+  OrderUpdates,
   PaymentProofUpdateCard,
   RecentDeviceOrders,
   triggerFireworksConfetti,
@@ -478,6 +479,16 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
             trackingNumber={trackingNumber}
             carrierPhone={carrierPhone}
             carrierAddress={carrierAddress}
+          />
+
+          {/* ── This order's updates, read anonymously by order number ──
+              A guest has no account and no bell, so this is how they learn what
+              has happened — above all which transport office to collect from.
+              The shipment card is suppressed when the order above already shows
+              it, so the transport details are stated once, not twice. */}
+          <OrderUpdates
+            orderNumber={order.orderNumber || query.trim()}
+            showCarrierDetails={!carrierName && !trackingNumber}
           />
 
           {/* ── Delivery Address + Need Help ── */}

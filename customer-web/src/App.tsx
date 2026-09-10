@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { WishlistProvider } from './context/WishlistContext';
+import { NotificationsProvider } from './context/NotificationsContext';
 import { ToastProvider } from './context/ToastContext';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 
@@ -649,9 +650,12 @@ export default function App() {
       <AuthProvider>
         <CartProvider>
           <WishlistProvider>
-            <ToastProvider>
-              <CustomerAppRoot />
-            </ToastProvider>
+            {/* Inside AuthProvider: the feed belongs to the signed-in customer. */}
+            <NotificationsProvider>
+              <ToastProvider>
+                <CustomerAppRoot />
+              </ToastProvider>
+            </NotificationsProvider>
           </WishlistProvider>
         </CartProvider>
       </AuthProvider>

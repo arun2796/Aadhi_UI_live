@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Sparkles,
   Search,
@@ -11,15 +11,18 @@ import {
   LayoutDashboard,
   Menu,
   X,
+  Bell,
   ChevronDown,
   Gift
 } from 'lucide-react';
 import { Category } from '../../types';
-import { api } from '../../services/api';
+import { api, type AppNotification } from '../../services/api';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationsContext';
 import { useSettings } from '../../context/SettingsContext';
+import { NotificationRow, shipmentCardRowIds } from '../common/CommonComponents';
 
 interface CustomerHeaderProps {
   onNavigate: (page: string, params?: any) => void;
@@ -35,7 +38,25 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [navCategories, setNavCategories] = useState<Category[]>([]);
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
+
+  const {
+    items: notifications,
+    unreadCount,
+    isLoading: notificationsLoading,
+    isLoadingMore: notificationsLoadingMore,
+    hasMore: hasMoreNotifications,
+    hasLoaded: notificationsLoaded,
+    refresh: refreshNotifications,
+    loadMore: loadMoreNotifications,
+    markRead: markNotificationRead,
+    markAllRead: markAllNotificationsRead
+  } = useNotifications();
+
+  // The carrier + LR is repeated across rows for the same shipment; state it once.
+  const shipmentRows = useMemo(() => shipmentCardRowIds(notifications), [notifications]);
 
   useEffect(() => {
     let mounted = true;
@@ -44,6 +65,31 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
     });
     return () => { mounted = false; };
   }, []);
+
+  // Opening the panel is the moment the customer asks what happened to their
+  // order — answer with the current feed, not whatever was last fetched.
+  useEffect(() => {
+    if (isNotificationsOpen) refreshNotifications();
+  }, [isNotificationsOpen, refreshNotifications]);
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (!notificationsRef.current?.contains(event.target as Node)) setIsNotificationsOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [isNotificationsOpen]);
+
+  // Opening one notification marks it read and, when it belongs to an order,
+  // goes to that order's tracking screen (which works for everyone).
+  const handleOpenNotification = (notification: AppNotification) => {
+    if (!notification.isRead) markNotificationRead(notification.id);
+    if (notification.orderNumber) {
+      setIsNotificationsOpen(false);
+      onNavigate('track-order', { orderNumber: notification.orderNumber });
+    }
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,6 +193,78 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               )}
               <span className="hidden sm:inline">Wishlist</span>
             </button>
+
+            {/* Order updates. Only for a signed-in customer: a guest has no
+                account for this feed to answer about — they use Track Order. */}
+            {user && (
+              <div className="relative" ref={notificationsRef}>
+                <button
+                  onClick={() => setIsNotificationsOpen(open => !open)}
+                  className="flex flex-col items-center text-xs text-slate-200 hover:text-orange relative transition-colors"
+                  aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+                >
+                  <Bell
+                    className={`w-5 h-5 mb-0.5 ${unreadCount > 0 ? 'text-gold' : 'text-slate-200'}`}
+                  />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1.5 min-w-4 h-4 px-1 bg-orange text-white rounded-full text-[10px] flex items-center justify-center font-bold">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                  <span className="hidden sm:inline">Updates</span>
+                </button>
+
+                {isNotificationsOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-[22rem] max-w-[92vw] bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-100 z-50 animate-slide-in overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                      <div className="font-bold text-navy text-sm">Notifications</div>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={() => markAllNotificationsRead()}
+                          className="text-[11px] font-bold text-purple hover:text-purple-dark transition-colors"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="max-h-[26rem] overflow-y-auto p-3 space-y-2.5">
+                      {notificationsLoading && notifications.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-slate-500">
+                          Fetching your order updates...
+                        </div>
+                      ) : notifications.length === 0 ? (
+                        notificationsLoaded ? (
+                          <div className="py-6 text-center text-xs text-slate-500">
+                            No notifications yet.
+                          </div>
+                        ) : null
+                      ) : (
+                        <>
+                          {notifications.map(notification => (
+                            <NotificationRow
+                              key={notification.id}
+                              notification={notification}
+                              onOpen={handleOpenNotification}
+                              showCarrierDetails={shipmentRows.has(notification.id)}
+                            />
+                          ))}
+                          {hasMoreNotifications && (
+                            <button
+                              onClick={() => loadMoreNotifications()}
+                              disabled={notificationsLoadingMore}
+                              className="w-full py-2.5 rounded-xl border border-slate-200 text-[11px] font-bold text-purple hover:bg-slate-50 disabled:text-slate-400 transition-colors"
+                            >
+                              {notificationsLoadingMore ? 'Loading...' : 'Load more'}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <button
               onClick={() => setIsCartDrawerOpen(true)}

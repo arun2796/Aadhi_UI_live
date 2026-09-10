@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
+  BadgeCheck,
+  Bell,
   Check,
+  ChevronRight,
   Copy,
   Download,
   Landmark,
   MapPin,
+  Package,
   Phone,
   Printer,
+  RefreshCw,
   Star,
   StarHalf,
   Truck,
@@ -16,7 +22,7 @@ import {
 import confetti from 'canvas-confetti';
 import { useSettings } from '../../context/SettingsContext';
 import { useToast } from '../../context/ToastContext';
-import { api } from '../../services/api';
+import { api, type AppNotification } from '../../services/api';
 import { compressImageFile } from '../../utils/imageCompressor';
 import {
   copyText,
@@ -852,4 +858,234 @@ export const useEstimateOrder = (
     overrides?.packingCharges,
     overrides?.packingChargePercent
   ]);
+};
+
+/* ─────────────────────────────────────────────────────────────
+   Order notifications (phase 8)
+
+   The store tells the customer what is happening to their order out
+   of its own database — there is no SMS / WhatsApp / e-mail provider
+   in the loop. These two components are the whole rendering surface,
+   shared by every screen that shows notifications:
+
+     NotificationRow  — one notification, in the signed-in feed
+                        (mobile sheet, desktop header panel).
+     OrderUpdates     — one order's updates, fetched anonymously by
+                        order number, for the Track Order screens.
+                        This is a GUEST's only route to them.
+
+   An `OrderDispatched` row is the one that matters: it carries the
+   transport company, the LR / waybill number and the transport office
+   phone + address, and it renders through the SAME CarrierTrackingCard
+   the order screens use — one navy card, one `tel:` link, one copy
+   affordance, everywhere. Rows carrying no carrier data fall back to
+   their own title / message, and a missing phone or address simply
+   does not render (see CarrierTrackingCard).
+   ───────────────────────────────────────────────────────────── */
+
+/** `createdAtUtc` as "2h ago". A zone-less timestamp is read as UTC — the field
+ *  is named for it — so the age is never a whole timezone out. Falls back to a
+ *  plain date past a week, and to '' when the value is missing or unparsable. */
+const relativeTime = (value?: string): string => {
+  if (!value) return '';
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  const parsed = new Date(hasZone ? value : `${value}Z`);
+  const at = parsed.getTime();
+  if (isNaN(at)) return '';
+
+  const seconds = Math.round((Date.now() - at) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+/** Icon + tint per notification type. An unrecognised type (a newer API build)
+ *  keeps the neutral bell rather than disappearing. */
+const notificationLook = (type: string): { Icon: typeof Bell; tone: string } => {
+  switch (type) {
+    case 'OrderPlaced':
+      return { Icon: Package, tone: 'bg-purple-soft text-purple' };
+    case 'PaymentVerified':
+      return { Icon: BadgeCheck, tone: 'bg-emerald-50 text-emerald-600' };
+    case 'PaymentRejected':
+      return { Icon: AlertCircle, tone: 'bg-rose-50 text-rose-600' };
+    case 'OrderDispatched':
+      return { Icon: Truck, tone: 'bg-orange-soft text-orange' };
+    case 'OrderStatusChanged':
+      return { Icon: RefreshCw, tone: 'bg-slate-100 text-navy' };
+    default:
+      return { Icon: Bell, tone: 'bg-slate-100 text-slate-500' };
+  }
+};
+
+/** Which rows in a list should carry the shipment card. The API repeats the
+ *  carrier + LR on an `OrderStatusChanged` → Shipped row, so the same shipment
+ *  is stated ONCE per list: on the `OrderDispatched` row (the one about the
+ *  hand-over) when there is one, otherwise on the newest row carrying it. */
+export const shipmentCardRowIds = (list: AppNotification[]): Set<string> => {
+  const chosen = new Map<string, AppNotification>();
+  for (const n of list) {
+    if (!n.carrierName && !n.trackingNumber) continue;
+    const key = `${(n.carrierName || '').toLowerCase()}|${(n.trackingNumber || '').toLowerCase()}`;
+    const current = chosen.get(key);
+    // The list is newest-first, so the first row seen for a shipment is the
+    // newest one; only a dispatch row displaces it.
+    if (!current) chosen.set(key, n);
+    else if (current.type !== 'OrderDispatched' && n.type === 'OrderDispatched') chosen.set(key, n);
+  }
+  return new Set(Array.from(chosen.values()).map(n => n.id));
+};
+
+export const NotificationRow: React.FC<{
+  notification: AppNotification;
+  /** Opening the row: the caller marks it read and, when there is an order
+   *  number, navigates to /track/<orderNumber>. Omitted where there is nothing
+   *  to open — a guest is already on that order's own screen. */
+  onOpen?: (notification: AppNotification) => void;
+  /** Guests cannot mark anything read (the anonymous endpoint has no identity),
+   *  so the read / unread treatment is off for them. */
+  showReadState?: boolean;
+  /** False when the screen already shows this order's shipment card, so the
+   *  transport details are stated once rather than twice. */
+  showCarrierDetails?: boolean;
+}> = ({ notification, onOpen, showReadState = true, showCarrierDetails = true }) => {
+  const { Icon, tone } = notificationLook(notification.type);
+  const unread = showReadState && !notification.isRead;
+  const when = relativeTime(notification.createdAtUtc);
+  const hasCarrier = Boolean(notification.carrierName || notification.trackingNumber);
+
+  const summary = (
+    <>
+      <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${tone}`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        {notification.title && (
+          <div className="flex items-start gap-1.5">
+            {unread && (
+              <span className="w-2 h-2 rounded-full bg-orange mt-1.5 flex-shrink-0" aria-hidden />
+            )}
+            <div
+              className={`text-[13px] leading-snug ${
+                unread ? 'font-black text-navy' : 'font-bold text-slate-700'
+              }`}
+            >
+              {notification.title}
+            </div>
+          </div>
+        )}
+        {notification.message && (
+          <p className="text-[11px] text-slate-500 leading-relaxed mt-1">{notification.message}</p>
+        )}
+        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-1.5 text-[10px] text-slate-400">
+          {when && <span>{when}</span>}
+          {notification.orderNumber && (
+            <span className="font-mono font-semibold text-slate-500">{notification.orderNumber}</span>
+          )}
+        </div>
+      </div>
+      {onOpen && <ChevronRight className="w-4 h-4 text-slate-300 mt-1 flex-shrink-0" aria-hidden />}
+    </>
+  );
+
+  return (
+    <div
+      className={`rounded-2xl border p-3.5 space-y-3 transition-colors ${
+        unread ? 'border-purple/30 bg-purple-soft/50' : 'border-slate-200 bg-white'
+      }`}
+    >
+      {/* Only the summary is the button — the shipment card below carries its own
+          `tel:` link and copy buttons, which must not be nested inside one. */}
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={() => onOpen(notification)}
+          className="w-full text-left flex items-start gap-3"
+        >
+          {summary}
+        </button>
+      ) : (
+        <div className="flex items-start gap-3">{summary}</div>
+      )}
+
+      {/* The point of the whole feature: transport company, LR / waybill and the
+          office phone as a one-tap `tel:` link. Same card as the order screens. */}
+      {showCarrierDetails && hasCarrier && (
+        <CarrierTrackingCard
+          carrierName={notification.carrierName}
+          trackingNumber={notification.trackingNumber}
+          carrierPhone={notification.carrierPhone}
+          carrierAddress={notification.carrierAddress}
+          compact
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * One order's updates, read anonymously by order number.
+ *
+ * A guest checks out with no account, so the bell can never help them — the order
+ * number is their only handle, and this is how they learn which transport company
+ * to collect from. No read / unread controls: the endpoint has no identity to mark
+ * anything against.
+ *
+ * Renders NOTHING when the order has no updates (or the call did not land) rather
+ * than an empty panel.
+ */
+export const OrderUpdates: React.FC<{
+  orderNumber?: string;
+  /** False when the screen already shows the shipment card from the order itself. */
+  showCarrierDetails?: boolean;
+  compact?: boolean;
+  className?: string;
+}> = ({ orderNumber, showCarrierDetails = true, compact = false, className = '' }) => {
+  const [updates, setUpdates] = useState<AppNotification[]>([]);
+  const shipmentRows = useMemo(() => shipmentCardRowIds(updates), [updates]);
+
+  useEffect(() => {
+    const number = (orderNumber || '').trim();
+    if (!number) {
+      setUpdates([]);
+      return;
+    }
+    let alive = true;
+    api.getOrderNotifications(number).then(list => {
+      if (alive) setUpdates(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [orderNumber]);
+
+  if (updates.length === 0) return null;
+
+  return (
+    <div
+      className={`rounded-2xl bg-white border border-slate-200 shadow-xs ${
+        compact ? 'p-4' : 'p-5'
+      } space-y-3 ${className}`}
+    >
+      <div className="flex items-center gap-1.5">
+        <Bell className="w-4 h-4 text-purple" />
+        <h3 className="font-black text-navy text-[13px]">Order Updates</h3>
+      </div>
+      <div className="space-y-2.5">
+        {updates.map(update => (
+          <NotificationRow
+            key={update.id}
+            notification={update}
+            showReadState={false}
+            showCarrierDetails={showCarrierDetails && shipmentRows.has(update.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
 };

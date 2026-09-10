@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
+import { useNotifications } from '../../context/NotificationsContext';
 
 interface MobileTopBarProps {
   title?: string;
@@ -36,6 +37,9 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
 }) => {
   const { totalItems } = useCart();
   const { wishlist } = useWishlist();
+  // Live unread count, shared with the notifications sheet — the badge is the
+  // number the API last reported, never a locally guessed one.
+  const { unreadCount } = useNotifications();
 
   return (
     <header className="sticky top-0 z-40 bg-[#111238] text-white px-3.5 py-2.5 flex items-center justify-between shadow-md">
@@ -105,10 +109,14 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
         <button
           onClick={onOpenNotifications}
           className="p-1 text-slate-200 hover:text-gold relative active:scale-95 transition-all"
-          aria-label="Notifications"
+          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
         >
-          <Bell className="w-4 h-4 text-slate-200" />
-          <span className="absolute 0.5 top-0.5 right-0.5 w-2 h-2 bg-orange rounded-full" />
+          <Bell className={`w-4 h-4 ${unreadCount > 0 ? 'text-gold' : 'text-slate-200'}`} />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-0.5 bg-orange text-white rounded-full text-[8px] flex items-center justify-center font-bold">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
         </button>
 
         <button
