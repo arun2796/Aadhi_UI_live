@@ -107,6 +107,10 @@ export interface EstimateOrderItem {
   discount?: number;
   discountPercent?: number;
   discountPercentage?: number;
+  /** Tax billed on this line in ₹. The order's tax is the sum of its lines'
+      (OrderPricingService.Calculate), so this is a genuine source for the GST row
+      when the payload carries lines but no order-level tax. */
+  tax?: number;
   lineTotal?: number;
 }
 
@@ -130,6 +134,11 @@ export interface EstimateOrder {
   customerName?: string;
   customerPhone?: string;
   shippingAddress?: EstimateAddress | null;
+  /** Single-line "Name, Line1, Line2, City, State, Pincode, Country" delivery address.
+      Anonymous order tracking (GET /orders/track/{orderNumber} → OrderTrackingDto)
+      returns ONLY this form — it carries no structured shippingAddress object — so the
+      Deliver To block reads it when there is nothing better. */
+  deliveryAddressSummary?: string;
   items?: EstimateOrderItem[];
   itemsSubtotal?: number;
   subtotal?: number;
@@ -172,6 +181,8 @@ interface InvoiceLine {
   discountPercent: number | null;
   finalRate: number;
   amount: number;
+  /** Tax billed on the line (0 when the payload carries none). */
+  tax: number;
 }
 
 /**
@@ -223,7 +234,8 @@ const buildInvoiceLines = (items: EstimateOrderItem[]): InvoiceLine[] =>
       rate,
       discountPercent: discountPercent === null ? null : Math.max(0, discountPercent),
       finalRate,
-      amount
+      amount,
+      tax: num(it.tax)
     };
   });
 
@@ -233,6 +245,19 @@ interface InvoiceTotals {
   packingCharge: number;
   packingChargePercent?: number;
   tax: number;
+  /**
+   * The amount actually billed minus the components this payload itemises.
+   * 0 (to the paisa) whenever the source order carries its full breakdown — the
+   * signed-in My Orders path and the checkout snapshot both foot exactly.
+   *
+   * Non-zero only when the document was produced from a payload that does NOT
+   * itemise every billed component: anonymous order tracking returns the lines
+   * and the grand total but no packing charge, no order discount and no order
+   * tax. Rather than print "Packing Charge 0.00" — which would be a false
+   * statement about a real billed charge — the difference is carried here and
+   * printed as one honestly-labelled row.
+   */
+  residual: number;
   overallTotal: number;
   totalItems: number;
   totalQty: number;
@@ -254,7 +279,9 @@ const buildInvoiceTotals = (order: EstimateOrder, lines: InvoiceLine[]): Invoice
       ? (subtotal * packingChargePercent) / 100
       : 0;
 
-  const tax = num(order.tax);
+  // The order's tax IS the sum of its lines' tax (OrderPricingService.Calculate),
+  // so summing the lines is a genuine reading of the data, not an estimate.
+  const tax = num(order.tax) || lines.reduce((s, l) => s + l.tax, 0);
 
   // No delivery term: the lorry freight is paid by the customer directly to the
   // transport company on collection and never appears on the store's estimate.
@@ -262,12 +289,16 @@ const buildInvoiceTotals = (order: EstimateOrder, lines: InvoiceLine[]): Invoice
   const declaredTotal = num(order.grandTotal, order.totalAmount, order.total);
   const overallTotal = declaredTotal > 0 ? declaredTotal : computed;
 
+  // Rounded to the paisa so ordinary floating-point noise never trips the note.
+  const residual = Math.round((overallTotal - computed) * 100) / 100;
+
   return {
     subtotal,
     discount,
     packingCharge,
     packingChargePercent,
     tax,
+    residual,
     overallTotal,
     totalItems: lines.length,
     totalQty: lines.reduce((s, l) => s + l.qty, 0)
@@ -288,17 +319,36 @@ export const buildEstimateHtml = (
   const orderDate = formatInvoiceDate(order.placedAtUtc || order.placedAt || order.date);
 
   const addr = order.shippingAddress;
-  const deliverToLines = [
-    addr?.addressLine1,
-    addr?.addressLine2,
-    [addr?.city, addr?.state].filter(Boolean).join(', '),
-    addr?.postalCode || addr?.pincode ? `Pincode: ${addr?.postalCode || addr?.pincode}` : ''
-  ]
+  const hasStructuredAddress = Boolean(
+    addr && (addr.addressLine1 || addr.city || addr.postalCode || addr.pincode)
+  );
+
+  // Order tracking hands back only "Name, Line1, Line2, City, State, Pincode, Country"
+  // (Address.ToSingleLine). Split on the commas it joined with: the first segment is
+  // the recipient's name, the rest is the address.
+  const summaryParts = String(order.deliveryAddressSummary || '')
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  const deliverToLines = (
+    hasStructuredAddress
+      ? [
+          addr?.addressLine1,
+          addr?.addressLine2,
+          [addr?.city, addr?.state].filter(Boolean).join(', '),
+          addr?.postalCode || addr?.pincode ? `Pincode: ${addr?.postalCode || addr?.pincode}` : ''
+        ]
+      : [summaryParts.slice(order.customerName ? 0 : 1).join(', ')]
+  )
     .filter(Boolean)
     .map(l => `<div>${escapeHtml(l)}</div>`)
     .join('');
 
-  const customerName = order.customerName || addr?.fullName || 'Valued Customer';
+  // Never invent a recipient or an address: an unknown one is left off the paper
+  // rather than filled in with the store's own city.
+  const customerName =
+    order.customerName || addr?.fullName || (!hasStructuredAddress ? summaryParts[0] : '') || 'Valued Customer';
   const phone = order.customerPhone || addr?.phone || '';
 
   const rows =
@@ -336,18 +386,54 @@ export const buildEstimateHtml = (
       value
     )}</td></tr>`;
 
-  const totalRows = [
-    sumRow('Subtotal', formatMoney(totals.subtotal)),
-    sumRow('Discount', totals.discount > 0 ? `- ${formatMoney(totals.discount)}` : formatMoney(0)),
-    sumRow(
-      totals.packingChargePercent
-        ? `Packing Charge ( ${totals.packingChargePercent}% )`
-        : 'Packing Charge',
-      formatMoney(totals.packingCharge)
-    ),
-    totals.tax > 0 ? sumRow('GST', formatMoney(totals.tax)) : '',
-    sumRow('Overall Total', formatMoney(totals.overallTotal), 'grand')
-  ].join('');
+  /* The ledger must foot. When the source itemises every billed component it does,
+     and the summary prints exactly as it always has. When it does not (anonymous
+     order tracking carries the lines and the amount billed but no packing charge,
+     order discount or order tax), the zero rows would each be a false statement
+     about a real charge — so only the components this payload genuinely knows are
+     listed, and the remainder is stated as one labelled row and explained below. */
+  const itemisedFully = totals.residual === 0;
+
+  const totalRows = (
+    itemisedFully
+      ? [
+          sumRow('Subtotal', formatMoney(totals.subtotal)),
+          sumRow(
+            'Discount',
+            totals.discount > 0 ? `- ${formatMoney(totals.discount)}` : formatMoney(0)
+          ),
+          sumRow(
+            totals.packingChargePercent
+              ? `Packing Charge ( ${totals.packingChargePercent}% )`
+              : 'Packing Charge',
+            formatMoney(totals.packingCharge)
+          ),
+          totals.tax > 0 ? sumRow('GST', formatMoney(totals.tax)) : ''
+        ]
+      : [
+          sumRow('Subtotal', formatMoney(totals.subtotal)),
+          totals.discount > 0 ? sumRow('Discount', `- ${formatMoney(totals.discount)}`) : '',
+          totals.packingCharge > 0
+            ? sumRow(
+                totals.packingChargePercent
+                  ? `Packing Charge ( ${totals.packingChargePercent}% )`
+                  : 'Packing Charge',
+                formatMoney(totals.packingCharge)
+              )
+            : '',
+          totals.tax > 0 ? sumRow('GST', formatMoney(totals.tax)) : '',
+          sumRow(
+            'Charges & Adjustments',
+            `${totals.residual < 0 ? '- ' : ''}${formatMoney(Math.abs(totals.residual))}`
+          )
+        ]
+  )
+    .concat(sumRow('Overall Total', formatMoney(totals.overallTotal), 'grand'))
+    .join('');
+
+  const residualNote = itemisedFully
+    ? ''
+    : `<div class="mrp-note">Charges &amp; Adjustments is the balance of the amount billed on this order after the items above &mdash; the packing charge, any tax and any discount. This copy was produced from order tracking, which does not itemise them separately; the amount billed is stated as Overall Total.</div>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -441,7 +527,7 @@ export const buildEstimateHtml = (
       <div class="box box-left">
         <div class="box-title">Deliver To</div>
         <div class="box-name">${escapeHtml(customerName)}</div>
-        ${deliverToLines || '<div>Sivakasi, Tamil Nadu</div>'}
+        ${deliverToLines}
         ${phone ? `<div>Phone : ${escapeHtml(phone)}</div>` : ''}
       </div>
       <div class="box box-right">
@@ -475,6 +561,7 @@ export const buildEstimateHtml = (
     </table>
 
     ${missingMrpNote}
+    ${residualNote}
 
     <!-- 5. Totals -->
     <div class="totals">

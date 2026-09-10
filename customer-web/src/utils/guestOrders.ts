@@ -134,3 +134,139 @@ export const copyText = async (text: string): Promise<boolean> => {
     return false;
   }
 };
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ORDER ESTIMATE SNAPSHOT — the printable order, kept on the device that placed it
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Why this exists.
+ *
+ * The order-confirmation screen has to be able to hand the customer their ESTIMATE
+ * the moment they have paid — that is the whole point of the screen for a guest,
+ * who has no My Orders to come back to. Building that document needs the order's
+ * lines, address and billed charges, and:
+ *
+ *   • the only anonymous source of an order is `GET /orders/track/{orderNumber}`,
+ *     whose `OrderTrackingDto` carries the lines and the grand total but NOT the
+ *     packing charge, order discount, order tax or structured address;
+ *   • `GET /orders/{id}`, which does carry all of it, requires a login;
+ *   • and fetching anything on the click would put an `await` in front of
+ *     `window.open`, which is exactly what makes browsers block it.
+ *
+ * `POST /orders` already returned the complete order at checkout, so the fields the
+ * estimate needs are kept here and read back synchronously when the customer asks
+ * for their copy. It is a CONVENIENCE cache with the same rules as the order-number
+ * list above: the customer's own order, on the customer's own device, never trusted
+ * for anything (nothing is authorised by it, and every screen still resolves the
+ * order through the API), and every path degrades to `null` rather than throwing.
+ */
+export interface OrderEstimateSnapshot {
+  orderNumber: string;
+  placedAtUtc?: string;
+  customerName?: string;
+  customerPhone?: string;
+  shippingAddress?: Record<string, any>;
+  items: Array<Record<string, any>>;
+  itemsSubtotal?: number;
+  discount?: number;
+  tax?: number;
+  packingCharges?: number;
+  packingChargePercent?: number;
+  grandTotal?: number;
+  /** Epoch ms this snapshot was written. */
+  savedAt: number;
+}
+
+const ESTIMATE_KEY = 'aadhi_order_estimates';
+const MAX_SNAPSHOTS = 5;
+
+const numOrUndef = (value: unknown): number | undefined => {
+  const n = Number(value);
+  return Number.isFinite(n) && n !== 0 ? n : undefined;
+};
+
+const readSnapshots = (): OrderEstimateSnapshot[] => {
+  const ls = storage();
+  if (!ls) return [];
+  try {
+    const raw = ls.getItem(ESTIMATE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s: any) => s && typeof s.orderNumber === 'string' && s.orderNumber && Array.isArray(s.items)
+    ) as OrderEstimateSnapshot[];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Keeps the printable slice of a freshly created order (the `OrderDto` returned by
+ * `POST /orders`). Only the fields the estimate prints are stored — no images, no
+ * payment proof — so the entry stays a couple of kilobytes.
+ */
+export const rememberOrderEstimate = (order: any): void => {
+  const orderNumber = String(order?.orderNumber ?? '').trim();
+  if (!orderNumber) return;
+  const ls = storage();
+  if (!ls) return;
+
+  try {
+    const snapshot: OrderEstimateSnapshot = {
+      orderNumber,
+      placedAtUtc: order?.placedAtUtc ?? order?.placedAt ?? undefined,
+      customerName: order?.customerName || order?.shippingAddress?.fullName || undefined,
+      customerPhone: order?.customerPhone || order?.shippingAddress?.phone || undefined,
+      shippingAddress: order?.shippingAddress
+        ? {
+            fullName: order.shippingAddress.fullName,
+            phone: order.shippingAddress.phone,
+            addressLine1: order.shippingAddress.addressLine1,
+            addressLine2: order.shippingAddress.addressLine2,
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            postalCode: order.shippingAddress.postalCode
+          }
+        : undefined,
+      items: (Array.isArray(order?.items) ? order.items : []).map((it: any) => ({
+        productName: it?.productName ?? it?.name ?? undefined,
+        sku: it?.sku || undefined,
+        quantity: Number(it?.quantity) || 1,
+        unitPrice: Number(it?.unitPrice) || 0,
+        compareAtPrice: numOrUndef(it?.compareAtPrice),
+        discount: numOrUndef(it?.discount),
+        tax: numOrUndef(it?.tax),
+        lineTotal: numOrUndef(it?.lineTotal)
+      })),
+      itemsSubtotal: numOrUndef(order?.itemsSubtotal),
+      discount: numOrUndef(order?.discount),
+      tax: numOrUndef(order?.tax),
+      packingCharges: numOrUndef(order?.packingCharges),
+      packingChargePercent: numOrUndef(order?.packingChargePercent),
+      grandTotal: numOrUndef(order?.grandTotal),
+      savedAt: Date.now()
+    };
+
+    const next = [
+      snapshot,
+      ...readSnapshots().filter(
+        s => s.orderNumber.toUpperCase() !== orderNumber.toUpperCase()
+      )
+    ].slice(0, MAX_SNAPSHOTS);
+
+    ls.setItem(ESTIMATE_KEY, JSON.stringify(next));
+  } catch {
+    /* quota / private mode — the screens fall back to the tracking payload */
+  }
+};
+
+/** The snapshot for one order number, or `null` when this device does not hold it. */
+export const readOrderEstimate = (orderNumber?: string | null): OrderEstimateSnapshot | null => {
+  const clean = String(orderNumber ?? '').trim();
+  if (!clean) return null;
+  return (
+    readSnapshots().find(s => s.orderNumber.toUpperCase() === clean.toUpperCase()) || null
+  );
+};

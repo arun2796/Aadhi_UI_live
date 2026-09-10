@@ -29,7 +29,7 @@ import { useSettings, findDeliveryZone } from '../../context/SettingsContext';
 import { api } from '../../services/api';
 import { BankTransferDetailsCard, GuestCheckoutNotice } from '../../components/common/CommonComponents';
 import { compressImageFile } from '../../utils/imageCompressor';
-import { rememberOrderNumber } from '../../utils/guestOrders';
+import { rememberOrderEstimate, rememberOrderNumber } from '../../utils/guestOrders';
 import {
   QUOTE_PROBLEM_MESSAGE,
   inrExact,
@@ -596,6 +596,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
       // it again later — never something the app trusts (see utils/guestOrders).
       // Signed-in customers already have My Orders, so nothing is stored for them.
       if (!user) rememberOrderNumber(order.orderNumber);
+
+      // The printable slice of the order, kept so the confirmation screen can hand
+      // the customer their ESTIMATE immediately — with the packing charge, tax and
+      // delivery address that anonymous order tracking does not return, and with no
+      // request in front of the click that would get the print window blocked.
+      rememberOrderEstimate(order);
 
       clearCart();
       onNavigate('order-placed', {

@@ -2,16 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Clock,
-  Download,
   Package,
   PackageSearch,
   Truck
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { useToast } from '../../context/ToastContext';
-import { useSettings } from '../../context/SettingsContext';
-import { CarrierTrackingCard } from '../../components/common/CommonComponents';
-import { buildEstimateHtml, buildInvoiceBranding } from '../../utils/invoiceTemplate';
+import { CarrierTrackingCard, InvoiceActions } from '../../components/common/CommonComponents';
+import { toEstimateOrder } from '../../utils/invoiceActions';
 import { inrExact } from '../../utils/checkoutQuote';
 import { Order } from '../../types';
 
@@ -340,13 +337,11 @@ export const OrderDetailsPage: React.FC<NavProps & { orderId?: string; orderNumb
   orderId,
   orderNumber
 }) => {
-  const { showToast } = useToast();
-  const settings = useSettings();
   const [order, setOrder] = useState<OrderView | null>(null);
   const [loading, setLoading] = useState(true);
 
-  /** Live letterhead + bank block from Store.* / Payment.* settings (constants until loaded). */
-  const branding = useMemo(() => buildInvoiceBranding(settings), [settings]);
+  /** The order in the printable estimate's shape, for <InvoiceActions>. */
+  const estimateOrder = useMemo(() => toEstimateOrder(order), [order]);
 
   useEffect(() => {
     let cancelled = false;
@@ -368,25 +363,6 @@ export const OrderDetailsPage: React.FC<NavProps & { orderId?: string; orderNumb
       cancelled = true;
     };
   }, [orderId, orderNumber]);
-
-  const handleDownloadInvoice = () => {
-    if (!order) return;
-    const w = window.open('', '_blank', 'width=820,height=940');
-    if (!w) {
-      showToast('Please allow pop-ups to download the invoice.', 'warning');
-      return;
-    }
-    w.document.write(buildEstimateHtml(order, branding));
-    w.document.close();
-    w.focus();
-    setTimeout(() => {
-      try {
-        w.print();
-      } catch {
-        /* viewer can print manually from the opened window */
-      }
-    }, 400);
-  };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10 animate-fade-in">
@@ -541,13 +517,7 @@ export const OrderDetailsPage: React.FC<NavProps & { orderId?: string; orderNumb
 
           {/* Actions */}
           <div className="pt-5 border-t border-slate-100 flex flex-wrap items-center gap-3">
-            <button
-              onClick={handleDownloadInvoice}
-              className="px-6 py-3 rounded-xl border border-slate-200 bg-white text-navy font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-colors"
-            >
-              <Download className="w-4 h-4 text-slate-500" />
-              <span>Download Invoice</span>
-            </button>
+            <InvoiceActions order={estimateOrder} layout="row" size="md" />
             <button
               onClick={() => onNavigate('track-order', { orderNumber: order.orderNumber })}
               className="px-6 py-3 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-sm flex items-center gap-2 shadow-glow-purple transition-colors"

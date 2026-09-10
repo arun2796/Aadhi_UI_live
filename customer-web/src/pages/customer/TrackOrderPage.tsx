@@ -16,10 +16,12 @@ import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../context/SettingsContext';
 import {
   CarrierTrackingCard,
+  InvoiceActions,
   OrderNumberKeepsake,
   PaymentProofUpdateCard,
   RecentDeviceOrders,
-  triggerFireworksConfetti
+  triggerFireworksConfetti,
+  useEstimateOrder
 } from '../../components/common/CommonComponents';
 import { rememberOrderNumber } from '../../utils/guestOrders';
 
@@ -184,6 +186,27 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
   const successPackingPercent = Number(justPlaced?.packingChargePercent ?? packingChargePercent) || 0;
   const rewardPoints = Math.floor(successTotal / 100);
 
+  /* The ESTIMATE, for both states of this page: the confirmation card (so a guest
+     can keep their invoice the moment they have paid) and the tracking view (their
+     only route back to it afterwards).
+
+     Sources, best first: the tracking payload already loaded here, the checkout
+     snapshot this device kept, then a one-off tracking fetch. On the confirmation
+     card the charges the SERVER confirmed on the created order win. It all resolves
+     during render — nothing is awaited inside the click, which is what keeps the
+     print window from being blocked. */
+  const estimateOrder = useEstimateOrder(
+    order?.orderNumber || successOrderNumber || initialOrderNumber,
+    order,
+    showSuccess
+      ? {
+          grandTotal: justPlaced?.grandTotal || undefined,
+          packingCharges: justPlaced?.packingCharges || undefined,
+          packingChargePercent: justPlaced?.packingChargePercent || undefined
+        }
+      : undefined
+  );
+
   /* ═══════════ Desktop design 9: ORDER SUCCESS ═══════════ */
   if (showSuccess) {
     return (
@@ -206,6 +229,16 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
             orderNumber={successOrderNumber}
             isGuest={placedAsGuest}
             className="max-w-md mx-auto"
+          />
+
+          {/* The customer's copy of the ESTIMATE, offered the moment they have paid.
+              A guest has no My Orders to fetch it from later, so this is where they
+              keep it. */}
+          <InvoiceActions
+            order={estimateOrder}
+            layout="row"
+            className="max-w-md mx-auto text-left"
+            hint="Your estimate for this order — print it or save a copy now."
           />
 
           {/* Server-confirmed amounts for the placed order */}
@@ -355,7 +388,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
         <div className="space-y-6 animate-fade-in">
           {/* ── Order header + horizontal timeline ── */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-card space-y-8">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-5 border-b border-slate-100">
               <div>
                 <h2 className="text-lg sm:text-xl font-black text-navy">
                   Order ID: {order.orderNumber || query.trim()}
@@ -364,15 +397,19 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
                   Placed on {fmtOrderDate(placedAt) || 'Recently'}
                 </div>
               </div>
-              <span
-                className={`inline-block px-3 py-1 rounded-full text-xs font-bold border self-start sm:self-auto ${
-                  isCancelled
-                    ? 'bg-rose-50 text-rose-700 border-rose-200'
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                }`}
-              >
-                {status}
-              </span>
+              <div className="flex flex-col items-start sm:items-end gap-3">
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${
+                    isCancelled
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  }`}
+                >
+                  {status}
+                </span>
+                {/* Invoice — a guest's only route back to their estimate is this screen. */}
+                <InvoiceActions order={estimateOrder} layout="row" />
+              </div>
             </div>
 
             {isCancelled && (

@@ -31,14 +31,16 @@ import {
   BankTransferDetailsCard,
   CarrierTrackingCard,
   GuestCheckoutNotice,
+  InvoiceActions,
   OrderNumberKeepsake,
   PaymentProofUpdateCard,
   RecentDeviceOrders,
-  triggerFireworksConfetti
+  triggerFireworksConfetti,
+  useEstimateOrder
 } from '../common/CommonComponents';
 import { api } from '../../services/api';
 import { compressImageFile } from '../../utils/imageCompressor';
-import { rememberOrderNumber } from '../../utils/guestOrders';
+import { rememberOrderEstimate, rememberOrderNumber } from '../../utils/guestOrders';
 import {
   QUOTE_PROBLEM_MESSAGE,
   inrExact,
@@ -567,6 +569,12 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
       // it again later — never something the app trusts (see utils/guestOrders).
       // Signed-in customers already have My Orders, so nothing is stored for them.
       if (!user) rememberOrderNumber(order.orderNumber);
+
+      // The printable slice of the order, kept so the confirmation screen can hand
+      // the customer their ESTIMATE immediately — with the packing charge, tax and
+      // delivery address that anonymous order tracking does not return, and with no
+      // request in front of the click that would get the print window blocked.
+      rememberOrderEstimate(order);
 
       clearCart();
       onNavigate('order-placed', {
@@ -1288,6 +1296,17 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
   // Guests have no My Orders, so this screen has to carry more weight.
   const placedAsGuest = isGuest ?? !user;
 
+  /* The ESTIMATE for the order just placed. Resolved here, on mount, from the
+     checkout snapshot this device kept (falling back to order tracking) so the
+     Print / Download buttons stay a pure synchronous click — anything awaited in
+     the handler and mobile Chrome blocks the print window. The server-confirmed
+     charges this screen was handed win over anything the fallback carries. */
+  const estimateOrder = useEstimateOrder(orderNumber, null, {
+    grandTotal: grandTotal || undefined,
+    packingCharges: packingCharges || undefined,
+    packingChargePercent: packingChargePercent || undefined
+  });
+
   useEffect(() => {
     triggerFireworksConfetti();
   }, []);
@@ -1310,6 +1329,16 @@ export const Screen6OrderPlaced: React.FC<Screen6OrderPlacedProps> = ({
         {/* The order number, large and copyable. For a guest it is the ONLY
             handle on this order, so it carries the "save this" instruction. */}
         <OrderNumberKeepsake orderNumber={orderNumber} isGuest={placedAsGuest} />
+
+        {/* The customer's copy of the ESTIMATE, offered the moment they have paid.
+            A guest has no My Orders to fetch it from later, so this is where they
+            keep it. */}
+        <InvoiceActions
+          order={estimateOrder}
+          layout="grid"
+          className="text-left"
+          hint="Your estimate for this order — print it or save a copy now."
+        />
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs text-left space-y-2.5">
           {/* Server-confirmed amounts for the placed order */}
@@ -1514,6 +1543,13 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
   const carrierName: string = order?.carrierName ?? order?.carrier ?? '';
   const trackingNumber: string = order?.trackingNumber ?? order?.lrNumber ?? '';
 
+  /* The ESTIMATE for the tracked order. For a guest arriving at /track/<number>
+     this screen is the only route back to their invoice, so it is offered here
+     too. The tracking payload supplies the lines and the amount billed; the
+     checkout snapshot (when this device placed the order) fills in the itemised
+     charges and the delivery address that tracking does not return. */
+  const estimateOrder = useEstimateOrder(order?.orderNumber || activeOrderNumber, order);
+
   /** Find the date a given timeline step was reached, from the status history. */
   const dateForStep = (stepIdx: number): string => {
     const step = TRACKING_STEPS[stepIdx];
@@ -1610,6 +1646,14 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
               <div className="text-[11px] text-slate-500 font-medium">Placed on {fmtOrderDate(placedAt)}</div>
             )}
           </div>
+
+          {/* Invoice — a guest's only route back to their estimate is this screen. */}
+          <InvoiceActions
+            order={estimateOrder}
+            layout="grid"
+            className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs text-left"
+            hint="Estimate for this order."
+          />
 
           {isCancelled && (
             <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 flex items-center space-x-2">

@@ -1,15 +1,36 @@
-import React, { useState } from 'react';
-import { Check, Copy, Landmark, Star, StarHalf, Truck, Upload, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Check,
+  Copy,
+  Download,
+  Landmark,
+  Printer,
+  Star,
+  StarHalf,
+  Truck,
+  Upload,
+  X
+} from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useSettings } from '../../context/SettingsContext';
+import { useToast } from '../../context/ToastContext';
 import { api } from '../../services/api';
 import { compressImageFile } from '../../utils/imageCompressor';
 import {
   copyText,
   forgetOrderNumber,
+  readOrderEstimate,
   readRecentOrders,
   type RecentOrder
 } from '../../utils/guestOrders';
+import { buildInvoiceBranding, type EstimateOrder } from '../../utils/invoiceTemplate';
+import {
+  ESTIMATE_FAILURE_MESSAGE,
+  canPrintEstimate,
+  downloadEstimate,
+  printEstimate,
+  toEstimateOrder
+} from '../../utils/invoiceActions';
 
 export const RatingStars: React.FC<{ rating?: number; reviewCount?: number; size?: string }> = ({
   rating = 4.8,
@@ -606,4 +627,149 @@ export const PaymentProofUpdateCard: React.FC<{
       </div>
     </div>
   );
+};
+
+/* ─────────────────────────────────────────────────────────────
+   INVOICE ACTIONS — Print + Download the ESTIMATE
+
+   The single button pair every surface uses: My Orders → Order Details, the
+   order-confirmation "Thank You" screen and the public Track Order screen, in
+   both the desktop and the mobile tree. All of the open / write / print / save
+   handling lives in utils/invoiceActions.ts, including the mobile-Chrome
+   pop-up-blocker fallback, so no screen carries a copy of it.
+   ───────────────────────────────────────────────────────────── */
+
+export const InvoiceActions: React.FC<{
+  /** The order in estimate shape (see utils/invoiceActions.toEstimateOrder). */
+  order: EstimateOrder | null;
+  /** 'grid' = two equal columns (mobile), 'row' = inline buttons (desktop). */
+  layout?: 'grid' | 'row';
+  /** Matches the scale of whatever buttons sit beside it on that surface. */
+  size?: 'sm' | 'md';
+  className?: string;
+  /** Shown above the buttons — used on the confirmation screen. */
+  hint?: string;
+}> = ({ order, layout = 'grid', size = 'sm', className = '', hint }) => {
+  const settings = useSettings();
+  const { showToast } = useToast();
+
+  /** Live letterhead + bank block from Store.* / Payment.* settings. */
+  const branding = useMemo(() => buildInvoiceBranding(settings), [settings]);
+
+  // Nothing worth printing yet (order still loading, or it carries no lines).
+  if (!canPrintEstimate(order)) return null;
+
+  const fail = (reason: 'blocked' | 'unsupported') =>
+    showToast(ESTIMATE_FAILURE_MESSAGE[reason], 'warning');
+
+  // NOTE: both handlers are fully synchronous. Awaiting anything here would cost
+  // the user-gesture flag and the browser would block the print window.
+  const handlePrint = () => printEstimate(order as EstimateOrder, branding, fail);
+  const handleDownload = () => downloadEstimate(order as EstimateOrder, branding, fail);
+
+  const btn = `rounded-xl border border-slate-200 bg-white text-navy font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 active:scale-98 transition-all ${
+    size === 'md' ? 'px-6 py-3 text-sm' : 'px-4 py-3 text-xs'
+  }`;
+
+  return (
+    <div className={className}>
+      {hint && <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">{hint}</p>}
+      <div className={layout === 'grid' ? 'grid grid-cols-2 gap-3' : 'flex flex-wrap gap-3'}>
+        <button type="button" onClick={handlePrint} className={btn}>
+          <Printer className="w-4 h-4 text-slate-500" />
+          <span>Print Invoice</span>
+        </button>
+        <button type="button" onClick={handleDownload} className={btn}>
+          <Download className="w-4 h-4 text-slate-500" />
+          <span>Download</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Resolves the order behind an order NUMBER into the estimate's shape, ready for
+ * <InvoiceActions>, without ever making the customer wait on a click.
+ *
+ * Sources, best first:
+ *   1. `seed` — an order payload the screen already holds (the tracking response,
+ *      or the order the screen loaded itself);
+ *   2. the checkout snapshot this device kept for the order (utils/guestOrders),
+ *      which is the only complete source a guest has: it carries the packing
+ *      charge, tax, discount and delivery address that anonymous order tracking
+ *      does not return;
+ *   3. a one-off `GET /orders/track/{orderNumber}` when the screen holds nothing
+ *      (the mobile confirmation screen is handed only the order number).
+ *
+ * Everything resolves during render / on mount, never inside the click handler.
+ */
+export const useEstimateOrder = (
+  orderNumber?: string,
+  seed?: any,
+  overrides?: Partial<EstimateOrder>
+): EstimateOrder | null => {
+  const [fetched, setFetched] = useState<any | null>(null);
+
+  const snapshot = useMemo(() => readOrderEstimate(orderNumber), [orderNumber]);
+  const seedHasItems = Array.isArray(seed?.items) && seed.items.length > 0;
+  const snapshotHasItems = Array.isArray(snapshot?.items) && snapshot!.items.length > 0;
+
+  useEffect(() => {
+    // Only when neither the screen nor this device can supply the lines.
+    if (!orderNumber || seedHasItems || snapshotHasItems) return;
+    let alive = true;
+    api
+      .trackOrder(orderNumber)
+      .then(res => {
+        if (alive && res) setFetched(res);
+      })
+      .catch(() => {
+        /* the buttons simply stay hidden */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [orderNumber, seedHasItems, snapshotHasItems]);
+
+  return useMemo(() => {
+    // The snapshot is layered UNDER the live payload for the address and lines,
+    // and OVER it for the billed charges — the tracking DTO does not itemise them
+    // and a missing value must never overwrite a known one (toEstimateOrder skips
+    // empty overrides).
+    const live = seedHasItems ? seed : fetched;
+    const base = live || snapshot;
+    if (!base) return null;
+
+    const merged = toEstimateOrder(base, {
+      orderNumber: orderNumber || undefined,
+      ...(live && snapshot
+        ? {
+            customerName: snapshot.customerName,
+            customerPhone: snapshot.customerPhone,
+            shippingAddress: snapshot.shippingAddress as any,
+            itemsSubtotal: snapshot.itemsSubtotal,
+            discount: snapshot.discount,
+            tax: snapshot.tax,
+            packingCharges: snapshot.packingCharges,
+            packingChargePercent: snapshot.packingChargePercent,
+            grandTotal: snapshot.grandTotal
+          }
+        : {}),
+      ...(overrides || {})
+    });
+    return merged;
+    // `overrides` is an inline object on every render at most call sites; the
+    // individual values below are what actually matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    seed,
+    fetched,
+    snapshot,
+    orderNumber,
+    seedHasItems,
+    overrides?.grandTotal,
+    overrides?.packingCharges,
+    overrides?.packingChargePercent
+  ]);
 };
