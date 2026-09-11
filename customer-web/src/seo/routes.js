@@ -13,7 +13,8 @@
  *   /                        home
  *   /shop                    all products              (?q= search, ?sort= sort)
  *   /shop/<category-slug>    a category listing        (?q=, ?sort=)
- *   /combos                  combo packs & gift boxes  (?q=, ?sort=)
+ *   /combos                  combo packs               (?q=, ?sort=)
+ *   /gift-boxes              pre-packed gift boxes     (?q=, ?sort=)
  *   /categories              category menu
  *   /product/<slug>          product / combo detail
  *   /cart  /checkout         basket + checkout
@@ -27,7 +28,11 @@
  */
 
 /** Legacy slugs that the storefront renders as the combos view (see ShopPage). */
-const COMBO_VIEW_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes']);
+const COMBO_VIEW_SLUGS = new Set(['combos', 'combo-offers']);
+
+/** Slugs that render the gift-box view. Gift boxes used to be an alias of the
+ *  combos view; they are their own module now, so `gift-boxes` lands here. */
+const GIFT_BOX_VIEW_SLUGS = new Set(['gift-boxes', 'giftboxes', 'gift-box']);
 
 /** Lower-cased, dash-joined, URL-safe path segment. GUIDs pass through unchanged. */
 export const slugifySegment = (value) =>
@@ -39,10 +44,17 @@ export const slugifySegment = (value) =>
     .replace(/-{2,}/g, '-')
     .replace(/^-|-$/g, '');
 
-/** True when these navigation params should render the combos listing. */
+/** True when these navigation params should render the gift-box listing. */
+export const isGiftBoxesView = (params) =>
+  (params && (params.view === 'giftboxes' || params.view === 'gift-boxes')) ||
+  GIFT_BOX_VIEW_SLUGS.has(String((params && params.category) ?? '').trim().toLowerCase());
+
+/** True when these navigation params should render the combos listing.
+ *  Checked AFTER the gift-box view, which is a separate module. */
 export const isCombosView = (params) =>
-  (params && params.view === 'combos') ||
-  COMBO_VIEW_SLUGS.has(String((params && params.category) ?? '').trim().toLowerCase());
+  !isGiftBoxesView(params) &&
+  ((params && params.view === 'combos') ||
+    COMBO_VIEW_SLUGS.has(String((params && params.category) ?? '').trim().toLowerCase()));
 
 /**
  * Screens whose content lives entirely in navigation params (an order that was
@@ -113,6 +125,7 @@ export function buildPath(page, params = {}) {
     // Screen2Category on mobile), so they share one canonical URL shape.
     case 'shop':
     case 'category': {
+      if (isGiftBoxesView(p)) return withQuery('/gift-boxes');
       if (isCombosView(p)) return withQuery('/combos');
       const cat = slugifySegment(p.category);
       return withQuery(cat && cat !== 'all' ? `/shop/${cat}` : '/shop');
@@ -232,6 +245,10 @@ export function parsePath(pathname, search = '') {
 
     case 'combos':
       if (segments.length === 1) return hit('shop', { view: 'combos', search: q, sortBy: sort });
+      return miss();
+
+    case 'gift-boxes':
+      if (segments.length === 1) return hit('shop', { view: 'giftboxes', search: q, sortBy: sort });
       return miss();
 
     case 'categories':

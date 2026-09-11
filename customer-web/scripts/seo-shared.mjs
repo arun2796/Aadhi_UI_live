@@ -126,16 +126,17 @@ async function enrichWithDetails(products, base, apiOrigin, mapProduct) {
 export async function fetchCatalogue(mode) {
   const base = apiBaseUrl(mode);
   if (!base) {
-    return { ok: false, reason: 'no absolute API base URL configured (set VITE_SEO_API_BASE_URL)', settings: {}, categories: [], products: [], combos: [], banners: [] };
+    return { ok: false, reason: 'no absolute API base URL configured (set VITE_SEO_API_BASE_URL)', settings: {}, categories: [], products: [], combos: [], giftBoxes: [], banners: [] };
   }
   const apiOrigin = base.replace(/\/api.*$/i, '');
 
   try {
-    const [settingsRaw, categoriesRaw, productsRaw, combosRaw, bannersRaw] = await Promise.all([
+    const [settingsRaw, categoriesRaw, productsRaw, combosRaw, giftBoxesRaw, bannersRaw] = await Promise.all([
       getJson(`${base}/settings/public`).catch(() => ({})),
       getJson(`${base}/categories`).catch(() => []),
       getJson(`${base}/products?pageSize=500`).catch(() => ({ items: [] })),
       getJson(`${base}/products/combo-offers?count=100`).catch(() => []),
+      getJson(`${base}/products/gift-boxes?count=100`).catch(() => []),
       getJson(`${base}/banners?activeOnly=true&placement=Home`).catch(() => [])
     ]);
 
@@ -157,16 +158,21 @@ export async function fetchCatalogue(mode) {
     const listOf = (raw) => (Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : []);
 
     const products = listOf(productsRaw).filter((p) => p && p.id && p.slug).map(mapProduct);
-    const combos = listOf(combosRaw).filter((p) => p && p.id && p.slug && p.isCombo === true).map(mapProduct);
+    // Both curated endpoints have historically returned false positives, so the
+    // flags are re-checked here exactly as the storefront's api.ts does.
+    const combos = listOf(combosRaw)
+      .filter((p) => p && p.id && p.slug && p.isCombo === true && p.isGiftBox !== true)
+      .map(mapProduct);
+    const giftBoxes = listOf(giftBoxesRaw).filter((p) => p && p.id && p.slug && p.isGiftBox === true).map(mapProduct);
     const categories = listOf(categoriesRaw).filter((c) => c && c.slug).map((c) => ({
       ...c,
       imageUrl: normalizeImageUrl(c?.imageUrl, apiOrigin)
     }));
     const banners = listOf(bannersRaw).map((b) => ({ ...b, imageUrl: normalizeImageUrl(b?.imageUrl, apiOrigin) }));
 
-    // Combos are not always present in /products; merge them in, de-duplicated.
+    // Combos and gift boxes are not always present in /products; merge them in, de-duplicated.
     const byId = new Map();
-    [...products, ...combos].forEach((p) => byId.set(String(p.id), p));
+    [...products, ...combos, ...giftBoxes].forEach((p) => byId.set(String(p.id), p));
     const merged = [...byId.values()];
 
     // The list endpoint omits description / safetyInformation / the full image set —
@@ -175,9 +181,9 @@ export async function fetchCatalogue(mode) {
     // whose detail call fails simply keeps its list-level fields.
     const enriched = await enrichWithDetails(merged, base, apiOrigin, mapProduct);
 
-    return { ok: true, settings, categories, products: enriched, combos, banners, apiOrigin };
+    return { ok: true, settings, categories, products: enriched, combos, giftBoxes, banners, apiOrigin };
   } catch (error) {
-    return { ok: false, reason: String(error?.message || error), settings: {}, categories: [], products: [], combos: [], banners: [] };
+    return { ok: false, reason: String(error?.message || error), settings: {}, categories: [], products: [], combos: [], giftBoxes: [], banners: [] };
   }
 }
 

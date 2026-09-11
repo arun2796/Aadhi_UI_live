@@ -1,0 +1,178 @@
+name: Deploy frontends to Cloudflare Pages
+
+# Both SPAs build and deploy from this one workflow, as an independent matrix: a broken admin
+# build must never block the storefront from shipping.
+on:
+  push:
+    branches: [ak-dev]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+# Never cancel a deploy in flight — a half-uploaded Pages deployment is worse than a queued one.
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Fails in seconds if configuration is missing, instead of after two full builds.
+  preflight:
+    name: Check configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Required secrets and variables are present
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          API_BASE: ${{ vars.VITE_API_BASE_URL }}
+          SITE_URL: ${{ vars.VITE_SITE_URL }}
+        run: |
+          missing=()
+          if [ -z "$CF_TOKEN" ];   then missing+=("CLOUDFLARE_API_TOKEN (secret)"); fi
+          if [ -z "$CF_ACCOUNT" ]; then missing+=("CLOUDFLARE_ACCOUNT_ID (secret)"); fi
+          if [ -z "$API_BASE" ];   then missing+=("VITE_API_BASE_URL (variable)"); fi
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing: ${missing[*]}. Add them under Settings → Secrets and variables → Actions. See docs/GITHUB_ACTIONS.md."
+            exit 1
+          fi
+
+          # The single most likely misconfiguration. Cloudflare Pages serves the frontend on a
+          # DIFFERENT origin from the Lightsail API, so a relative "/api/v1" resolves to Pages
+          # itself and every request 404s — with a site that looks deployed and works for nobody.
+          case "$API_BASE" in
+            https://*) ;;
+            *)
+              echo "::error::VITE_API_BASE_URL must be an absolute https URL (e.g. https://api.aadhicracker.in/api/v1), not '$API_BASE'."
+              exit 1 ;;
+          esac
+
+          # /api/v1 is where the controllers live; without it every call hits the wrong path.
+          case "$API_BASE" in
+            */api/v1|*/api/v1/) ;;
+            *) echo "::warning::VITE_API_BASE_URL ('$API_BASE') does not end in /api/v1. That is the API's route prefix — double-check this is intended." ;;
+          esac
+
+          case "$API_BASE" in
+            */) echo "::warning::VITE_API_BASE_URL has a trailing slash, which can produce '//' in request URLs. Prefer no trailing slash." ;;
+          esac
+
+          if [ -z "$SITE_URL" ]; then
+            echo "::warning::Repository variable VITE_SITE_URL is not set. The storefront will still build and work, but sitemap.xml, canonical URLs and og:url need an absolute origin — SEO output will be degraded."
+          fi
+
+          echo "Configuration looks good."
+
+  deploy:
+    name: ${{ matrix.app }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: customer-web
+            # Cloudflare Pages project name. It must ALREADY EXIST in the dashboard
+            # (Workers & Pages → Create → Pages → Direct Upload); this workflow pushes
+            # builds into it, it does not create it.
+            project: aadhi-customer
+          - app: admin-web
+            project: aadhi-admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      # Vite resolves .env.production.local ahead of .env.production, and the SEO scripts
+      # (seo-shared.mjs readEnv) read the same file in the same order — so this one file
+      # drives both the bundle and the sitemap/prerender output.
+      - name: Write build-time environment
+        working-directory: ${{ matrix.app }}
+        env:
+          API_BASE: ${{ vars.VITE_API_BASE_URL }}
+          SITE_URL: ${{ vars.VITE_SITE_URL }}
+        run: |
+          {
+            echo "VITE_API_BASE_URL=${API_BASE}"
+            if [ "${{ matrix.app }}" = "customer-web" ]; then
+              # The SEO prebuild and prerender run in Node, which cannot fetch a
+              # browser-relative path, so they need the absolute API URL too.
+              echo "VITE_SEO_API_BASE_URL=${API_BASE}"
+              echo "VITE_SITE_URL=${SITE_URL}"
+            fi
+          } > .env.production.local
+          echo "--- .env.production.local ---"
+          cat .env.production.local
+
+      - name: Type-check
+        working-directory: ${{ matrix.app }}
+        run: npx tsc -b --pretty
+
+      - name: Build
+        working-directory: ${{ matrix.app }}
+        run: npm run build
+
+      - name: Verify build output
+        working-directory: ${{ matrix.app }}
+        env:
+          API_BASE: ${{ vars.VITE_API_BASE_URL }}
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html is missing — the build produced no output."
+            exit 1
+          fi
+
+          # Prove the env file was actually applied, by checking the configured URL was
+          # inlined into the bundle. Deliberately NOT the reverse check: the source carries a
+          # `|| 'http://localhost:5050/api/v1'` fallback that survives minification, so
+          # "no localhost in the bundle" would fail on a perfectly good build.
+          if ! grep -rqF "$API_BASE" dist/assets 2>/dev/null; then
+            echo "::error::The configured VITE_API_BASE_URL ('$API_BASE') does not appear in the built bundle, so the build did not pick it up and the deployed site would call the wrong host. Check the 'Write build-time environment' step above."
+            exit 1
+          fi
+
+          echo "dist size: $(du -sh dist | cut -f1)"
+
+      # admin-web ships no public/_redirects of its own, so without this every deep link
+      # (/admin/gift-boxes/<id>) would 404 on a hard refresh.
+      - name: Ensure SPA fallback
+        working-directory: ${{ matrix.app }}
+        run: |
+          if [ -f dist/_redirects ]; then
+            echo "Using the project's own _redirects:"
+            cat dist/_redirects
+          else
+            echo "/*    /index.html   200" > dist/_redirects
+            echo "Wrote a default SPA fallback into dist/_redirects."
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # --branch drives whether Pages treats this as a production or preview deployment:
+          # it is production when the branch matches the project's configured production branch
+          # — set BOTH Pages projects' production branch to ak-dev — and a preview URL
+          # otherwise. A manual run from a feature branch is therefore a safe preview.
+          command: >-
+            pages deploy ${{ matrix.app }}/dist
+            --project-name=${{ matrix.project }}
+            --branch=${{ github.ref_name }}
+            --commit-dirty=true

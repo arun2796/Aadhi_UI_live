@@ -4,6 +4,7 @@ import {
   Home,
   Grid,
   Gift,
+  Package,
   Truck,
   Info,
   MapPin,
@@ -34,7 +35,8 @@ export const MobileSideDrawer: React.FC<MobileSideDrawerProps> = ({
   const menuItems = [
     { id: 'home', label: 'Home', icon: Home, page: 'home' },
     { id: 'categories', label: 'Categories', icon: Grid, page: 'category-menu' },
-    { id: 'combos', label: 'Combos', icon: Gift, page: 'shop', params: { view: 'combos' } },
+    { id: 'combos', label: 'Combos', icon: Package, page: 'shop', params: { view: 'combos' } },
+    { id: 'gift-boxes', label: 'Gift Boxes', icon: Gift, page: 'shop', params: { view: 'giftboxes' } },
     { id: 'bulk-orders', label: 'Bulk Orders', icon: Truck, page: 'contact' },
     { id: 'about', label: 'About Us', icon: Info, page: 'about' },
     { id: 'track-order', label: 'Track Order', icon: MapPin, page: 'track-order' },

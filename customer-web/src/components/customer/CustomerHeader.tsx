@@ -13,7 +13,8 @@ import {
   X,
   Bell,
   ChevronDown,
-  Gift
+  Gift,
+  Package
 } from 'lucide-react';
 import { Category } from '../../types';
 import { api, type AppNotification } from '../../services/api';
@@ -368,8 +369,15 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               onClick={() => onNavigate('shop', { view: 'combos' })}
               className="px-3 py-2.5 font-medium hover:text-gold transition-colors flex items-center space-x-1.5"
             >
-              <Gift className="w-3.5 h-3.5 text-gold" />
+              <Package className="w-3.5 h-3.5 text-gold" />
               <span>Combos</span>
+            </button>
+            <button
+              onClick={() => onNavigate('shop', { view: 'giftboxes' })}
+              className="px-3 py-2.5 font-medium hover:text-gold transition-colors flex items-center space-x-1.5"
+            >
+              <Gift className="w-3.5 h-3.5 text-gold" />
+              <span>Gift Boxes</span>
             </button>
             <button
               onClick={() => onNavigate('shop', { sortBy: 'new' })}
@@ -422,8 +430,15 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop', { view: 'combos' }); }}
               className="w-full text-left py-2 font-medium border-b border-navy-border/40 flex items-center space-x-2"
             >
-              <Gift className="w-4 h-4 text-gold" />
+              <Package className="w-4 h-4 text-gold" />
               <span>Combos</span>
+            </button>
+            <button
+              onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop', { view: 'giftboxes' }); }}
+              className="w-full text-left py-2 font-medium border-b border-navy-border/40 flex items-center space-x-2"
+            >
+              <Gift className="w-4 h-4 text-gold" />
+              <span>Gift Boxes</span>
             </button>
             <button
               onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop'); }}

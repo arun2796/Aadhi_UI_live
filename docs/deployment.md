@@ -1,17 +1,18 @@
-# Enterprise Deployment & Hosting Guide
+# Deployment — where the runbooks live
 
-## 1. Multi-Tier Production Architecture
-- **Backend API:** ASP.NET Core 10 LTS Web API running on Kestrel / Linux Docker / IIS reverse-proxied behind Nginx or Cloudflare.
-- **Admin ERP Frontend:** React + Vite Single Page Application served statically on Port 5174 or subdomain (`admin.aadhicrackers.com`).
-- **Customer Storefront:** React + Vite Single Page Application served statically on Port 5173 or apex domain (`aadhicrackers.com`).
+Each deployable piece has its own self-contained runbook, kept next to what it deploys:
 
-## 2. Environment Variables Configuration
-- Backend:
-  - `ConnectionStrings__DefaultConnection`: Database connection path.
-  - `JwtSettings__SecretKey`: Production HMAC-SHA256 secret (minimum 32 characters).
-  - `JwtSettings__Issuer`: `AadhiCrackersApi`.
-  - `JwtSettings__Audience`: `AadhiCrackersClients`.
-  - `Cors__AllowedOrigins__0`: `https://admin.aadhicrackers.com`.
-  - `Cors__AllowedOrigins__1`: `https://aadhicrackers.com`.
-- Frontend:
-  - `VITE_API_BASE_URL`: Production API gateway URL (e.g. `https://api.aadhicrackers.com/api/v1`).
+| What | Runbook | Deploys to |
+|---|---|---|
+| Customer storefront | [`customer-web/DEPLOYMENT.md`](../customer-web/DEPLOYMENT.md) | Cloudflare Pages → `aadhicracker.in` |
+| Admin ERP | [`admin-web/DEPLOYMENT.md`](../admin-web/DEPLOYMENT.md) | Cloudflare Pages → `adminerp.aadhicracker.in` |
+| API + PostgreSQL | `Aadhi_API_live/DEPLOYMENT.md` (API repo) | AWS Lightsail → `api.aadhicracker.in` |
+
+Cross-cutting references in this repo:
+
+- [`GITHUB_ACTIONS.md`](GITHUB_ACTIONS.md) — CI/CD secrets, variables and per-error
+  troubleshooting for both frontend workflows.
+
+The split matters operationally: the two frontends deploy **in parallel and independently**
+(`fail-fast: false`), and the API deploys from its own repo with its own rollback — no single
+release can take everything down at once.

@@ -7,6 +7,7 @@ import {
   Layers,
   FolderTree,
   Package,
+  PackageOpen,
   Award,
   TrendingUp,
   Users,
@@ -183,6 +184,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'catalog-brand', label: 'Brands', icon: Award, to: 'brands' },
       { key: 'catalog-product', label: 'Product', icon: Package, to: 'products' },
       { key: 'catalog-combo', label: 'Combo', icon: Gift, to: 'combos' },
+      { key: 'catalog-gift-box', label: 'Gift Box', icon: PackageOpen, to: 'gift-boxes' },
       { key: 'catalog-discount', label: 'Discount', icon: Tag, to: 'marketing/coupons?tab=discounts' },
       { key: 'catalog-promo-code', label: 'Promotion Code', icon: Ticket, to: 'marketing/coupons?tab=codes' }
     ]
@@ -224,7 +226,9 @@ const SHOW_DEVELOPER_NAV = false;
 
 const DEVELOPER_NAV: NavLeaf[] = [
   // The legacy "Gift Boxes (Legacy)" entry pointed at /admin/combo-offers, a retired screen that
-  // has been removed — the Catalog group's "Combo" item (/admin/combos) is the only combo surface.
+  // has been removed. The Catalog group now carries both live surfaces: "Combo" (/admin/combos)
+  // for bundles assembled from catalogue products, and "Gift Box" (/admin/gift-boxes) for
+  // pre-packed boxes sold as a single sealed SKU.
   { key: 'dev-reviews', label: 'Reviews', icon: Star, to: 'reviews' },
   { key: 'dev-expenses', label: 'Expenses', icon: Wallet, to: 'expenses' },
   { key: 'dev-receivables', label: 'Receivables', icon: Clock, to: 'receivables' },

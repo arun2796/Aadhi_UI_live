@@ -59,10 +59,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
         setActiveTab('description');
 
         // Other products from the same category (Frequently Bought Together + related).
-        // Combos never appear here — they live in the Combos section only.
-        api.getProducts({ category: prod.categoryName, excludeCombos: true }).then((list) => {
-          setRelatedProducts(list.filter(p => p.id !== prod.id).slice(0, 7));
-        });
+        // Combos and gift boxes never appear here — each has its own section.
+        api
+          .getProducts({ category: prod.categoryName, excludeCombos: true, excludeGiftBoxes: true })
+          .then((list) => {
+            setRelatedProducts(list.filter(p => p.id !== prod.id).slice(0, 7));
+          });
       }
     });
   }, [slug]);
@@ -85,9 +87,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : 0;
 
-  // Combo contents — hidden entirely until the API sends `comboItems`.
-  const comboItems = Array.isArray(product.comboItems) ? product.comboItems : [];
-  const comboItemsTotal = product.comboItemsTotal ?? 0;
+  // A gift box is sold as ONE sealed SKU: it never lists what is inside, so the
+  // combo contents block is suppressed for it even if the DTO carried items.
+  const isGiftBox = product.isGiftBox === true;
+  const comboItems = !isGiftBox && Array.isArray(product.comboItems) ? product.comboItems : [];
+  const comboItemsTotal = isGiftBox ? 0 : product.comboItemsTotal ?? 0;
 
   // Real review data only — the rating line/summary is omitted when the DTO has none.
   const rating = (product.rating ?? 0) > 0 ? (product.rating as number) : 0;
@@ -132,12 +136,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
     showToast(`Added "${p.name}" to cart!`, 'success');
   };
 
-  // A combo presents itself as a combo, never as the category it happens to be
-  // filed under. Driven by the `isCombo` flag only — never by the category name.
-  const isCombo = product.isCombo === true;
-  const crumbLabel = isCombo ? 'Combos' : product.categoryName;
+  // A combo or gift box presents itself as such, never as the category it happens
+  // to be filed under. Driven by the flags only — never by the category name.
+  const isCombo = !isGiftBox && product.isCombo === true;
+  const crumbLabel = isGiftBox ? 'Gift Boxes' : isCombo ? 'Combos' : product.categoryName;
   const goToCrumb = () =>
-    isCombo
+    isGiftBox
+      ? onNavigate('shop', { view: 'giftboxes' })
+      : isCombo
       ? onNavigate('shop', { view: 'combos' })
       : onNavigate('shop', { category: product.categoryName.toLowerCase().replace(/\s+/g, '-') });
 
@@ -150,7 +156,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
 
   const specifications: Array<{ label: string; value: string }> = [
     { label: 'SKU', value: product.sku },
-    { label: 'Category', value: isCombo ? 'Combo / Gift Box' : product.categoryName },
+    { label: 'Category', value: isGiftBox ? 'Gift Box' : isCombo ? 'Combo Pack' : product.categoryName },
     { label: 'Brand', value: product.brandName || 'Aadhi' },
     { label: 'Unit', value: product.unit },
     { label: 'GST', value: 'Inclusive' },
@@ -160,7 +166,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-12">
-      {/* Breadcrumb: Home › Category › Name — "Combos" in place of the stored category for a combo */}
+      {/* Breadcrumb: Home › Category › Name — "Combos" / "Gift Boxes" in place of
+          the stored category for a combo or a gift box */}
       <div className="flex items-center space-x-2 text-xs text-slate-400">
         <button onClick={() => onNavigate('home')} className="hover:text-navy">Home</button>
         <span>›</span>
@@ -212,7 +219,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             <div className="flex items-center space-x-2 text-xs font-bold text-orange uppercase tracking-wider mb-1">
               <span>{product.brandName || 'AADHI CRACKERS'}</span>
               <span>•</span>
-              <span>{isCombo ? 'COMBO' : product.categoryName}</span>
+              <span>{isGiftBox ? 'GIFT BOX' : isCombo ? 'COMBO' : product.categoryName}</span>
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black text-navy leading-snug">

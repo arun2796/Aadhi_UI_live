@@ -13,7 +13,7 @@ Legend: ✅ Met (verified) · 🟡 Partial · ❌ Missing · ❓ Exists but dept
 **Backend** (`Aadhi_API_live`):
 - 5-project clean architecture matching the spec's layering (Domain / Application / Infrastructure / Api / Contracts) ✅
 - EF Core + SQLite (WAL mode), `Money` value object stored as minor units ✅
-- ASP.NET Identity + JWT bearer auth registered (`Infrastructure/DependencyInjection.cs`), real JWT issued on login (`IdentityService.cs`), seeded `admin@aadhicrackers.com` ✅
+- ASP.NET Identity + JWT bearer auth registered (`Infrastructure/DependencyInjection.cs`), real JWT issued on login (`IdentityService.cs`), seeded `admin@aadhicracker.in` ✅
 - 8 role policies registered: `RequireAdmin`, `RequireSuperAdmin`, `RequireInventoryManager`, `RequirePurchaseManager`, `RequireAccountant`, `RequireSalesExecutive`, `RequireSupportAgent`, `RequireStaff` ✅
 - `[Authorize]` applied comprehensively across `AuthController.cs`, `CatalogAndCartControllers.cs`, and `ErpAndOperationsControllers.cs`. Unjustified `[AllowAnonymous]` removed from ERP endpoints ✅
 - JWT secret configuration strictly loaded from `JwtSettings:SecretKey` with fallback protection ✅

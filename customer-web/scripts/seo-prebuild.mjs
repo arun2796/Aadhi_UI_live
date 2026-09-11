@@ -14,7 +14,7 @@
  * Failure behaviour (deliberate — a storefront build must not be held hostage
  * by a sleeping API): if the catalogue cannot be fetched, the script prints a
  * loud warning, leaves the previously generated index.html block untouched, and
- * writes a CORE sitemap (home, shop, combos, static pages) instead of failing.
+ * writes a CORE sitemap (home, shop, combos, gift boxes, static pages) instead of failing.
  * Pass --strict to turn that into a hard build failure instead.
  */
 
@@ -38,13 +38,15 @@ import {
 const STRICT = process.argv.includes('--strict');
 const MODE = process.argv.includes('--dev') ? 'development' : 'production';
 
-/** Category slugs the storefront renders as the combos view — one canonical URL. */
-const COMBO_ALIAS_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes']);
+/** Category slugs the storefront renders as a curated view (combos or gift
+ *  boxes) rather than as a category listing — each has one canonical URL. */
+const COMBO_ALIAS_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes', 'giftboxes', 'gift-box']);
 
 const STATIC_SITEMAP_PAGES = [
   { page: 'home', priority: '1.0', changefreq: 'daily' },
   { page: 'shop', priority: '0.9', changefreq: 'daily' },
   { page: 'shop', params: { view: 'combos' }, priority: '0.9', changefreq: 'daily' },
+  { page: 'shop', params: { view: 'giftboxes' }, priority: '0.9', changefreq: 'daily' },
   { page: 'category-menu', priority: '0.6', changefreq: 'weekly' },
   { page: 'about', priority: '0.5', changefreq: 'monthly' },
   { page: 'contact', priority: '0.5', changefreq: 'monthly' },
@@ -261,7 +263,7 @@ async function main() {
       `Could not read the catalogue API: ${data.reason}.`,
       'Set VITE_SEO_API_BASE_URL to an absolute API base URL reachable from the build machine',
       '(.env.production sets VITE_API_BASE_URL to the browser-relative "/api/v1", which Node cannot fetch).',
-      'Falling back to a CORE sitemap (home / shop / combos / static pages) with NO product or category URLs,',
+      'Falling back to a CORE sitemap (home / shop / combos / gift-boxes / static pages) with NO product or category URLs,',
       'and leaving the existing index.html SEO block untouched.'
     ];
     if (STRICT) {
@@ -275,7 +277,7 @@ async function main() {
     warnBlock('NO SITE ORIGIN', [
       'Neither VITE_SITE_URL nor a usable Store.Email domain is available.',
       'sitemap.xml cannot be written (sitemaps require absolute URLs) and robots.txt will omit its Sitemap line.',
-      'Set VITE_SITE_URL=https://your-live-domain in .env.production (or in the Render environment).'
+      'Set VITE_SITE_URL=https://your-live-domain in .env.production (or as a GitHub Actions repository variable).'
     ]);
   } else {
     log(`site origin: ${origin}  (source: ${source})`);

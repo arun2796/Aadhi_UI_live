@@ -134,6 +134,13 @@ export interface Product {
   comboItems?: ComboItem[];
   /** Detail DTO only: server-computed sum of the component lines at current prices. */
   comboItemsTotal?: number;
+  /**
+   * True when this product is a pre-packed gift box sold as one sealed SKU.
+   * Unlike a combo it never lists the products inside it — it is an ordinary product
+   * (cart / orders / invoices / stock all work unchanged) carrying this one flag.
+   * Sent on create/update and returned on every product read.
+   */
+  isGiftBox?: boolean;
 }
 
 export interface Category {

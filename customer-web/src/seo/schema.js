@@ -14,7 +14,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { buildPath, isCombosView, slugifySegment, NOINDEX_PAGES } from './routes.js';
+import { buildPath, isCombosView, isGiftBoxesView, slugifySegment, NOINDEX_PAGES } from './routes.js';
 
 /* ── text helpers ────────────────────────────────────────────────────────── */
 
@@ -299,6 +299,19 @@ export const breadcrumbLd = (crumbs, origin) => ({
  * `rating` > 0 AND `reviewCount` > 0. Today every product comes back with
  * rating 0 / reviewCount 0, so no rating markup is produced — by design.
  */
+/**
+ * ISO date one year out, used for Offer.priceValidUntil.
+ *
+ * Deliberately a plain date (no time component): Google reads it as "the quoted price is good
+ * until at least this day", and a timestamp implies a precision the shop does not actually
+ * commit to.
+ */
+const priceValidUntilDate = () => {
+  const d = new Date();
+  d.setUTCFullYear(d.getUTCFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
 export const productLd = (product, origin, business) => {
   const url = absoluteUrl(origin, buildPath('product-detail', { slug: product.slug }));
   const images = [
@@ -326,7 +339,12 @@ export const productLd = (product, origin, business) => {
     description: productDescription(product),
     ...(product.sku ? { sku: product.sku, mpn: product.sku } : {}),
     ...(product.brandName ? { brand: { '@type': 'Brand', name: product.brandName } } : {}),
-    ...(product.categoryName ? { category: product.isCombo === true ? 'Combo / Gift Box' : product.categoryName } : {}),
+    ...(product.categoryName
+      ? {
+          category:
+            product.isGiftBox === true ? 'Gift Box' : product.isCombo === true ? 'Combo Pack' : product.categoryName
+        }
+      : {}),
     ...(Number(product.weightKg) > 0
       ? { weight: { '@type': 'QuantitativeValue', value: Number(product.weightKg), unitCode: 'KGM' } }
       : {}),
@@ -338,6 +356,22 @@ export const productLd = (product, origin, business) => {
       priceCurrency: 'INR',
       availability: available ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
       itemCondition: 'https://schema.org/NewCondition',
+
+      // Google reports an Offer with no priceValidUntil as a non-critical issue and may stop
+      // showing the price in rich results once it considers the quote stale. A year out is the
+      // conventional answer for a catalogue with no scheduled price change; the prerender is
+      // regenerated on every deploy, so this never drifts far from "today".
+      priceValidUntil: priceValidUntilDate(),
+
+      // Stated because it is TRUE, not to win a rich result: the printed terms are "goods once
+      // sold are not returnable or exchangeable". Declaring an accurate restrictive policy is
+      // what stops Google guessing, and it is the honest signal to a shopper comparing sellers.
+      hasMerchantReturnPolicy: {
+        '@type': 'MerchantReturnPolicy',
+        applicableCountry: 'IN',
+        returnPolicyCategory: 'https://schema.org/MerchantReturnNotPermitted'
+      },
+
       ...(business && business.name
         ? { seller: { '@type': 'Organization', name: business.name, '@id': `${absoluteUrl(origin, '/')}#organization` } }
         : {})
@@ -384,7 +418,12 @@ export const productDescription = (product) => {
   const body = plainText(product.description);
   const short = plainText(product.shortDescription);
   const priceLine = Number(product.price) > 0 ? `${formatInr(product.price)}.` : '';
-  const kind = product.isCombo === true ? 'combo pack' : String(product.categoryName || 'fireworks').toLowerCase();
+  const kind =
+    product.isGiftBox === true
+      ? 'gift box'
+      : product.isCombo === true
+      ? 'combo pack'
+      : String(product.categoryName || 'fireworks').toLowerCase();
 
   if (body.length >= 60) return clamp(body);
   if (short) return composeDescription([`${product.name} —`, `${short}.`, priceLine, 'Buy online with delivery across India.']);
@@ -449,6 +488,7 @@ const STATIC_PAGE_META = {
 };
 
 const COMBOS_TITLE = 'Combo Packs & Gift Boxes';
+const GIFT_BOXES_TITLE = 'Gift Boxes';
 
 /**
  * The one entry point both the app and the build scripts use.
@@ -499,11 +539,14 @@ export function buildPageSeo(input) {
 
   /* ── product / combo detail ── */
   if (page === 'product-detail' && product) {
-    const isCombo = product.isCombo === true;
-    const crumbLabel = isCombo ? 'Combos' : product.categoryName || 'Shop';
+    const isGiftBox = product.isGiftBox === true;
+    const isCombo = !isGiftBox && product.isCombo === true;
+    const crumbLabel = isGiftBox ? GIFT_BOXES_TITLE : isCombo ? 'Combos' : product.categoryName || 'Shop';
     // Slugified exactly as ProductDetailPage's own breadcrumb does, so the link
     // in the structured data lands on the same listing the on-screen crumb opens.
-    const crumbPath = isCombo
+    const crumbPath = isGiftBox
+      ? buildPath('shop', { view: 'giftboxes' })
+      : isCombo
       ? buildPath('shop', { view: 'combos' })
       : buildPath('shop', { category: slugifySegment(product.categoryName) });
 
@@ -547,16 +590,24 @@ export function buildPageSeo(input) {
     };
   }
 
-  /* ── listings: /shop, /shop/<category>, /combos ── */
+  /* ── listings: /shop, /shop/<category>, /combos, /gift-boxes ── */
   if (page === 'shop' || page === 'category') {
     const combos = isCombosView(params);
+    const giftBoxes = isGiftBoxesView(params);
     const search = String(params.search || '').trim();
 
     let title;
     let description;
     const crumbs = [home, { name: 'Shop', path: '/shop' }];
 
-    if (combos) {
+    if (giftBoxes) {
+      title = GIFT_BOXES_TITLE;
+      description = composeDescription([
+        'Shop AADHI CRACKERS gift boxes — pre-packed, ready-to-gift Sivakasi cracker boxes at one sealed price,',
+        'delivered across India.'
+      ]);
+      crumbs.push({ name: GIFT_BOXES_TITLE, path: buildPath('shop', { view: 'giftboxes' }) });
+    } else if (combos) {
       title = COMBOS_TITLE;
       description = composeDescription([
         'Shop AADHI CRACKERS combo packs and gift boxes — curated Sivakasi cracker assortments at one bundled price,',

@@ -17,6 +17,7 @@ const ErpSalesAndOrdersModule = lazy(() => import('./pages/erp/ErpSalesAndOrders
 const ErpCatalogModule = lazy(() => import('./pages/erp/ErpCatalogModule').then(m => ({ default: m.ErpCatalogModule })));
 const ErpProductFormPage = lazy(() => import('./pages/erp/ErpProductFormPage').then(m => ({ default: m.ErpProductFormPage })));
 const ErpComboModule = lazy(() => import('./pages/erp/ErpComboModule').then(m => ({ default: m.ErpComboModule })));
+const ErpGiftBoxModule = lazy(() => import('./pages/erp/ErpGiftBoxModule').then(m => ({ default: m.ErpGiftBoxModule })));
 const ErpSubCategoriesPage = lazy(() => import('./pages/erp/ErpSubCategoriesPage').then(m => ({ default: m.ErpSubCategoriesPage })));
 const ErpFinanceAndPnlModule = lazy(() => import('./pages/erp/ErpFinanceAndPnlModule').then(m => ({ default: m.ErpFinanceAndPnlModule })));
 const ErpMarketingModule = lazy(() => import('./pages/erp/ErpMarketingModule').then(m => ({ default: m.ErpMarketingModule })));
@@ -69,6 +70,7 @@ function ProtectedAdminShell({ children, currentTab, requiredRoles }: ProtectedA
       categories: '/admin/categories',
       brands: '/admin/brands',
       combos: '/admin/combos',
+      'gift-boxes': '/admin/gift-boxes',
       reviews: '/admin/reviews',
       banners: '/admin/banners',
       finance: '/admin/finance',
@@ -136,6 +138,11 @@ function ComboFormWrapper() {
   return <ErpComboModule mode="form" comboId={id} />;
 }
 
+function GiftBoxFormWrapper() {
+  const { id } = useParams<{ id: string }>();
+  return <ErpGiftBoxModule mode="form" giftBoxId={id} />;
+}
+
 function AdminAppRoutes() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -182,10 +189,12 @@ function AdminAppRoutes() {
       <Route path="/admin/combos" element={<ProtectedAdminShell currentTab="combos"><ErpComboModule /></ProtectedAdminShell>} />
       <Route path="/admin/combos/new" element={<ProtectedAdminShell currentTab="combos"><ErpComboModule mode="form" /></ProtectedAdminShell>} />
       <Route path="/admin/combos/:id" element={<ProtectedAdminShell currentTab="combos"><ComboFormWrapper /></ProtectedAdminShell>} />
-      {/* Legacy gift-box / combo-offer screens were retired — ErpComboModule (/admin/combos) is the
-          supported surface. Old bookmarks are redirected instead of 404ing. */}
-      <Route path="/admin/gift-boxes" element={<Navigate to="/admin/combos" replace />} />
-      <Route path="/admin/gift-boxes/:id" element={<Navigate to="/admin/combos" replace />} />
+      {/* Gift Box — its own module (products flagged `isGiftBox`), separate from Combo. This route
+          used to be a legacy redirect to /admin/combos; it is now the real screen. */}
+      <Route path="/admin/gift-boxes" element={<ProtectedAdminShell currentTab="gift-boxes"><ErpGiftBoxModule /></ProtectedAdminShell>} />
+      <Route path="/admin/gift-boxes/new" element={<ProtectedAdminShell currentTab="gift-boxes"><ErpGiftBoxModule mode="form" /></ProtectedAdminShell>} />
+      <Route path="/admin/gift-boxes/:id" element={<ProtectedAdminShell currentTab="gift-boxes"><GiftBoxFormWrapper /></ProtectedAdminShell>} />
+      {/* The retired combo-offer screens still redirect to the supported combo surface. */}
       <Route path="/admin/combo-offers" element={<Navigate to="/admin/combos" replace />} />
       <Route path="/admin/combo-offers/:id" element={<Navigate to="/admin/combos" replace />} />
       <Route path="/admin/reviews" element={<ProtectedAdminShell currentTab="reviews"><ErpCatalogModule initialSubTab="reviews" /></ProtectedAdminShell>} />

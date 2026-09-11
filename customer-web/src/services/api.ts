@@ -35,9 +35,10 @@ export const normalizeImageUrl = (url?: string | null): string | undefined => {
   return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
 };
 
-/** Combo / gift-box fields (ProductDto.isCombo, comboItemCount and, on the detail
- *  DTO, comboItems / comboItemsTotal). The API may not expose them yet, so every
- *  field stays undefined when absent and the combo UI simply hides itself. */
+/** Combo + gift-box fields (ProductDto.isCombo / isGiftBox, comboItemCount and,
+ *  on the detail DTO, comboItems / comboItemsTotal). The API may not expose them
+ *  yet, so every field stays undefined when absent and the UI simply hides itself.
+ *  A gift box is a sealed single SKU: it carries `isGiftBox` but never comboItems. */
 const mapComboFields = (p: any): Partial<Product> => {
   const rawItems = Array.isArray(p?.comboItems) ? p.comboItems : null;
   const comboItems: ComboItem[] | undefined = rawItems
@@ -61,6 +62,7 @@ const mapComboFields = (p: any): Partial<Product> => {
 
   return {
     isCombo: typeof p?.isCombo === 'boolean' ? p.isCombo : undefined,
+    isGiftBox: typeof p?.isGiftBox === 'boolean' ? p.isGiftBox : undefined,
     comboItemCount: Number.isFinite(count) && count > 0 ? count : undefined,
     comboItems: comboItems && comboItems.length > 0 ? comboItems : undefined,
     comboItemsTotal: Number.isFinite(total) && total > 0 ? total : undefined
@@ -437,18 +439,29 @@ export const api = {
     page?: number;
     pageSize?: number;
     excludeCombos?: boolean;
+    excludeGiftBoxes?: boolean;
   }): Promise<Product[]> {
     try {
       const queryParams: Record<string, any> = { ...params };
       if (params?.category && !params.categorySlug) {
         queryParams.categorySlug = params.category.toLowerCase().replace(/\s+/g, '-');
       }
-      // Only ever send the flag when it is on; never `excludeCombos=false`.
+      // Only ever send the flags when they are on; never `exclude…=false`.
       if (params?.excludeCombos) queryParams.excludeCombos = true;
       else delete queryParams.excludeCombos;
+      if (params?.excludeGiftBoxes) queryParams.excludeGiftBoxes = true;
+      else delete queryParams.excludeGiftBoxes;
       const res = await apiClient.get('/products', { params: queryParams });
       if (res.data?.data?.items) {
-        return mapProductList(res.data.data.items);
+        const list = mapProductList(res.data.data.items);
+        // Belt and braces: the flags are honoured server-side, but a product that
+        // slips through still must not appear in an ordinary listing. Products
+        // whose DTO omits the flag entirely are left alone (undefined ≠ true).
+        return list.filter(
+          (p) =>
+            !(params?.excludeCombos && p.isCombo === true) &&
+            !(params?.excludeGiftBoxes && p.isGiftBox === true)
+        );
       }
       return [];
     } catch (error) {
@@ -475,7 +488,7 @@ export const api = {
   async getFeaturedProducts(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/featured');
-      return mapProductList(res.data?.data).filter((p) => !p.isCombo);
+      return mapProductList(res.data?.data).filter((p) => !p.isCombo && !p.isGiftBox);
     } catch {
       return [];
     }
@@ -484,7 +497,7 @@ export const api = {
   async getBestSellers(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/best-sellers');
-      return mapProductList(res.data?.data).filter((p) => !p.isCombo);
+      return mapProductList(res.data?.data).filter((p) => !p.isCombo && !p.isGiftBox);
     } catch {
       return [];
     }
@@ -493,16 +506,28 @@ export const api = {
   async getNewArrivals(): Promise<Product[]> {
     try {
       const res = await apiClient.get('/products/new-arrivals');
-      return mapProductList(res.data?.data).filter((p) => !p.isCombo);
+      return mapProductList(res.data?.data).filter((p) => !p.isCombo && !p.isGiftBox);
     } catch {
       return [];
     }
   },
 
+  /** Gift boxes: pre-packed sealed SKUs, their own storefront section.
+   *  Mirrors getCombos() — the endpoint has historically returned false
+   *  positives, so the `isGiftBox` flag is re-checked here and the list is
+   *  de-duplicated by id. Any failure collapses to an empty list, and the
+   *  gift-box UI renders nothing at all. */
   async getGiftBoxes(): Promise<Product[]> {
     try {
-      const res = await apiClient.get('/products/gift-boxes');
-      return mapProductList(res.data?.data);
+      const res = await apiClient.get('/products/gift-boxes', { params: { count: 50 } });
+      const seen = new Set<string>();
+      return mapProductList(res.data?.data).filter((p) => {
+        if (p.isGiftBox !== true) return false;
+        const key = String(p.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     } catch {
       return [];
     }
@@ -523,6 +548,8 @@ export const api = {
       const seen = new Set<string>();
       return mapProductList(res.data?.data).filter((p) => {
         if (p.isCombo !== true) return false;
+        // Gift boxes are their own module — never mixed into the combos list.
+        if (p.isGiftBox === true) return false;
         const key = String(p.id);
         if (seen.has(key)) return false;
         seen.add(key);

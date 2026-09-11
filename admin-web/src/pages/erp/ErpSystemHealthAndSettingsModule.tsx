@@ -16,7 +16,6 @@ import {
   Mail,
   MessageSquare,
   Image as ImageIcon,
-  Upload,
   Building2,
   Globe,
   FileText,
@@ -24,7 +23,6 @@ import {
   Plus,
   Trash2,
   X,
-  Link as LinkIcon,
   Activity,
   AlertTriangle,
   Clock,
@@ -40,7 +38,7 @@ import {
 import { SystemSetting, SystemHealthReport } from '../../types';
 import { api, settingsApi, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
-import { normalizeImageUrl } from '../../utils/imageUrl';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 
 interface ErpSystemHealthAndSettingsModuleProps {
   initialSubTab?: 'settings' | 'health' | 'backup';
@@ -316,11 +314,11 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
   const [health, setHealth] = useState<SystemHealthReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRequeueing, setIsRequeueing] = useState(false);
   // Structured editors for the JSON-valued settings (serialized on Save).
   const [termsList, setTermsList] = useState<string[]>([]);
   const [termsShowErrors, setTermsShowErrors] = useState(false);
   const [zoneRows, setZoneRows] = useState<DeliveryZoneRow[]>([]);
-  const [logoUrlInput, setLogoUrlInput] = useState('');
 
   const loadData = async () => {
     setIsLoading(true);
@@ -351,6 +349,36 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Retries every undelivered outbox event. Each one is a real customer notification — an order
+   * confirmation, a dispatch message — that was raised and never sent, and the background
+   * processor gives up on a message after five attempts and never revisits it.
+   *
+   * The API only ever requeues messages that were never delivered, so pressing this twice cannot
+   * send anyone a duplicate. Delivery happens on the processor's next pass, within about a
+   * minute, which is why the counts are reloaded rather than assumed to be zero.
+   */
+  const handleRequeueOutbox = async () => {
+    setIsRequeueing(true);
+    try {
+      const { requeuedCount } = await api.requeueOutbox();
+      if (requeuedCount === 0) {
+        showToast('Nothing left to retry — the queue is already clear', 'info');
+      } else {
+        showToast(
+          `${requeuedCount} notification${requeuedCount === 1 ? '' : 's'} queued for another attempt`,
+          'success'
+        );
+      }
+      const refreshed = await api.getSystemHealth();
+      setHealth(refreshed);
+    } catch {
+      showToast('Could not retry the undelivered notifications', 'error');
+    } finally {
+      setIsRequeueing(false);
+    }
+  };
 
   // ?section=company (etc.) deep link into the settings left sub-nav — reacts to in-app navigation too
   useEffect(() => {
@@ -392,6 +420,21 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
 
   const setValue = (key: string, value: string) =>
     setSettingValues((prev) => ({ ...prev, [key]: value }));
+
+  /**
+   * The Logo section and the Company section edit the same `Store.LogoUrl` key. Neither writes
+   * through immediately — an uploaded/pasted url is staged like every other setting value and
+   * persisted by that section's Save Changes button.
+   */
+  const applyLogoUrl = (url: string) => {
+    setValue(LOGO_KEY, url);
+    showToast(
+      url
+        ? 'Logo applied — click Save Changes to store it'
+        : 'Logo cleared — click Save Changes to store it',
+      'info'
+    );
+  };
 
   /** PUTs one JSON-valued key if it changed (an empty editor over a missing key counts as unchanged). */
   const saveJsonSetting = async (key: string, serialized: string, emptyShape: string) => {
@@ -601,65 +644,18 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
             {isLoading ? (
               <div className="py-10 text-center text-xs text-slate-400">Loading settings...</div>
             ) : settingsSection === 'logo' ? (
-              <div className="space-y-4">
-                <div className="w-40 h-40 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
-                  {settingValues[LOGO_KEY] ? (
-                    <img
-                      src={settingValues[LOGO_KEY]}
-                      alt="Store logo"
-                      className="max-w-full max-h-full object-contain"
-                    />
-                  ) : (
-                    <div className="text-center text-slate-400 text-xs px-4">
-                      <ImageIcon className="w-8 h-8 mx-auto mb-2" />
-                      <span>No logo uploaded yet</span>
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-1.5 max-w-md">
-                  <label className="text-[11px] font-bold text-navy flex items-center justify-between">
-                    <span>Google Drive Logo URL</span>
-                    <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
-                      <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      <input
-                        type="text"
-                        value={logoUrlInput}
-                        onChange={(e) => setLogoUrlInput(e.target.value)}
-                        placeholder="Paste Google Drive link or image URL..."
-                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            if (logoUrlInput.trim()) {
-                              setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
-                              setLogoUrlInput('');
-                              showToast('Logo URL applied (click Save Changes to save)', 'success');
-                            }
-                          }
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (logoUrlInput.trim()) {
-                          setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
-                          setLogoUrlInput('');
-                          showToast('Logo URL applied (click Save Changes to save)', 'success');
-                        }
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold shadow-xs flex-shrink-0"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-slate-400">
-                    Supports Google Drive sharing links. Automatically converted to high-resolution image.
-                  </p>
-                </div>
+              <div className="max-w-md">
+                <ImageUploadField
+                  label="Store Logo"
+                  folder="settings"
+                  value={settingValues[LOGO_KEY] || ''}
+                  onChange={applyLogoUrl}
+                  previewClassName="h-40"
+                  previewFit="contain"
+                  maxEdge={800}
+                  urlPlaceholder="…or paste a Google Drive / web link"
+                  hint={'Stored in the "' + LOGO_KEY + '" setting — click Save Changes to persist it.'}
+                />
               </div>
             ) : settingsSection === 'website' ? (
               <div className="space-y-4 text-xs">
@@ -979,72 +975,18 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                 {/* Company section also carries the brand logo (same Store.LogoUrl key as the Logo section) */}
                 {settingsSection === 'company' && (
                   <div className="pt-3 border-t border-slate-100">
-                    <label className="font-bold text-navy">Logo</label>
-                    <div className="mt-2 flex items-start space-x-4">
-                      <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
-                        {settingValues[LOGO_KEY] ? (
-                          <img
-                            src={settingValues[LOGO_KEY]}
-                            alt="Company logo"
-                            className="max-w-full max-h-full object-contain"
-                          />
-                        ) : (
-                          <ImageIcon className="w-7 h-7 text-slate-300" />
-                        )}
-                      </div>
-                      <div className="space-y-2 flex-1 max-w-md">
-                        <label className="text-[11px] font-bold text-navy flex items-center justify-between">
-                          <span>Google Drive Logo URL</span>
-                          <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <div className="flex items-center space-x-2 flex-1 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
-                            <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                            <input
-                              type="text"
-                              value={logoUrlInput}
-                              onChange={(e) => setLogoUrlInput(e.target.value)}
-                              placeholder="Paste Google Drive link or image URL..."
-                              className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  if (logoUrlInput.trim()) {
-                                    setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
-                                    setLogoUrlInput('');
-                                    showToast('Logo URL applied (click Save Changes to save)', 'success');
-                                  }
-                                }
-                              }}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (logoUrlInput.trim()) {
-                                setValue(LOGO_KEY, normalizeImageUrl(logoUrlInput.trim()) ?? logoUrlInput.trim());
-                                setLogoUrlInput('');
-                                showToast('Logo URL applied (click Save Changes to save)', 'success');
-                              }
-                            }}
-                            className="px-3 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-colors shrink-0 shadow-2xs"
-                          >
-                            Apply
-                          </button>
-                        </div>
-                        {settingValues[LOGO_KEY] && (
-                          <button
-                            type="button"
-                            onClick={() => setValue(LOGO_KEY, '')}
-                            className="text-[11px] text-rose-500 hover:text-rose-700 font-semibold"
-                          >
-                            Remove Logo
-                          </button>
-                        )}
-                        <p className="text-[10px] text-slate-400">
-                          Paste a shareable Google Drive link. Stored in the "{LOGO_KEY}" setting.
-                        </p>
-                      </div>
+                    <div className="max-w-md">
+                      <ImageUploadField
+                        label="Logo"
+                        folder="settings"
+                        value={settingValues[LOGO_KEY] || ''}
+                        onChange={applyLogoUrl}
+                        previewClassName="h-28"
+                        previewFit="contain"
+                        maxEdge={800}
+                        urlPlaceholder="…or paste a Google Drive / web link"
+                        hint={'Stored in the "' + LOGO_KEY + '" setting — click Save Changes to persist it.'}
+                      />
                     </div>
                   </div>
                 )}
@@ -1127,6 +1069,22 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                       <div className="text-[10px] text-slate-500 font-mono">
                         {healthText(health.outboxFailedCount)} failed &middot; {healthText(health.outboxDeadLetterCount)} dead-letter
                       </div>
+
+                      {/* A dead-lettered event is a customer notification that was raised and never
+                          sent, and the queue never retries it on its own. Without this the number
+                          above could only be watched, never acted on. */}
+                      {deadLetters > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleRequeueOutbox}
+                          disabled={isRequeueing}
+                          className="mt-2 w-full px-3 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {isRequeueing
+                            ? 'Retrying…'
+                            : `Retry ${deadLetters} undelivered notification${deadLetters === 1 ? '' : 's'}`}
+                        </button>
+                      )}
                     </div>
 
                     <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-1">

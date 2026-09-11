@@ -14,7 +14,9 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { normalizeImageUrl } from '../../utils/imageUrl';
-import { api } from '../../services/api';
+import { resizeImageFile } from '../../utils/imageResize';
+import { api, getApiErrorDetails } from '../../services/api';
+import { useToast } from '../../context/ToastContext';
 
 interface ImageViewerModalProps {
   isOpen: boolean;
@@ -41,6 +43,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   utrNumber,
   onScreenshotUpdated
 }) => {
+  const { showToast } = useToast();
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [hasError, setHasError] = useState(false);
@@ -133,32 +136,15 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
     }
     setIsUploading(true);
     try {
-      // Compress with canvas to ~100KB JPEG
+      // Shared downscale + EXIF-rotate path (utils/imageResize), pinned to JPEG because this
+      // order endpoint takes a base64 payload rather than an uploaded R2 url. It never throws:
+      // an undecodable file comes back untouched and is still submitted.
+      const resized = await resizeImageFile(file, { maxEdge: 1600, outputType: 'image/jpeg' });
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let { width, height } = img;
-            const max = 1600;
-            if (width > max || height > max) {
-              const ratio = Math.min(max / width, max / height);
-              width = Math.round(width * ratio);
-              height = Math.round(height * ratio);
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return resolve(reader.result as string);
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', 0.82));
-          };
-          img.onerror = () => resolve(reader.result as string);
-          img.src = reader.result as string;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error || new Error('Screenshot could not be read'));
+        reader.readAsDataURL(resized.file);
       });
 
       if (orderId) {
@@ -175,7 +161,8 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
       setTimeout(() => setUploadSuccess(false), 3000);
       onScreenshotUpdated?.(base64);
     } catch (err) {
-      console.error('Failed to upload screenshot', err);
+      const { message } = getApiErrorDetails(err);
+      showToast(message || 'Failed to upload payment proof', 'error');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

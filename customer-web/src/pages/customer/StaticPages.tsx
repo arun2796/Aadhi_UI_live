@@ -128,7 +128,7 @@ export const ContactUsPage: React.FC = () => {
               <Mail className="w-5 h-5 text-purple-light flex-shrink-0 mt-0.5" />
               <div>
                 <strong className="text-white block mb-0.5">Email Inquiries:</strong>
-                support@aadhicrackers.com / sales@aadhicrackers.com
+                support@aadhicracker.in / sales@aadhicracker.in
               </div>
             </div>
 

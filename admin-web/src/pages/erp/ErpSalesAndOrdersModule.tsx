@@ -344,7 +344,7 @@ const INVOICE_COMPANY = {
   name: 'AADHI CRACKERS',
   address: '3/1233/A8, Naranapuram Main Road, Sivakasi - 626 189, Tamil Nadu.',
   mobile: '+91 94428 26566',
-  email: 'support@aadhicrackers.com'
+  email: 'support@aadhicracker.in'
 };
 
 const INVOICE_BANK = {

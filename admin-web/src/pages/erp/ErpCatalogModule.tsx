@@ -24,6 +24,7 @@ import { brandApi } from '../../services/brandApi';
 import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { normalizeImageUrl } from '../../utils/imageUrl';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 import { Pagination } from '../../components/common/Pagination';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
 
@@ -166,7 +167,10 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         page: productsPage,
         pageSize: PRODUCTS_PAGE_SIZE,
         search: debouncedSearch || undefined,
-        categoryId: selectedCategoryFilter !== 'all' ? selectedCategoryFilter : undefined
+        categoryId: selectedCategoryFilter !== 'all' ? selectedCategoryFilter : undefined,
+        // Gift boxes are products too, but they are managed in Catalog → Gift Box
+        // (/admin/gift-boxes) and would otherwise clutter this ordinary product list.
+        excludeGiftBoxes: true
       });
       setProducts([...res]);
       setProductsTotal(res.totalCount);
@@ -1351,37 +1355,14 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="font-bold text-navy flex items-center justify-between">
-                  <span>Category Image (Google Drive or Web URL)</span>
-                  <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
-                </label>
-                <input
-                  type="text"
-                  value={categoryFormData.imageUrl || ''}
-                  onChange={(e) => setCategoryFormData({ ...categoryFormData, imageUrl: e.target.value })}
-                  placeholder="Paste Google Drive link (e.g. drive.google.com/file/d/...) or web URL..."
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple text-xs"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Supports Google Drive sharing links. They automatically convert to direct high-res images.
-                </p>
-                {categoryFormData.imageUrl && (
-                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Preview</div>
-                    <div className="h-28 rounded-lg overflow-hidden bg-slate-200">
-                      <img
-                        src={normalizeImageUrl(categoryFormData.imageUrl) || categoryFormData.imageUrl}
-                        alt="Category Preview"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              <ImageUploadField
+                label="Category Image"
+                folder="categories"
+                value={categoryFormData.imageUrl || ''}
+                onChange={(url) => setCategoryFormData((prev) => ({ ...prev, imageUrl: url }))}
+                previewClassName="h-28"
+                urlPlaceholder="…or paste a Google Drive / web link"
+              />
 
               <div className="flex items-center space-x-2 pt-2">
                 <input
@@ -1494,48 +1475,27 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="font-bold text-navy flex items-center justify-between">
-                  <span>Banner Image (Google Drive or Web URL) *</span>
-                  <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
-                </label>
-                <input
-                  type="text"
-                  value={bannerFormData.imageUrl || ''}
-                  onChange={(e) => setBannerFormData({ ...bannerFormData, imageUrl: e.target.value })}
-                  placeholder="Paste Google Drive share link (e.g. drive.google.com/file/d/...) or web URL..."
-                  className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple text-xs"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Recommended size for {bannerFormData.placement === 'Mobile' ? 'Mobile' : 'Web'}:{' '}
-                  <span className="font-mono text-purple font-semibold">
-                    {bannerFormData.placement === 'Mobile' ? '1080 × 1350 px or 750 × 400 px' : '1920 × 600 px'}
-                  </span>
-                </p>
-
-                {/* Live Image Preview */}
-                {bannerFormData.imageUrl && (
-                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Live Preview</div>
-                    <div
-                      className={`overflow-hidden rounded-lg bg-slate-200 ${
-                        bannerFormData.placement === 'Mobile'
-                          ? 'aspect-[4/5] max-h-44 mx-auto'
-                          : 'aspect-[16/6] max-h-32'
-                      }`}
-                    >
-                      <img
-                        src={normalizeImageUrl(bannerFormData.imageUrl) || bannerFormData.imageUrl}
-                        alt="Preview"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
+              <ImageUploadField
+                label="Banner Image"
+                folder="banners"
+                required
+                value={bannerFormData.imageUrl || ''}
+                onChange={(url) => setBannerFormData((prev) => ({ ...prev, imageUrl: url }))}
+                previewClassName={
+                  bannerFormData.placement === 'Mobile'
+                    ? 'aspect-[4/5] max-h-44 mx-auto'
+                    : 'aspect-[16/6] max-h-32'
+                }
+                maxEdge={bannerFormData.placement === 'Mobile' ? 1350 : 1920}
+                urlPlaceholder="…or paste a Google Drive / web link"
+                hint={`Recommended size for ${
+                  bannerFormData.placement === 'Mobile' ? 'Mobile' : 'Web'
+                }: ${
+                  bannerFormData.placement === 'Mobile'
+                    ? '1080 × 1350 px or 750 × 400 px'
+                    : '1920 × 600 px'
+                }`}
+              />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1676,16 +1636,16 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                   className="w-full p-2.5 rounded-xl border border-slate-200 outline-none text-navy focus:border-purple"
                 />
               </div>
-              <div>
-                <label className="font-bold text-navy block mb-1">Logo / Image URL (Optional)</label>
-                <input
-                  type="text"
-                  value={brandFormData.logoUrl}
-                  onChange={(e) => setBrandFormData({ ...brandFormData, logoUrl: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none text-navy focus:border-purple"
-                />
-              </div>
+              <ImageUploadField
+                label="Brand Logo (Optional)"
+                folder="brands"
+                value={brandFormData.logoUrl}
+                onChange={(url) => setBrandFormData((prev) => ({ ...prev, logoUrl: url }))}
+                previewClassName="h-28"
+                previewFit="contain"
+                maxEdge={800}
+                urlPlaceholder="…or paste a logo URL"
+              />
             </div>
             <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
               <button

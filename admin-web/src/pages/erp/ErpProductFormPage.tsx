@@ -5,7 +5,6 @@ import {
   Star,
   Plus,
   ImageIcon,
-  Link as LinkIcon,
   Wand2,
   X,
   Sparkles,
@@ -20,6 +19,7 @@ import { flattenCategories } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { normalizeImageUrl } from '../../utils/imageUrl';
 import { ErpLoadingState } from '../../components/common/ErpLoadingState';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 
 interface ErpProductFormPageProps {
   productId?: string;
@@ -93,10 +93,6 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
   const [newBrandName, setNewBrandName] = useState('');
   const [newBrandDesc, setNewBrandDesc] = useState('');
   const [isCreatingBrand, setIsCreatingBrand] = useState(false);
-
-  // Product Image Google Drive helpers
-  const [imageUrlInput, setImageUrlInput] = useState('');
-  const [galleryBatchUrls, setGalleryBatchUrls] = useState('');
 
   // ---- Combo awareness (read-only) ---------------------------------------
   // Combos are built in Catalog → Combo, never here. The form only remembers how many
@@ -226,7 +222,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
 
   // ---- Image Handling ----------------------------------------------------
 
-  const setPrimaryImageUrl = (rawUrl: string) => {
+  const setPrimaryImageUrl = (rawUrl: string, notify = true) => {
     if (!rawUrl.trim()) return;
     const normalized = normalizeImageUrl(rawUrl.trim()) ?? rawUrl.trim();
     setGallery((prev) => {
@@ -236,17 +232,12 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       }
       return [{ url: normalized, isPrimary: true }, ...prev.map((g) => ({ ...g, isPrimary: false }))];
     });
-    setImageUrlInput('');
-    showToast('Primary image updated!', 'success');
+    if (notify) showToast('Primary image updated!', 'success');
   };
 
-  const addMultipleGalleryUrls = (urlsText: string) => {
-    if (!urlsText.trim()) return;
-    const tokens = urlsText
-      .split(/[\n,]+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
-
+  /** Appends uploaded/pasted gallery urls, de-duplicated; the first image added becomes primary. */
+  const addGalleryUrls = (urls: string[]) => {
+    const tokens = (urls || []).map((t) => (t || '').trim()).filter((t) => t.length > 0);
     if (tokens.length === 0) return;
 
     let addedCount = 0;
@@ -262,9 +253,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       return current;
     });
 
-    if (addedCount > 0) {
-      showToast(`Added ${addedCount} image${addedCount > 1 ? 's' : ''} to gallery`, 'success');
-    } else {
+    if (addedCount === 0) {
       showToast('Image already in gallery', 'info');
     }
   };
@@ -893,46 +882,23 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                       </div>
                       <p className="text-xs font-bold text-navy">No Primary Image Set</p>
                       <p className="text-[10px] text-slate-400 mt-1 max-w-[200px]">
-                        Paste a Google Drive image link below to set the primary image
+                        Upload a photo below (or paste a link) to set the primary image
                       </p>
                     </div>
                   )}
                 </div>
 
-                {/* Google Drive Link Input for Primary Image */}
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-navy flex items-center justify-between">
-                    <span>Set Primary Image</span>
-                    <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <div className="flex items-center space-x-2 flex-1 bg-white border border-slate-200 px-3 py-2 rounded-xl focus-within:border-purple transition-all">
-                      <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      <input
-                        type="text"
-                        value={imageUrlInput}
-                        onChange={(e) => setImageUrlInput(e.target.value)}
-                        placeholder="Paste Google Drive share link..."
-                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            if (imageUrlInput.trim()) setPrimaryImageUrl(imageUrlInput.trim());
-                          }
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (imageUrlInput.trim()) setPrimaryImageUrl(imageUrlInput.trim());
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-all flex-shrink-0 shadow-xs"
-                    >
-                      Set Primary
-                    </button>
-                  </div>
-                </div>
+                {/* Primary image: upload to R2 (preferred) or paste an existing link */}
+                <ImageUploadField
+                  label="Set Primary Image"
+                  folder="products"
+                  hidePreview
+                  value={primaryImage?.url || ''}
+                  onChange={(url) => {
+                    if (url) setPrimaryImageUrl(url, false);
+                  }}
+                  urlPlaceholder="…or paste a Google Drive / web link"
+                />
 
                 {/* Gallery Images Section */}
                 <div className="pt-3 border-t border-slate-200 space-y-3">
@@ -979,32 +945,15 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     </div>
                   )}
 
-                  {/* Batch Add Images via Multiple Drive Links */}
-                  <div className="space-y-1.5 pt-1">
-                    <label className="text-[11px] font-bold text-navy">Add Gallery Images (Google Drive)</label>
-                    <textarea
-                      rows={2}
-                      value={galleryBatchUrls}
-                      onChange={(e) => setGalleryBatchUrls(e.target.value)}
-                      placeholder={"Paste Google Drive links (one per line or comma separated)..."}
-                      className="w-full p-2.5 rounded-xl border border-slate-200 bg-white outline-none text-xs text-navy font-mono placeholder-slate-400 focus:border-purple transition-all"
-                    />
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (galleryBatchUrls.trim()) {
-                            addMultipleGalleryUrls(galleryBatchUrls.trim());
-                            setGalleryBatchUrls('');
-                          }
-                        }}
-                        className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition-all shadow-xs flex items-center space-x-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add to Gallery</span>
-                      </button>
-                    </div>
-                  </div>
+                  {/* Gallery: upload several files at once, or paste a list of links */}
+                  <ImageUploadField
+                    label="Add Gallery Images"
+                    folder="products"
+                    multiple
+                    onUpload={addGalleryUrls}
+                    urlPlaceholder="…or paste Google Drive links (one per line or comma separated)"
+                    className="pt-1"
+                  />
                 </div>
               </div>
             </div>

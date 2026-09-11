@@ -496,7 +496,7 @@ export const Screen10ContactUs: React.FC<{ onBack: () => void }> = ({ onBack }) 
 
         <div className="flex items-center space-x-3 text-slate-600">
           <Mail className="w-4 h-4 text-purple flex-shrink-0" />
-          <span>support@aadhicrackers.com</span>
+          <span>support@aadhicracker.in</span>
         </div>
 
         <div className="flex items-start space-x-3 text-slate-600 pt-2 border-t border-slate-100">

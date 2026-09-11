@@ -12,6 +12,7 @@ export * from './financeApi';
 export * from './reportApi';
 export * from './auditApi';
 export * from './settingsApi';
+export * from './uploadApi';
 
 import { apiClient, TOKEN_STORAGE_KEY, UNAUTHORIZED_EVENT, getApiErrorDetails, wrapPagedResult } from './apiClient';
 import { authApi } from './authApi';
@@ -26,6 +27,7 @@ import { financeApi } from './financeApi';
 import { reportApi } from './reportApi';
 import { auditApi } from './auditApi';
 import { settingsApi } from './settingsApi';
+import { uploadApi } from './uploadApi';
 import {
   Order,
   StoreSettings,
@@ -88,6 +90,7 @@ export const api = {
   createProduct: productApi.createProduct,
   updateProduct: productApi.updateProduct,
   deleteProduct: productApi.deleteProduct,
+  getGiftBoxes: productApi.getGiftBoxes,
   getProductReviews: async (params?: { productId?: string; status?: string; page?: number; pageSize?: number }) => {
     const res = await apiClient.get('/reviews', { params });
     return (res.data?.data?.items || res.data?.data || []) as ProductReview[];
@@ -288,7 +291,28 @@ export const api = {
     const data = (res.data?.data ?? {}) as SystemHealthReport;
     return { ...data, apiLatencyMs };
   },
-  updateSetting: settingsApi.updateSetting
+  updateSetting: settingsApi.updateSetting,
+
+  /**
+   * POST /admin/outbox/requeue — puts undelivered notification events back in the queue.
+   *
+   * A message that fails five times is parked as DeadLetter and the background processor never
+   * looks at it again, so the dead-letter count on the health screen is not self-clearing: each
+   * one is a customer notification that was raised and never sent. Requeuing is the only way to
+   * deliver them once the cause is fixed.
+   *
+   * Already-delivered messages are never requeued by the API, so this cannot double-send.
+   */
+  requeueOutbox: async (): Promise<{ requeuedCount: number }> => {
+    const res = await apiClient.post<{ data?: { requeuedCount?: number } }>(
+      '/admin/outbox/requeue',
+      { confirmAll: true }
+    );
+    return { requeuedCount: res.data?.data?.requeuedCount ?? 0 };
+  },
+
+  // Image Uploads (Cloudflare R2 via POST /uploads/image)
+  uploadImage: uploadApi.uploadImage
 };
 
 export default api;

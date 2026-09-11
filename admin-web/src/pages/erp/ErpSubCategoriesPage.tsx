@@ -5,6 +5,7 @@ import { Category } from '../../types';
 import { api, getApiErrorDetails } from '../../services/api';
 import { flattenCategories, slugifyCategoryName } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 import { Pagination } from '../../components/common/Pagination';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
 import { ErpLoadingState } from '../../components/common/ErpLoadingState';
@@ -112,6 +113,7 @@ export const ErpSubCategoriesPage: React.FC = () => {
       name: '',
       slug: '',
       description: '',
+      imageUrl: '',
       parentCategoryId: parentFilter !== 'all' ? parentFilter : parentCategories[0]?.id || '',
       displayOrder: subCategories.length + 1,
       isActive: true
@@ -141,7 +143,8 @@ export const ErpSubCategoriesPage: React.FC = () => {
         // otherwise omit it so the backend generates the slug from the name.
         slug: formData.slug?.trim() || undefined,
         description: formData.description,
-        imageUrl: formData.imageUrl,
+        // Sent verbatim (an empty string clears the image); only omitted when never set.
+        imageUrl: formData.imageUrl?.trim(),
         parentCategoryId: formData.parentCategoryId,
         displayOrder: formData.displayOrder ?? 1,
         isActive: formData.isActive ?? true
@@ -409,6 +412,15 @@ export const ErpSubCategoriesPage: React.FC = () => {
                   className={inputCls}
                 />
               </div>
+
+              <ImageUploadField
+                label="Sub Category Image"
+                folder="categories"
+                value={formData.imageUrl || ''}
+                onChange={(url) => setFormData((prev) => ({ ...prev, imageUrl: url }))}
+                previewClassName="h-28"
+                urlPlaceholder="…or paste a Google Drive / web link"
+              />
 
               <div className="flex items-center space-x-2 pt-2">
                 <input

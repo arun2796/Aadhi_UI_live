@@ -39,8 +39,8 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
       title: 'Shop',
       links: [
         { label: 'All Products', page: 'shop' },
-        { label: 'Gift Boxes', page: 'shop', params: { category: 'gift-boxes' } },
-        { label: 'Combo Offers', page: 'shop', params: { category: 'combo-offers' } },
+        { label: 'Gift Boxes', page: 'shop', params: { view: 'giftboxes' } },
+        { label: 'Combo Offers', page: 'shop', params: { view: 'combos' } },
         { label: 'Sparklers', page: 'shop', params: { category: 'sparklers' } },
         { label: 'Best Sellers', page: 'shop', params: { sortBy: 'popular' } }
       ]

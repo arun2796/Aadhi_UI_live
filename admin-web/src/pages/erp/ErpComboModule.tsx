@@ -6,7 +6,6 @@ import {
   Edit2,
   Gift,
   ImageIcon,
-  Link as LinkIcon,
   Minus,
   Plus,
   Search,
@@ -21,6 +20,7 @@ import { productApi, ProductWritePayload } from '../../services/productApi';
 import { flattenCategories } from '../../services/categoryApi';
 import { useToast } from '../../context/ToastContext';
 import { normalizeImageUrl } from '../../utils/imageUrl';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 import { ErpLoadingState } from '../../components/common/ErpLoadingState';
 import { Pagination } from '../../components/common/Pagination';
 import { ErpConfirmDialog } from './ErpConfirmDialog';
@@ -460,7 +460,6 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
   const [price, setPrice] = useState<number | ''>('');
   const [compareAtPrice, setCompareAtPrice] = useState<number | ''>('');
   const [imageUrl, setImageUrl] = useState('');
-  const [imageUrlInput, setImageUrlInput] = useState('');
 
   const nameRef = useRef<HTMLInputElement>(null);
   const skuRef = useRef<HTMLInputElement>(null);
@@ -721,10 +720,11 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
 
   const applyImageUrl = (rawUrl: string) => {
     const trimmed = rawUrl.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setImageUrl('');
+      return;
+    }
     setImageUrl(normalizeImageUrl(trimmed) ?? trimmed);
-    setImageUrlInput('');
-    showToast('Combo image updated!', 'success');
   };
 
   // ---- Save --------------------------------------------------------------
@@ -1394,57 +1394,34 @@ const ErpComboFormView: React.FC<{ comboId?: string }> = ({ comboId }) => {
                       </div>
                       <p className="text-xs font-bold text-navy">No Combo Image Set</p>
                       <p className="text-[10px] text-slate-400 mt-1 max-w-[200px]">
-                        Paste a Google Drive image link below to set the combo image
+                        Upload a photo below (or paste a link) to set the combo image
                       </p>
                     </div>
                   )}
                 </div>
 
-                {/* Google Drive link input */}
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-navy flex items-center justify-between">
-                    <span>Product Image</span>
-                    <span className="text-[10px] text-purple font-semibold">Auto-converts Drive links</span>
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <div className="flex items-center space-x-2 flex-1 bg-white border border-slate-200 px-3 py-2 rounded-xl focus-within:border-purple transition-all">
-                      <LinkIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      <input
-                        type="text"
-                        value={imageUrlInput}
-                        onChange={(e) => setImageUrlInput(e.target.value)}
-                        placeholder="Paste Google Drive share link..."
-                        aria-label="Google Drive image link"
-                        className="w-full bg-transparent outline-none text-xs text-navy placeholder-slate-400"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            applyImageUrl(imageUrlInput);
-                          }
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => applyImageUrl(imageUrlInput)}
-                      className="px-3.5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold transition-all flex-shrink-0 shadow-xs"
-                    >
-                      Set Image
-                    </button>
-                  </div>
-                  {imageUrl && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setImageUrl('');
-                        showToast('Combo image removed', 'info');
-                      }}
-                      className="text-[10px] font-bold text-slate-400 hover:text-red-500 transition-colors"
-                    >
-                      Remove image
-                    </button>
-                  )}
-                </div>
+                {/* Upload to R2 (preferred) or paste an existing link */}
+                <ImageUploadField
+                  label="Set Combo Image"
+                  folder="combos"
+                  hidePreview
+                  value={imageUrl}
+                  onChange={applyImageUrl}
+                  urlPlaceholder="…or paste a Google Drive / web link"
+                />
+
+                {imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImageUrl('');
+                      showToast('Combo image removed', 'info');
+                    }}
+                    className="text-[10px] font-bold text-slate-400 hover:text-red-500 transition-colors"
+                  >
+                    Remove image
+                  </button>
+                )}
               </div>
 
               {/* Active toggle */}

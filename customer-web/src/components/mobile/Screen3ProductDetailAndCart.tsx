@@ -139,15 +139,18 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
   const inStock = product.isActive !== false;
   const off = pctOff(product.price, product.compareAtPrice, product.discountPercentage);
 
-  // Combo contents — hidden entirely until the API sends `comboItems`.
-  const comboItems = Array.isArray(product.comboItems) ? product.comboItems : [];
-  const comboItemsTotal = product.comboItemsTotal ?? 0;
+  // A gift box is sold as ONE sealed SKU: it never lists what is inside, so the
+  // combo contents block is suppressed for it even if the DTO carried items.
+  const isGiftBox = product.isGiftBox === true;
+  const comboItems = !isGiftBox && Array.isArray(product.comboItems) ? product.comboItems : [];
+  const comboItemsTotal = isGiftBox ? 0 : product.comboItemsTotal ?? 0;
 
-
-  const isCombo = product.isCombo === true;
-  const crumbLabel = isCombo ? 'Combos' : product.categoryName || 'Crackers';
+  const isCombo = !isGiftBox && product.isCombo === true;
+  const crumbLabel = isGiftBox ? 'Gift Boxes' : isCombo ? 'Combos' : product.categoryName || 'Crackers';
   const goToCrumb = () =>
-    isCombo
+    isGiftBox
+      ? onNavigate('shop', { view: 'giftboxes' })
+      : isCombo
       ? onNavigate('shop', { view: 'combos' })
       : onNavigate('category', { category: product.categoryId || product.categoryName });
 

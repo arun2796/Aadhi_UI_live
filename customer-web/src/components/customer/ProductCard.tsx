@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, ShoppingBag, Eye, Check, Gift } from 'lucide-react';
+import { Heart, ShoppingBag, Eye, Check, Gift, Package } from 'lucide-react';
 import { Product } from '../../types';
 import { RatingStars } from '../common/CommonComponents';
 import productPlaceholder from '../../assets/product-placeholder.svg';
@@ -11,9 +11,19 @@ interface ProductCardProps {
   product: Product;
   onNavigate: (page: string, params?: any) => void;
   onQuickView?: (product: Product) => void;
+  /**
+   * Set on the handful of cards that are visible without scrolling — the first row of the first
+   * grid on a page. Those images are the LCP candidate, so they are fetched eagerly and at high
+   * priority; everything else stays lazy.
+   *
+   * Why this is a prop and not a default: `loading="lazy"` on an above-the-fold image makes LCP
+   * WORSE, because the browser defers it behind the initial layout pass instead of racing it.
+   * Lazy-loading everything is the mistake this exists to prevent.
+   */
+  priority?: boolean;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, onQuickView }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, onQuickView, priority = false }) => {
   const { addToCart, items } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
   const { showToast } = useToast();
@@ -23,8 +33,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
   const isOutOfStock = product.isActive === false;
 
   // Combo / gift-box chip — hidden entirely until the API sends the fields.
+  // A product is one or the other: a gift box is a sealed single SKU with no
+  // contents to count, so it takes the chip without an item count.
   const comboCount = product.comboItemCount ?? 0;
-  const showComboChip = product.isCombo === true;
+  const isGiftBox = product.isGiftBox === true;
+  const showComboChip = product.isCombo === true && !isGiftBox;
+  const showBundleChip = showComboChip || isGiftBox;
 
   const discountPct =
     product.discountPercentage && product.discountPercentage > 0
@@ -33,10 +47,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : 0;
 
-  // A combo's whole pitch is the bundle price, so the same orange discount slot
-  // spells the saving out in rupees instead of just a percentage.
-  const comboSaving =
-    showComboChip && product.compareAtPrice && product.compareAtPrice > product.price
+  // A combo's or gift box's whole pitch is the bundled price against the MRP, so
+  // the same orange discount slot spells the saving out in rupees, not just a %.
+  const bundleSaving =
+    showBundleChip && product.compareAtPrice && product.compareAtPrice > product.price
       ? Math.round(product.compareAtPrice - product.price)
       : 0;
 
@@ -60,9 +74,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
     >
       {/* Image, Ribbon & Actions */}
       <div className="relative aspect-square w-full bg-slate-50 overflow-hidden">
+        {/* The wrapper is aspect-square, so the box is reserved before the image arrives and
+            there is no layout shift — width/height attributes would be redundant here. */}
         <img
           src={product.primaryImageUrl || productPlaceholder}
           alt={product.name}
+          loading={priority ? 'eager' : 'lazy'}
+          fetchPriority={priority ? 'high' : 'auto'}
+          decoding="async"
           className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-500"
         />
 
@@ -105,11 +124,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
             <span>{product.unit}</span>
           </div>
 
-          {/* COMBO chip — the key selling point for gift boxes */}
+          {/* COMBO / GIFT BOX chip — what makes this product its own thing */}
           {showComboChip && (
             <span className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-md bg-purple-soft text-purple text-[10px] font-black uppercase tracking-wider">
-              <Gift className="w-3 h-3" />
+              <Package className="w-3 h-3" />
               Combo{comboCount > 0 ? ` · ${comboCount} items` : ''}
+            </span>
+          )}
+          {isGiftBox && (
+            <span className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-md bg-gold-soft text-gold-dark text-[10px] font-black uppercase tracking-wider">
+              <Gift className="w-3 h-3" />
+              Gift Box
             </span>
           )}
 
@@ -128,10 +153,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
                 ₹{product.compareAtPrice.toLocaleString('en-IN')}
               </span>
             )}
-            {(discountPct > 0 || comboSaving > 0) && (
+            {(discountPct > 0 || bundleSaving > 0) && (
               <span className="text-xs font-bold text-orange">
-                {comboSaving > 0
-                  ? `Save ₹${comboSaving.toLocaleString('en-IN')}${discountPct > 0 ? ` (${discountPct}% OFF)` : ''}`
+                {bundleSaving > 0
+                  ? `Save ₹${bundleSaving.toLocaleString('en-IN')}${discountPct > 0 ? ` (${discountPct}% OFF)` : ''}`
                   : `${discountPct}% OFF`}
               </span>
             )}

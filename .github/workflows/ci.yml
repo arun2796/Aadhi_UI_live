@@ -1,0 +1,67 @@
+name: CI
+
+# Type-check and build both SPAs on every branch and pull request.
+#
+# WHY THIS EXISTS SEPARATELY FROM THE DEPLOY WORKFLOW. deploy-pages.yml runs only on ak-dev,
+# the branch that ships. Every other branch is covered here, so a type error is caught the day
+# it happens — exactly what the duplicate `Package` import needed: it broke the customer build
+# on a branch and nobody noticed for days.
+on:
+  push:
+    branches-ignore: [ak-dev]    # ak-dev is covered by deploy-pages.yml, which runs the same build
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    branches: [ak-dev, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false          # a broken admin build must not hide the storefront's status
+      matrix:
+        app: [customer-web, admin-web]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      # `npm run build` runs `tsc -b` first, so a type error fails here. It is called out
+      # as its own step so the log says "type error" rather than "build failed".
+      - name: Type-check
+        working-directory: ${{ matrix.app }}
+        run: npx tsc -b --pretty
+
+      - name: Build
+        working-directory: ${{ matrix.app }}
+        run: npm run build
+
+      - name: Verify build output
+        working-directory: ${{ matrix.app }}
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html is missing — the build produced no output."
+            exit 1
+          fi
+          echo "dist size: $(du -sh dist | cut -f1)"

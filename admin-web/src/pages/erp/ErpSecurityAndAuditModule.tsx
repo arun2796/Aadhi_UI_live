@@ -722,7 +722,7 @@ export const ErpSecurityAndAuditModule: React.FC<ErpSecurityAndAuditModuleProps>
                   type="email"
                   value={addUserForm.email}
                   onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
-                  placeholder="user@aadhicrackers.com"
+                  placeholder="user@aadhicracker.in"
                   className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 outline-none focus:border-purple"
                 />
               </div>

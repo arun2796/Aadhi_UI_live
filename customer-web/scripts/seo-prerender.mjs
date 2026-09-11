@@ -1,7 +1,7 @@
 /**
  * Build-time prerender (runs after `vite build`, via the `build` npm script).
  *
- * For every public URL — home, /shop, /combos, each category, each product and
+ * For every public URL — home, /shop, /combos, /gift-boxes, each category, each product and
  * the static pages — this writes a real HTML file under dist/ that already
  * contains that page's <head> (title, description, canonical, Open Graph,
  * Twitter card, JSON-LD) and a plain-HTML snapshot of the content inside #root.
@@ -38,7 +38,7 @@ import {
 } from './seo-shared.mjs';
 
 const DIST = path.join(ROOT, 'dist');
-const COMBO_ALIAS_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes']);
+const COMBO_ALIAS_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes', 'giftboxes', 'gift-box']);
 
 const STATIC_PAGES = ['about', 'contact', 'safety', 'terms', 'privacy', 'shipping-policy', 'track-order', 'category-menu'];
 
@@ -67,12 +67,17 @@ const productListHtml = (products) =>
     : '';
 
 function productSnapshot(product, business) {
-  const isCombo = product.isCombo === true;
+  const isGiftBox = product.isGiftBox === true;
+  const isCombo = !isGiftBox && product.isCombo === true;
   const crumbs = [
     { name: 'Home', path: '/' },
     {
-      name: isCombo ? 'Combos' : product.categoryName || 'Shop',
-      path: isCombo ? buildPath('shop', { view: 'combos' }) : buildPath('shop', { category: slugifySegment(product.categoryName) })
+      name: isGiftBox ? 'Gift Boxes' : isCombo ? 'Combos' : product.categoryName || 'Shop',
+      path: isGiftBox
+        ? buildPath('shop', { view: 'giftboxes' })
+        : isCombo
+        ? buildPath('shop', { view: 'combos' })
+        : buildPath('shop', { category: slugifySegment(product.categoryName) })
     },
     { name: product.name }
   ];
@@ -80,8 +85,9 @@ function productSnapshot(product, business) {
   const description = plainText(product.description) || plainText(product.shortDescription);
   const inStock = Number(product.availableQuantity ?? product.stockQuantity ?? 0) > 0 && product.isActive !== false;
 
+  // A gift box is one sealed SKU — it never lists its contents.
   const combo =
-    Array.isArray(product.comboItems) && product.comboItems.length
+    !isGiftBox && Array.isArray(product.comboItems) && product.comboItems.length
       ? `<h2 style="font-size:1rem;margin:1.5rem 0 .5rem">What's inside</h2><ul>${product.comboItems
           .map((i) => `<li>${escapeHtml(i.productName)}${Number(i.quantity) > 1 ? ` × ${i.quantity}` : ''}</li>`)
           .join('')}</ul>`
@@ -212,7 +218,8 @@ async function main() {
 
   const written = [];
   const activeProducts = (data.products || []).filter((p) => p.isActive !== false);
-  const combos = activeProducts.filter((p) => p.isCombo === true);
+  const giftBoxes = activeProducts.filter((p) => p.isGiftBox === true);
+  const combos = activeProducts.filter((p) => p.isCombo === true && p.isGiftBox !== true);
 
   /* home */
   written.push(
@@ -250,10 +257,25 @@ async function main() {
       listing: combos,
       snapshot: (seo) =>
         listingSnapshot({
-          heading: 'Combo Packs & Gift Boxes',
+          heading: 'Combo Packs',
           description: seo.description,
           crumbs: [{ name: 'Home', path: '/' }, { name: 'Shop', path: '/shop' }, { name: 'Combos' }],
           products: combos,
+          business
+        })
+    })
+  );
+
+  /* gift boxes */
+  written.push(
+    emit('shop', { view: 'giftboxes' }, {
+      listing: giftBoxes,
+      snapshot: (seo) =>
+        listingSnapshot({
+          heading: 'Gift Boxes',
+          description: seo.description,
+          crumbs: [{ name: 'Home', path: '/' }, { name: 'Shop', path: '/shop' }, { name: 'Gift Boxes' }],
+          products: giftBoxes,
           business
         })
     })

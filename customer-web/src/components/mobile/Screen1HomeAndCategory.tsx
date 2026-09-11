@@ -46,31 +46,58 @@ const productImage = (p: Product): string =>
 
 /** Small purple COMBO chip — renders nothing until the API sends `isCombo`. */
 const ComboChip: React.FC<{ product: Product }> = ({ product }) => {
-  if (product.isCombo !== true) return null;
+  if (product.isCombo !== true || product.isGiftBox === true) return null;
   const count = product.comboItemCount ?? 0;
   return (
     <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-soft text-purple text-[8px] font-black uppercase tracking-wider">
-      <Gift className="w-2.5 h-2.5" />
+      <Package className="w-2.5 h-2.5" />
       Combo{count > 0 ? ` · ${count} items` : ''}
     </span>
   );
 };
 
-/* ── Combos view (shared by the mobile home section and the listing screen) ── */
+/** Small gold GIFT BOX chip. A gift box is one sealed SKU, so it never carries
+ *  an item count — renders nothing until the API sends `isGiftBox`. */
+const GiftBoxChip: React.FC<{ product: Product }> = ({ product }) => {
+  if (product.isGiftBox !== true) return null;
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-gold-soft text-gold-dark text-[8px] font-black uppercase tracking-wider">
+      <Gift className="w-2.5 h-2.5" />
+      Gift Box
+    </span>
+  );
+};
 
-const COMBOS_TITLE = 'Combo Packs & Gift Boxes';
+/** Whichever of the two chips applies (a product is one or the other, never both). */
+const BundleChip: React.FC<{ product: Product }> = ({ product }) =>
+  product.isGiftBox === true ? <GiftBoxChip product={product} /> : <ComboChip product={product} />;
+
+/* ── Curated views (shared by the mobile home sections and the listing screen) ── */
+
+type CuratedView = 'combos' | 'giftboxes' | null;
+
+const COMBOS_TITLE = 'Combo Packs';
 const COMBOS_SUBTITLE = 'Everything you need in one bundle — at one price.';
+const GIFT_BOXES_TITLE = 'Gift Boxes';
+const GIFT_BOXES_SUBTITLE = 'Pre-packed and ready to gift — one sealed box, one price.';
 
-/** Legacy category slugs the old (dead) nav links used — routed to the combos
+/** Legacy category slugs the old (dead) nav links used — routed to a curated
  *  view so saved links still land somewhere real. */
-const COMBO_VIEW_SLUGS = new Set(['combos', 'combo-offers', 'gift-boxes']);
+const COMBO_VIEW_SLUGS = new Set(['combos', 'combo-offers']);
+const GIFT_BOX_VIEW_SLUGS = new Set(['gift-boxes', 'giftboxes', 'gift-box']);
 
-const wantsCombosView = (view?: string, category?: string): boolean =>
-  view === 'combos' || COMBO_VIEW_SLUGS.has((category || '').trim().toLowerCase());
+/** Gift boxes are their own module, so they are matched BEFORE the combo aliases. */
+const curatedViewOf = (view?: string, category?: string): CuratedView => {
+  const slug = (category || '').trim().toLowerCase();
+  if (view === 'giftboxes' || view === 'gift-boxes' || GIFT_BOX_VIEW_SLUGS.has(slug)) return 'giftboxes';
+  if (view === 'combos' || COMBO_VIEW_SLUGS.has(slug)) return 'combos';
+  return null;
+};
 
-/** ₹ saved on a combo versus its struck MRP — 0 when there is nothing to shout about. */
-const comboSaving = (p: Product): number =>
-  p.isCombo === true && p.compareAtPrice && p.compareAtPrice > p.price
+/** ₹ saved on a combo or gift box versus its struck MRP — 0 when there is
+ *  nothing to shout about. */
+const bundleSaving = (p: Product): number =>
+  (p.isCombo === true || p.isGiftBox === true) && p.compareAtPrice && p.compareAtPrice > p.price
     ? Math.round(p.compareAtPrice - p.price)
     : 0;
 
@@ -98,6 +125,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
   const [categories, setCategories] = useState<Category[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
   const [combos, setCombos] = useState<Product[]>([]);
+  const [giftBoxes, setGiftBoxes] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
 
   useEffect(() => {
@@ -111,6 +139,16 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
       })
       .catch(() => {
         if (live) setCombos([]);
+      });
+
+    // Real gift boxes only — same rule: no products, no section at all.
+    api
+      .getGiftBoxes()
+      .then((list) => {
+        if (live) setGiftBoxes(list);
+      })
+      .catch(() => {
+        if (live) setGiftBoxes([]);
       });
 
     api
@@ -127,8 +165,8 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         let list = await api.getBestSellers();
         list = Array.isArray(list) ? list.filter((p) => p && p.id) : [];
         if (list.length === 0) {
-          // Ordinary home rail — combos have their own section below.
-          const all = await api.getProducts({ excludeCombos: true });
+          // Ordinary home rail — combos and gift boxes have their own sections below.
+          const all = await api.getProducts({ excludeCombos: true, excludeGiftBoxes: true });
           list = all.filter((p) => p.isBestSeller);
           if (list.length === 0) list = all.slice(0, 8);
         }
@@ -335,7 +373,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
                       {p.name}
                     </h4>
 
-                    <ComboChip product={p} />
+                    <BundleChip product={p} />
                   </div>
 
                   <div className="w-full mt-1">
@@ -364,78 +402,107 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         )}
       </div>
 
-      {/* 6. Combo Packs & Gift Boxes — real combos only; hidden entirely when empty */}
+      {/* 6. Combo Packs — real combos only; hidden entirely when empty */}
       {combos.length > 0 && (
-        <div className="space-y-3">
-          <div className="px-4 flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="text-sm font-black text-navy">{COMBOS_TITLE}</h3>
-              <p className="text-[10px] text-slate-500 font-medium leading-snug">{COMBOS_SUBTITLE}</p>
-            </div>
-            <button
-              onClick={() => onNavigate('shop', { view: 'combos' })}
-              className="text-[11px] font-bold text-purple flex items-center gap-0.5 active:opacity-70 flex-shrink-0 pt-0.5"
-            >
-              View All <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+        <BundleRail
+          title={COMBOS_TITLE}
+          subtitle={COMBOS_SUBTITLE}
+          products={combos}
+          onViewAll={() => onNavigate('shop', { view: 'combos' })}
+          onNavigate={onNavigate}
+        />
+      )}
 
-          <div className="grid grid-cols-2 gap-3 px-4">
-            {combos.slice(0, 6).map((p) => {
-              const off = pctOff(p);
-              const saving = comboSaving(p);
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => onNavigate('product-detail', { slug: p.slug })}
-                  className="w-full bg-white rounded-2xl border border-slate-100 shadow-card p-2.5 text-left active:scale-[0.98] transition-transform flex flex-col justify-between"
-                >
-                  <div className="w-full">
-                    <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 mb-2">
-                      <img
-                        src={productImage(p)}
-                        alt={p.name}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                      {off > 0 && (
-                        <span className="absolute top-1.5 left-1.5 bg-orange text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs">
-                          {off}% OFF
-                        </span>
-                      )}
-                    </div>
-
-                    <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[30px] mb-1">
-                      {p.name}
-                    </h4>
-
-                    <ComboChip product={p} />
-                  </div>
-
-                  <div className="w-full mt-1">
-                    <div className="flex items-baseline gap-1.5 flex-wrap">
-                      <span className="font-black text-[13px] text-navy">{inr(p.price ?? 0)}</span>
-                      {(p.compareAtPrice ?? 0) > p.price && p.compareAtPrice && (
-                        <span className="text-[10px] text-slate-400 line-through">
-                          {inr(p.compareAtPrice)}
-                        </span>
-                      )}
-                    </div>
-                    {saving > 0 && (
-                      <div className="text-[9.5px] font-black text-orange mt-0.5">
-                        Save {inr(saving)}{off > 0 ? ` (${off}% OFF)` : ''}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      {/* 7. Gift Boxes — real gift boxes only; hidden entirely when empty */}
+      {giftBoxes.length > 0 && (
+        <BundleRail
+          title={GIFT_BOXES_TITLE}
+          subtitle={GIFT_BOXES_SUBTITLE}
+          products={giftBoxes}
+          onViewAll={() => onNavigate('shop', { view: 'giftboxes' })}
+          onNavigate={onNavigate}
+        />
       )}
     </div>
   );
 };
+
+/** The home rail shared by the Combo Packs and Gift Boxes sections. Never
+ *  rendered with an empty `products` list — both callers gate on it. */
+const BundleRail: React.FC<{
+  title: string;
+  subtitle: string;
+  products: Product[];
+  onViewAll: () => void;
+  onNavigate: (page: string, params?: any) => void;
+}> = ({ title, subtitle, products, onViewAll, onNavigate }) => (
+  <div className="space-y-3">
+    <div className="px-4 flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <h3 className="text-sm font-black text-navy">{title}</h3>
+        <p className="text-[10px] text-slate-500 font-medium leading-snug">{subtitle}</p>
+      </div>
+      <button
+        onClick={onViewAll}
+        className="text-[11px] font-bold text-purple flex items-center gap-0.5 active:opacity-70 flex-shrink-0 pt-0.5"
+      >
+        View All <ChevronRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+
+    <div className="grid grid-cols-2 gap-3 px-4">
+      {products.slice(0, 6).map((p) => {
+        const off = pctOff(p);
+        const saving = bundleSaving(p);
+        return (
+          <button
+            key={p.id}
+            onClick={() => onNavigate('product-detail', { slug: p.slug })}
+            className="w-full bg-white rounded-2xl border border-slate-100 shadow-card p-2.5 text-left active:scale-[0.98] transition-transform flex flex-col justify-between"
+          >
+            <div className="w-full">
+              <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-50 mb-2">
+                <img
+                  src={productImage(p)}
+                  alt={p.name}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                {off > 0 && (
+                  <span className="absolute top-1.5 left-1.5 bg-orange text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-xs">
+                    {off}% OFF
+                  </span>
+                )}
+              </div>
+
+              <h4 className="font-bold text-[11px] text-slate-800 leading-snug line-clamp-2 min-h-[30px] mb-1">
+                {p.name}
+              </h4>
+
+              <BundleChip product={p} />
+            </div>
+
+            <div className="w-full mt-1">
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="font-black text-[13px] text-navy">{inr(p.price ?? 0)}</span>
+                {(p.compareAtPrice ?? 0) > p.price && p.compareAtPrice && (
+                  <span className="text-[10px] text-slate-400 line-through">
+                    {inr(p.compareAtPrice)}
+                  </span>
+                )}
+              </div>
+              {saving > 0 && (
+                <div className="text-[9.5px] font-black text-orange mt-0.5">
+                  Save {inr(saving)}{off > 0 ? ` (${off}% OFF)` : ''}
+                </div>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+);
 
 /* ══════════════════════════════════════════════════════════════════════════════
    SCREEN 2 — CATEGORY / PRODUCT LISTING  (design 02_category.png)
@@ -451,7 +518,7 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 interface Screen2CategoryProps {
   categorySlug?: string;
-  /** `view: 'combos'` switches the listing over to api.getCombos(). */
+  /** `view: 'combos'` → api.getCombos(); `view: 'giftboxes'` → api.getGiftBoxes(). */
   view?: string;
   /** Applied filters from MobileFiltersModal: { maxPrice, categories, brands, minRating? } */
   filters?: { maxPrice: number; categories: string[]; brands: string[]; minRating?: number };
@@ -477,22 +544,28 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
   const [sortBy, setSortBy] = useState<SortKey>('popularity');
   const [sortSheetOpen, setSortSheetOpen] = useState(false);
 
-  const combosView = wantsCombosView(view, categorySlug);
+  const curatedView = curatedViewOf(view, categorySlug);
+  const giftBoxesView = curatedView === 'giftboxes';
+  const combosView = curatedView === 'combos';
 
-  /** Where "Clear filters" goes back to — the combos view keeps its own param. */
+  /** Where "Clear filters" goes back to — a curated view keeps its own param. */
   const clearFilters = () =>
-    combosView ? onNavigate('shop', { view: 'combos' }) : onNavigate('category', { category: categorySlug });
+    curatedView
+      ? onNavigate('shop', { view: giftBoxesView ? 'giftboxes' : 'combos' })
+      : onNavigate('category', { category: categorySlug });
 
   useEffect(() => {
     let live = true;
     setLoading(true);
     Promise.all([
       api.getCategories().catch(() => [] as Category[]),
-      combosView
+      giftBoxesView
+        ? api.getGiftBoxes().catch(() => [] as Product[])
+        : combosView
         ? api.getCombos().catch(() => [] as Product[])
-        // Ordinary category / all-products browsing: combos belong to the
-        // Combos view only (this screen carries no text search of its own).
-        : api.getProducts({ excludeCombos: true }).catch(() => [] as Product[])
+        // Ordinary category / all-products browsing: combos and gift boxes each
+        // belong to their own view only (this screen carries no text search).
+        : api.getProducts({ excludeCombos: true, excludeGiftBoxes: true }).catch(() => [] as Product[])
     ])
       .then(([cats, prods]) => {
         if (!live) return;
@@ -505,9 +578,10 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     return () => {
       live = false;
     };
-  }, [categorySlug, combosView]);
+  }, [categorySlug, combosView, giftBoxesView]);
 
   const categoryName = useMemo(() => {
+    if (giftBoxesView) return GIFT_BOXES_TITLE;
     if (combosView) return COMBOS_TITLE;
     if (categorySlug === 'best-sellers') return 'Best Sellers';
     const found = categories.find((c) => c.slug === categorySlug || c.id === categorySlug);
@@ -525,15 +599,15 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     );
     if (prodMatch?.categoryName) return prodMatch.categoryName;
     return prettifySlug(categorySlug);
-  }, [categories, categorySlug, products, combosView]);
+  }, [categories, categorySlug, products, combosView, giftBoxesView]);
 
   /* Client-side filtering (categorySlug + filters prop) and sorting */
   const visible = useMemo(() => {
     let list = [...products];
 
     const selectedCats = filters?.categories ?? [];
-    if (combosView) {
-      // Already the combos list — no category narrowing on top of it.
+    if (curatedView) {
+      // Already a curated list — no category narrowing on top of it.
     } else if (selectedCats.length > 0) {
       const set = new Set(selectedCats.map((n) => n.toLowerCase()));
       list = list.filter((p) => set.has((p.categoryName || '').toLowerCase()));
@@ -572,10 +646,10 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       );
     }
     return list;
-  }, [products, filters, categorySlug, sortBy, combosView]);
+  }, [products, filters, categorySlug, sortBy, curatedView]);
 
   const activeFilterCount =
-    (combosView ? 0 : filters?.categories?.length ? 1 : 0) +
+    (curatedView ? 0 : filters?.categories?.length ? 1 : 0) +
     (filters?.brands?.length ? 1 : 0) +
     (filters?.maxPrice && filters.maxPrice < 100000 ? 1 : 0) +
     (filters?.minRating ? 1 : 0);
@@ -598,9 +672,9 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
             ({visible.length} Products)
           </span>
         </div>
-        {combosView && (
+        {curatedView && (
           <p className="text-[10.5px] text-slate-500 font-medium mt-0.5 leading-snug">
-            {COMBOS_SUBTITLE}
+            {giftBoxesView ? GIFT_BOXES_SUBTITLE : COMBOS_SUBTITLE}
           </p>
         )}
         <div className="text-[10px] text-slate-400 font-medium mt-0.5">
@@ -638,7 +712,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
       {/* Active filter chips */}
       {activeFilterCount > 0 && (
         <div className="px-4 mt-2.5 flex items-center gap-1.5 flex-wrap">
-          {(combosView ? [] : filters?.categories ?? []).map((c) => (
+          {(curatedView ? [] : filters?.categories ?? []).map((c) => (
             <span key={c} className="px-2 py-0.5 rounded-full bg-orange/10 text-orange text-[9px] font-bold">
               {c}
             </span>
@@ -681,15 +755,26 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
         </div>
       ) : visible.length === 0 ? (
         <div className="px-4 mt-6">
-          {combosView ? (
+          {curatedView ? (
             <div className="p-8 rounded-2xl bg-white border border-slate-100 text-center space-y-3">
-              <div className="w-14 h-14 mx-auto rounded-full bg-purple-soft flex items-center justify-center">
-                <Gift className="w-6 h-6 text-purple" />
+              <div
+                className={`w-14 h-14 mx-auto rounded-full flex items-center justify-center ${
+                  giftBoxesView ? 'bg-gold-soft' : 'bg-purple-soft'
+                }`}
+              >
+                {giftBoxesView ? (
+                  <Gift className="w-6 h-6 text-gold-dark" />
+                ) : (
+                  <Package className="w-6 h-6 text-purple" />
+                )}
               </div>
-              <div className="text-sm font-bold text-navy">No combo packs available right now</div>
+              <div className="text-sm font-bold text-navy">
+                {giftBoxesView ? 'No gift boxes available right now' : 'No combo packs available right now'}
+              </div>
               <p className="text-[11px] text-slate-500">
-                Our combo packs and gift boxes are being put together. New bundles show
-                up here as soon as they go live.
+                {giftBoxesView
+                  ? 'Our gift boxes are being packed. New boxes show up here as soon as they go live.'
+                  : 'Our combo packs are being put together. New bundles show up here as soon as they go live.'}
               </p>
               <button
                 onClick={() => onNavigate('category-menu')}
@@ -753,10 +838,10 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
                   {p.name}
                 </h4>
 
-                {/* combo chip */}
-                {p.isCombo === true && (
+                {/* combo / gift-box chip */}
+                {(p.isCombo === true || p.isGiftBox === true) && (
                   <div className="mb-1">
-                    <ComboChip product={p} />
+                    <BundleChip product={p} />
                   </div>
                 )}
 
@@ -770,7 +855,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
                   )}
                   {off > 0 && (
                     <span className="text-[8px] font-black text-white bg-orange px-1.5 py-0.5 rounded">
-                      {comboSaving(p) > 0 ? `Save ${inr(comboSaving(p))} · ${off}% OFF` : `${off}% OFF`}
+                      {bundleSaving(p) > 0 ? `Save ${inr(bundleSaving(p))} · ${off}% OFF` : `${off}% OFF`}
                     </span>
                   )}
                 </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { WishlistProvider } from './context/WishlistContext';
@@ -11,24 +11,35 @@ import { CustomerHeader } from './components/customer/CustomerHeader';
 import { CustomerFooter } from './components/customer/CustomerFooter';
 import { CartDrawer } from './components/customer/CartDrawer';
 
-// Desktop / Responsive Pages
+/* -- Desktop / Responsive Pages ----------------------------------------------
+   Eager: the pages a first-time visitor actually lands on. Everything reached
+   only after browsing -- checkout, account, orders, and especially the auth
+   screens, which drag in the whole Firebase SDK -- is lazy.
+
+   WHY THIS MATTERS. The storefront shipped as ONE 843 kB bundle, so someone
+   arriving from a Google result downloaded the checkout flow and Firebase before
+   the first product appeared. Largest Contentful Paint is both a ranking signal
+   and a conversion one; this is the biggest single lever on both. */
 import { HomePage } from './pages/customer/HomePage';
 import { ShopPage } from './pages/customer/ShopPage';
 import { ProductDetailPage } from './pages/customer/ProductDetailPage';
-import { CheckoutPage } from './pages/customer/CheckoutPage';
-import { TrackOrderPage } from './pages/customer/TrackOrderPage';
-import { AccountPage } from './pages/customer/AccountPage';
-import { AboutUsPage, ContactUsPage, PolicyPage } from './pages/customer/StaticPages';
-import {
-  LoginPage,
-  RegisterPage,
-  ForgotPasswordPage,
-  OtpVerificationPage,
-  ResetPasswordPage
-} from './pages/customer/AuthPages';
 import { CartPage } from './pages/customer/CartPage';
-import { MyOrdersPage, OrderDetailsPage } from './pages/customer/OrdersPages';
-import { WishlistPage, AddressesPage } from './pages/customer/WishlistAddressesPages';
+
+const CheckoutPage = lazy(() => import('./pages/customer/CheckoutPage').then(m => ({ default: m.CheckoutPage })));
+const TrackOrderPage = lazy(() => import('./pages/customer/TrackOrderPage').then(m => ({ default: m.TrackOrderPage })));
+const AccountPage = lazy(() => import('./pages/customer/AccountPage').then(m => ({ default: m.AccountPage })));
+const AboutUsPage = lazy(() => import('./pages/customer/StaticPages').then(m => ({ default: m.AboutUsPage })));
+const ContactUsPage = lazy(() => import('./pages/customer/StaticPages').then(m => ({ default: m.ContactUsPage })));
+const PolicyPage = lazy(() => import('./pages/customer/StaticPages').then(m => ({ default: m.PolicyPage })));
+const LoginPage = lazy(() => import('./pages/customer/AuthPages').then(m => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import('./pages/customer/AuthPages').then(m => ({ default: m.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/customer/AuthPages').then(m => ({ default: m.ForgotPasswordPage })));
+const OtpVerificationPage = lazy(() => import('./pages/customer/AuthPages').then(m => ({ default: m.OtpVerificationPage })));
+const ResetPasswordPage = lazy(() => import('./pages/customer/AuthPages').then(m => ({ default: m.ResetPasswordPage })));
+const MyOrdersPage = lazy(() => import('./pages/customer/OrdersPages').then(m => ({ default: m.MyOrdersPage })));
+const OrderDetailsPage = lazy(() => import('./pages/customer/OrdersPages').then(m => ({ default: m.OrderDetailsPage })));
+const WishlistPage = lazy(() => import('./pages/customer/WishlistAddressesPages').then(m => ({ default: m.WishlistPage })));
+const AddressesPage = lazy(() => import('./pages/customer/WishlistAddressesPages').then(m => ({ default: m.AddressesPage })));
 
 // Mobile Dedicated Navigation Shell
 import { MobileTopBar } from './components/mobile/MobileTopBar';
@@ -41,26 +52,29 @@ import { MobileNotificationsModal } from './components/mobile/MobileNotification
 // Mobile Dedicated Screens (25-screen design: Aadhi_Crackers_HD_Clear_Export/02_Customer_HD_Clear)
 import { Screen1Home, Screen2Category } from './components/mobile/Screen1HomeAndCategory';
 import { Screen3ProductDetail, Screen4Cart } from './components/mobile/Screen3ProductDetailAndCart';
-import { Screen5Checkout, Screen6OrderPlaced, Screen7OrderTracking } from './components/mobile/Screen5CheckoutAndOrderFlow';
-import {
-  Screen8Account,
-  Screen9AboutUs,
-  Screen10ContactUs,
-  Screen14CategoryMenu
-} from './components/mobile/Screen8AccountAndStaticScreens';
-import {
-  ScreenAuth,
-  ScreenForgotPassword,
-  ScreenOtpVerification,
-  ScreenResetPassword
-} from './components/mobile/ScreenAuth';
-import { ScreenMyOrders, ScreenOrderDetails } from './components/mobile/ScreenOrdersAndDetails';
-import { ScreenPaymentSuccess, ScreenPaymentFailed, ScreenPaymentPending } from './components/mobile/ScreenPaymentResult';
-import { ScreenWishlist } from './components/mobile/ScreenWishlist';
-import { ScreenAddresses } from './components/mobile/ScreenAddresses';
+
+// Same split as the desktop pages above: only the browse screens load up front.
+const Screen5Checkout = lazy(() => import('./components/mobile/Screen5CheckoutAndOrderFlow').then(m => ({ default: m.Screen5Checkout })));
+const Screen6OrderPlaced = lazy(() => import('./components/mobile/Screen5CheckoutAndOrderFlow').then(m => ({ default: m.Screen6OrderPlaced })));
+const Screen7OrderTracking = lazy(() => import('./components/mobile/Screen5CheckoutAndOrderFlow').then(m => ({ default: m.Screen7OrderTracking })));
+const Screen8Account = lazy(() => import('./components/mobile/Screen8AccountAndStaticScreens').then(m => ({ default: m.Screen8Account })));
+const Screen9AboutUs = lazy(() => import('./components/mobile/Screen8AccountAndStaticScreens').then(m => ({ default: m.Screen9AboutUs })));
+const Screen10ContactUs = lazy(() => import('./components/mobile/Screen8AccountAndStaticScreens').then(m => ({ default: m.Screen10ContactUs })));
+const Screen14CategoryMenu = lazy(() => import('./components/mobile/Screen8AccountAndStaticScreens').then(m => ({ default: m.Screen14CategoryMenu })));
+const ScreenAuth = lazy(() => import('./components/mobile/ScreenAuth').then(m => ({ default: m.ScreenAuth })));
+const ScreenForgotPassword = lazy(() => import('./components/mobile/ScreenAuth').then(m => ({ default: m.ScreenForgotPassword })));
+const ScreenOtpVerification = lazy(() => import('./components/mobile/ScreenAuth').then(m => ({ default: m.ScreenOtpVerification })));
+const ScreenResetPassword = lazy(() => import('./components/mobile/ScreenAuth').then(m => ({ default: m.ScreenResetPassword })));
+const ScreenMyOrders = lazy(() => import('./components/mobile/ScreenOrdersAndDetails').then(m => ({ default: m.ScreenMyOrders })));
+const ScreenOrderDetails = lazy(() => import('./components/mobile/ScreenOrdersAndDetails').then(m => ({ default: m.ScreenOrderDetails })));
+const ScreenPaymentSuccess = lazy(() => import('./components/mobile/ScreenPaymentResult').then(m => ({ default: m.ScreenPaymentSuccess })));
+const ScreenPaymentFailed = lazy(() => import('./components/mobile/ScreenPaymentResult').then(m => ({ default: m.ScreenPaymentFailed })));
+const ScreenPaymentPending = lazy(() => import('./components/mobile/ScreenPaymentResult').then(m => ({ default: m.ScreenPaymentPending })));
+const ScreenWishlist = lazy(() => import('./components/mobile/ScreenWishlist').then(m => ({ default: m.ScreenWishlist })));
+const ScreenAddresses = lazy(() => import('./components/mobile/ScreenAddresses').then(m => ({ default: m.ScreenAddresses })));
 
 // URL scheme + per-page <head> metadata / JSON-LD
-import { buildPath, parsePath, compactParams, EPHEMERAL_PAGES, isCombosView } from './seo/routes.js';
+import { buildPath, parsePath, compactParams, EPHEMERAL_PAGES, isCombosView, isGiftBoxesView } from './seo/routes.js';
 import { SeoHead } from './seo/SeoHead';
 
 const MOBILE_TITLES: Record<string, string | undefined> = {
@@ -87,11 +101,14 @@ const MOBILE_TITLES: Record<string, string | undefined> = {
   'payment-pending': 'Payment Status'
 };
 
-/** Mobile top-bar title. The `shop` screen is reached from the mobile UI only as
- *  the Combos view, so it keeps that title — but a deep link to `/shop` or
- *  `/shop/<category>` now lands there too and must read "Products". */
+/** Mobile top-bar title. The `shop` screen is reached from the mobile UI as the
+ *  Combos or Gift Boxes view, so each keeps its own title — but a deep link to
+ *  `/shop` or `/shop/<category>` lands there too and must read "Products". */
 const mobileTitleFor = (page: string, params: any): string | undefined => {
-  if (page === 'shop') return isCombosView(params) ? 'Combos' : 'Products';
+  if (page === 'shop') {
+    if (isGiftBoxesView(params)) return 'Gift Boxes';
+    return isCombosView(params) ? 'Combos' : 'Products';
+  }
   return MOBILE_TITLES[page];
 };
 
@@ -132,6 +149,18 @@ const AUTH_REQUIRED_PAGES = new Set([
 ]);
 
 /** Full-page notice shown to customers while the storefront is switched OFF. */
+/**
+ * Shown while a lazily-loaded route chunk is fetched. It reserves vertical space on purpose:
+ * a zero-height fallback collapses the page for a frame and registers as a layout shift, which
+ * is the very metric the code splitting is meant to improve.
+ */
+const RouteFallback = () => (
+  <div className="flex-1 min-h-[60vh] flex items-center justify-center" role="status" aria-live="polite">
+    <span className="sr-only">Loading</span>
+    <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-purple animate-spin" aria-hidden="true" />
+  </div>
+);
+
 function MaintenanceNotice() {
   return (
     <div className="min-h-screen bg-navy flex flex-col items-center justify-center px-6 text-center font-sans antialiased">
@@ -319,6 +348,7 @@ function CustomerAppRoot() {
 
           {/* Mobile Screen Content */}
           <main className="flex-1 pb-16">
+            <Suspense fallback={<RouteFallback />}>
             {effectivePage === 'home' && (
               <Screen1Home
                 onNavigate={navigate}
@@ -478,6 +508,7 @@ function CustomerAppRoot() {
                 amount={effectiveParams?.amount}
               />
             )}
+            </Suspense>
           </main>
 
           {/* Persistent Mobile Bottom Navigation (design: Home / Categories / Wishlist / Orders / Account) */}
@@ -528,6 +559,7 @@ function CustomerAppRoot() {
           <CustomerHeader onNavigate={navigate} currentPage={effectivePage} />
 
           <main className="flex-1">
+            <Suspense fallback={<RouteFallback />}>
             {effectivePage === 'home' && <HomePage onNavigate={navigate} />}
 
             {effectivePage === 'shop' && (
@@ -634,6 +666,7 @@ function CustomerAppRoot() {
             {effectivePage === 'terms' && <PolicyPage title="Terms & Conditions" type="terms" />}
             {effectivePage === 'privacy' && <PolicyPage title="Privacy Policy" type="privacy" />}
             {effectivePage === 'shipping-policy' && <PolicyPage title="Shipping Policy" type="shipping" />}
+            </Suspense>
           </main>
 
           <CustomerFooter onNavigate={navigate} />

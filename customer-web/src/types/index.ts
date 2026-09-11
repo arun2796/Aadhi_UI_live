@@ -120,8 +120,12 @@ export interface Product {
   rating?: number;
   reviewCount?: number;
   relatedProducts?: Product[];
-  /** ProductDto.isCombo — true when this product is a combo / gift box. */
+  /** ProductDto.isCombo — true when this product is a combo pack. */
   isCombo?: boolean;
+  /** ProductDto.isGiftBox — true when this product is a pre-packed gift box.
+   *  A gift box is sold as ONE sealed SKU: it never lists its contents, so it
+   *  carries no comboItems even though it is priced against an MRP like a combo. */
+  isGiftBox?: boolean;
   /** ProductDto.comboItemCount — how many component products the combo contains. */
   comboItemCount?: number;
   /** ProductDetailDto.comboItems — the component products, detail endpoint only. */

@@ -53,6 +53,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
   const [combos, setCombos] = useState<Product[]>([]);
+  const [giftBoxes, setGiftBoxes] = useState<Product[]>([]);
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([LOGO_HERO_SLIDE]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
@@ -60,7 +61,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     api.getCategories().then(setCategories);
-    api.getProducts({ excludeCombos: true }).then(setProducts);
+    api.getProducts({ excludeCombos: true, excludeGiftBoxes: true }).then(setProducts);
     api.getBestSellers().then((list) => {
       if (list.length > 0) {
         setBestSellers(list);
@@ -70,6 +71,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     });
     // Real combos only — the section renders nothing at all when this is empty.
     api.getCombos().then(setCombos);
+    // Real gift boxes only — same rule: no products, no section at all.
+    api.getGiftBoxes().then(setGiftBoxes);
 
     // Hero slides come from admin-managed banners; single logo slide when none exist.
     api.getBanners('Home').then((banners) => {
@@ -87,7 +90,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     });
   }, []);
 
-  const giftBoxes = products.filter(p => p.categoryName?.toLowerCase().includes('gift')).slice(0, 4);
   const localBestSellers = products.filter(p => p.isBestSeller);
   const bestSelling = (
     bestSellers.length > 0 ? bestSellers : localBestSellers.length > 0 ? localBestSellers : products
@@ -306,23 +308,26 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {bestSelling.map((product) => (
+          {bestSelling.map((product, index) => (
             <ProductCard
               key={product.id}
               product={product}
               onNavigate={onNavigate}
               onQuickView={setQuickViewProduct}
+              // The first row (4 across at the widest breakpoint) is the LCP candidate on the
+              // home page, so those images load eagerly; the rest of the grid stays lazy.
+              priority={index < 4}
             />
           ))}
         </div>
       </section>
 
-      {/* 4b. Combo Packs & Gift Boxes — real combos only; hidden entirely when empty */}
+      {/* 4b. Combo Packs — real combos only; hidden entirely when empty */}
       {combos.length > 0 && (
         <section className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-black text-navy">Combo Packs &amp; Gift Boxes</h2>
+              <h2 className="text-2xl font-black text-navy">Combo Packs</h2>
               <p className="text-xs text-slate-500">Everything you need in one bundle — at one price.</p>
             </div>
             <button
@@ -339,6 +344,37 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               <ProductCard
                 key={combo.id}
                 product={combo}
+                onNavigate={onNavigate}
+                onQuickView={setQuickViewProduct}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 4c. Gift Boxes — real gift boxes only (api.getGiftBoxes); hidden entirely when empty */}
+      {giftBoxes.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="text-xs font-bold text-orange uppercase tracking-wider">Ready to Gift</div>
+              <h2 className="text-2xl font-black text-navy">Gift Boxes</h2>
+              <p className="text-xs text-slate-500">Pre-packed and ready to gift — one sealed box, one price.</p>
+            </div>
+            <button
+              onClick={() => onNavigate('shop', { view: 'giftboxes' })}
+              className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
+            >
+              <span>View All</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {giftBoxes.slice(0, 8).map((box) => (
+              <ProductCard
+                key={box.id}
+                product={box}
                 onNavigate={onNavigate}
                 onQuickView={setQuickViewProduct}
               />
@@ -380,42 +416,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </section>
       )}
 
-      {/* 6. Gift Boxes Showcase */}
-      {giftBoxes.length > 0 && (
-        <section className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <div className="text-xs font-bold text-orange uppercase tracking-wider">Family Celebrations</div>
-              <h2 className="text-2xl font-black text-navy">Exclusive Gift Boxes</h2>
-            </div>
-            <button
-              onClick={() => onNavigate('shop', { view: 'combos' })}
-              className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
-            >
-              <span>View All Boxes</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-            {giftBoxes.map((box) => (
-              <ProductCard
-                key={box.id}
-                product={box}
-                onNavigate={onNavigate}
-                onQuickView={setQuickViewProduct}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* 7. Safety Precautions Section */}
+      {/* 6. Safety Precautions Section */}
       <section className="max-w-7xl mx-auto px-4">
         <SafetySection />
       </section>
 
-      {/* 8. FAQ Accordion */}
+      {/* 7. FAQ Accordion */}
       <section className="max-w-4xl mx-auto px-4">
         <div className="text-center mb-8">
           <div className="inline-flex items-center space-x-1 text-xs font-bold text-orange uppercase tracking-wider mb-1">

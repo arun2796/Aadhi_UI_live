@@ -7,6 +7,8 @@ export interface ProductQueryParams {
   search?: string;
   isFeatured?: boolean;
   isBestSeller?: boolean;
+  /** `GET /products?excludeGiftBoxes=true` keeps gift-box products out of ordinary listings. */
+  excludeGiftBoxes?: boolean;
   page?: number;
   pageSize?: number;
   sortBy?: string;
@@ -38,6 +40,7 @@ const fetchProductsPage = async (params?: ProductQueryParams) => {
   if (params?.search) searchParams.append('search', params.search);
   if (params?.isFeatured !== undefined) searchParams.append('isFeatured', params.isFeatured.toString());
   if (params?.isBestSeller !== undefined) searchParams.append('isBestSeller', params.isBestSeller.toString());
+  if (params?.excludeGiftBoxes !== undefined) searchParams.append('excludeGiftBoxes', params.excludeGiftBoxes.toString());
   if (params?.page) searchParams.append('page', params.page.toString());
   if (params?.pageSize) searchParams.append('pageSize', params.pageSize.toString());
   if (params?.sortBy) searchParams.append('sortBy', params.sortBy);
@@ -47,22 +50,49 @@ const fetchProductsPage = async (params?: ProductQueryParams) => {
   return wrapPagedResult<Product>(res.data?.data);
 };
 
+/**
+ * Walks the paged endpoint until the whole catalogue is in memory — used by
+ * client-side pickers (e.g. the combo builder) and by the gift-box fallback below,
+ * which need to filter a few hundred products instantly without a request per keystroke.
+ */
+const fetchAllProducts = async (params?: Omit<ProductQueryParams, 'page' | 'pageSize'>) => {
+  const all: Product[] = [];
+  for (let page = 1; page <= ALL_PRODUCTS_MAX_PAGES; page++) {
+    const chunk = await fetchProductsPage({ ...params, page, pageSize: ALL_PRODUCTS_PAGE_SIZE });
+    all.push(...chunk);
+    if (chunk.length < ALL_PRODUCTS_PAGE_SIZE || all.length >= chunk.totalCount) break;
+  }
+  return all;
+};
+
 export const productApi = {
   getProducts: (params?: ProductQueryParams) => fetchProductsPage(params),
 
+  getAllProducts: fetchAllProducts,
+
   /**
-   * Walks the paged endpoint until the whole catalogue is in memory — used by
-   * client-side pickers (e.g. the combo / gift box builder) that need to filter
-   * a few hundred products instantly without a request per keystroke.
+   * Every gift-box product, from the dedicated `GET /products/gift-boxes` endpoint.
+   * `wrapPagedResult` tolerates both a bare array and a paged envelope.
+   *
+   * A server build that predates the endpoint answers either 404 or — because
+   * `/products/{slug}` sits on the same path shape — a single product object. Both are
+   * recognised and fall back to filtering the catalogue on `isGiftBox`, so this module keeps
+   * working while the API side ships. A genuinely empty list is *not* treated as a miss.
    */
-  getAllProducts: async (params?: Omit<ProductQueryParams, 'page' | 'pageSize'>) => {
-    const all: Product[] = [];
-    for (let page = 1; page <= ALL_PRODUCTS_MAX_PAGES; page++) {
-      const chunk = await fetchProductsPage({ ...params, page, pageSize: ALL_PRODUCTS_PAGE_SIZE });
-      all.push(...chunk);
-      if (chunk.length < ALL_PRODUCTS_PAGE_SIZE || all.length >= chunk.totalCount) break;
+  getGiftBoxes: async (): Promise<Product[]> => {
+    try {
+      const payload = (await apiClient.get('/products/gift-boxes')).data?.data;
+      const isList =
+        Array.isArray(payload) ||
+        (Boolean(payload) && Array.isArray((payload as { items?: unknown }).items));
+      if (isList) return [...wrapPagedResult<Product>(payload)];
+    } catch (error) {
+      const status = (error as { response?: { status?: number } } | null)?.response?.status;
+      if (status !== 404) throw error;
     }
-    return all;
+
+    const all = await fetchAllProducts();
+    return all.filter((p) => Boolean(p.isGiftBox));
   },
 
   getProductById: async (id: string) => {
