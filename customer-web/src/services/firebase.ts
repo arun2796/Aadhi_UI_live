@@ -13,8 +13,8 @@ const firebaseConfig = {
   projectId: 'aadhi-crackers',
   storageBucket: 'aadhi-crackers.firebasestorage.app',
   messagingSenderId: '455828664357',
-  appId: '1:455828664357:web:993137cee2c276f63e4fcc',
-  measurementId: 'G-NQH4FV7C97'
+  appId: '1:455828664357:web:69488346b5b0703f3e4fcc',
+  measurementId: 'G-VLFPKXHXXH'
 };
 
 const app: FirebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
