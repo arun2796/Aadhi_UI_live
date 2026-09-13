@@ -33,10 +33,13 @@ import {
   ServerCrash,
   Timer,
   XCircle,
+  Lock,
+  Eye,
+  EyeOff,
   type LucideIcon
 } from 'lucide-react';
 import { SystemSetting, SystemHealthReport } from '../../types';
-import { api, settingsApi, getApiErrorDetails } from '../../services/api';
+import { api, settingsApi, authApi, getApiErrorDetails } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 import { ImageUploadField } from '../../components/common/ImageUploadField';
 
@@ -132,6 +135,7 @@ type SettingsSectionId =
   | 'logo';
 
 const LOGO_KEY = 'Store.LogoUrl';
+const PAYMENT_QR_KEY = 'Payment.QrCodeUrl';
 /** Fallback GSTIN key when the backend has no existing GSTIN-like setting (PUT upserts it). */
 const COMPANY_GSTIN_FALLBACK_KEY = 'Company.Gstin';
 
@@ -265,6 +269,13 @@ const PINNED_FIELDS: Partial<Record<SettingsSectionId, SettingsField[]>> = {
     { key: 'Shipping.FreeShippingThreshold', label: 'Free Shipping Threshold (₹)', type: 'number' },
     { key: 'Delivery.StandardCharge', label: 'Standard Delivery Charge (₹)', type: 'number' },
     { key: 'Delivery.ExpressCharge', label: 'Express Delivery Charge (₹)', type: 'number' }
+  ],
+  payment: [
+    { key: 'Payment.BankName', label: 'Bank Name', description: 'Name of the bank for manual NEFT / IMPS transfers.' },
+    { key: 'Payment.AccountName', label: 'Account Holder Name', description: 'Beneficiary name on the bank account.' },
+    { key: 'Payment.AccountNumber', label: 'Account Number', description: 'Bank account number shown to customers at checkout.' },
+    { key: 'Payment.IfscCode', label: 'IFSC Code', description: 'Bank branch IFSC code.' },
+    { key: 'Payment.UpiId', label: 'UPI VPA / ID', description: 'Official UPI ID (e.g. aadhicrackers@oksbi).' }
   ]
 };
 
@@ -319,6 +330,11 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
   const [termsList, setTermsList] = useState<string[]>([]);
   const [termsShowErrors, setTermsShowErrors] = useState(false);
   const [zoneRows, setZoneRows] = useState<DeliveryZoneRow[]>([]);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
 
   const loadData = async () => {
     setIsLoading(true);
@@ -493,11 +509,14 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       return;
     }
     // Company also owns the logo uploader, so its save sweep includes the logo key.
+    // Payment section also owns the UPI QR code uploader.
     const fields: SettingsField[] =
       id === 'logo'
         ? [{ key: LOGO_KEY, label: 'Logo' }]
         : id === 'company'
         ? [...sectionFields(id), { key: LOGO_KEY, label: 'Logo' }]
+        : id === 'payment'
+        ? [...sectionFields(id), { key: PAYMENT_QR_KEY, label: 'Payment QR Code' }]
         : id === 'website'
         ? WEBSITE_FIELD_KEYS.map((k) => ({ key: k, label: k }))
         : sectionFields(id);
@@ -506,6 +525,19 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       showToast('No changes to save in this section', 'info');
       return;
     }
+
+    // Security requirement: Updating Payment QR Code requires entering admin password!
+    if (id === 'payment' && dirty.some((f) => f.key === PAYMENT_QR_KEY)) {
+      setShowPasswordModal(true);
+      setPasswordError('');
+      setPasswordInput('');
+      return;
+    }
+
+    await commitSaveFields(dirty);
+  };
+
+  const commitSaveFields = async (dirty: SettingsField[]) => {
     setIsSaving(true);
     try {
       for (const f of dirty) {
@@ -520,6 +552,30 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       showToast('Failed to save settings', 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleVerifyPasswordAndSavePayment = async () => {
+    if (!passwordInput.trim()) {
+      setPasswordError('Please enter your admin password');
+      return;
+    }
+    setIsVerifyingPassword(true);
+    setPasswordError('');
+    try {
+      await authApi.verifyPassword(passwordInput);
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      const fields: SettingsField[] = [
+        ...sectionFields('payment'),
+        { key: PAYMENT_QR_KEY, label: 'Payment QR Code' }
+      ];
+      const dirty = fields.filter((f) => (settingValues[f.key] ?? '') !== (originalValues[f.key] ?? ''));
+      await commitSaveFields(dirty);
+    } catch (err: any) {
+      setPasswordError(err?.response?.data?.message || 'Incorrect admin password. Verification failed.');
+    } finally {
+      setIsVerifyingPassword(false);
     }
   };
 
@@ -990,6 +1046,34 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                     </div>
                   </div>
                 )}
+
+                {/* Payment section carries the official UPI payment QR code */}
+                {settingsSection === 'payment' && (
+                  <div className="pt-4 border-t border-slate-100 space-y-2">
+                    <div className="flex items-center space-x-2">
+                      <label className="font-bold text-navy text-xs">UPI Payment QR Code</label>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Password Protected
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Upload your official UPI QR code for customer payments. Updating this QR code requires entering your admin password for security verification.
+                    </p>
+                    <div className="max-w-md">
+                      <ImageUploadField
+                        label="UPI QR Code Image"
+                        folder="settings"
+                        value={settingValues[PAYMENT_QR_KEY] || ''}
+                        onChange={(url) => setValue(PAYMENT_QR_KEY, url)}
+                        previewClassName="h-44"
+                        previewFit="contain"
+                        maxEdge={800}
+                        urlPlaceholder="…or paste image link"
+                        hint={`Stored in "${PAYMENT_QR_KEY}" — requires admin password to save changes.`}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1190,6 +1274,121 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                 <p className="pt-2"># 2. Database verification integrity check:</p>
                 <p className="text-emerald-400">sqlite3 backups/aadhi_backup_latest.db "PRAGMA integrity_check;"</p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Password Verification Modal for Payment QR Code Update */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div
+            className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-navy p-5 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white">Security Verification</h3>
+                  <p className="text-[10px] text-slate-300">Admin authorization required</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setPasswordInput('');
+                  setPasswordError('');
+                }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200/80 text-amber-900 text-xs flex items-start space-x-2.5">
+                <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Protecting Payment Settings:</span>
+                  <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                    Changing the official UPI QR Code redirects customer payments. Please re-enter your admin password to confirm this sensitive modification.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-navy flex items-center justify-between">
+                  <span>Admin Password</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      if (passwordError) setPasswordError('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleVerifyPasswordAndSavePayment();
+                    }}
+                    placeholder="Enter your admin account password"
+                    autoFocus
+                    className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-200 text-xs text-navy outline-none focus:border-purple focus:ring-1 focus:ring-purple"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {passwordError && (
+                  <p className="text-[11px] font-semibold text-red-600 animate-fade-in flex items-center gap-1 mt-1">
+                    <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>{passwordError}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setPasswordInput('');
+                  setPasswordError('');
+                }}
+                disabled={isVerifyingPassword}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleVerifyPasswordAndSavePayment}
+                disabled={isVerifyingPassword || !passwordInput.trim()}
+                className="px-5 py-2 rounded-xl bg-purple hover:bg-purple-dark text-white text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-purple/20 transition-all disabled:opacity-50"
+              >
+                {isVerifyingPassword ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Verifying...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Verify & Save Changes</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

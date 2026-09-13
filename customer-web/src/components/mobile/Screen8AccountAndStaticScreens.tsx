@@ -553,7 +553,27 @@ export const Screen14CategoryMenu: React.FC<{
 
   return (
     <div className="space-y-3 p-4 pb-8 font-sans bg-[#fbfbfb]">
-      <h2 className="text-base font-black text-navy">All Categories ({categories.length})</h2>
+      {/* View All Products button */}
+      <button
+        onClick={() => onNavigate('category', { category: 'all' })}
+        className="w-full p-4 rounded-2xl bg-gradient-to-r from-navy to-navy-light text-white shadow-md flex items-center justify-between active:scale-[0.99] transition-transform"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="w-9 h-9 rounded-xl bg-orange/20 border border-orange/40 flex items-center justify-center text-lg">
+            ✨
+          </div>
+          <div>
+            <div className="font-bold text-sm text-white">Browse All Products</div>
+            <div className="text-[10px] text-slate-300">View complete crackers catalogue</div>
+          </div>
+        </div>
+        <div className="flex items-center space-x-1">
+          <span className="text-[11px] font-bold text-orange">View All</span>
+          <ChevronRight className="w-4 h-4 text-orange" />
+        </div>
+      </button>
+
+      <h2 className="text-base font-black text-navy pt-1">All Categories ({categories.length})</h2>
 
       <div className="rounded-2xl bg-white border border-slate-100 shadow-xs divide-y divide-slate-100 overflow-hidden">
         {categories.map((c) => (

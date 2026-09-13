@@ -118,7 +118,7 @@ export const MobileFiltersModal: React.FC<MobileFiltersModalProps> = ({
     (minRating ? 1 : 0);
 
   return (
-    <div className="absolute inset-0 z-50 bg-white flex flex-col font-sans max-w-[425px] w-full mx-auto">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col font-sans max-w-[425px] w-full mx-auto h-[100dvh] overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between bg-white shadow-xs">
         <button onClick={onClose} className="p-1 -ml-1 text-slate-700" aria-label="Close filters">
@@ -260,7 +260,7 @@ export const MobileFiltersModal: React.FC<MobileFiltersModalProps> = ({
       </div>
 
       {/* Apply */}
-      <div className="p-4 border-t border-slate-100 bg-white">
+      <div className="p-4 border-t border-slate-100 bg-white flex-shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <button
           onClick={handleApply}
           className="w-full py-3.5 rounded-xl bg-orange hover:bg-orange-hover text-white text-xs font-bold uppercase tracking-wider shadow-glow active:scale-98 transition-all"

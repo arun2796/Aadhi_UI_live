@@ -7,6 +7,11 @@ export const authApi = {
     return res.data;
   },
 
+  verifyPassword: async (password: string) => {
+    const res = await apiClient.post<{ data: boolean; success: boolean; message?: string }>('/auth/verify-password', { password });
+    return res.data?.data ?? res.data?.success ?? true;
+  },
+
   getMe: async () => {
     const res = await apiClient.get<{ data: User }>('/auth/me');
     return res.data?.data;

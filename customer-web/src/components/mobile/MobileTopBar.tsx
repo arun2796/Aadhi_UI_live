@@ -11,6 +11,7 @@ import {
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useNotifications } from '../../context/NotificationsContext';
+import { useSettings } from '../../context/SettingsContext';
 
 interface MobileTopBarProps {
   title?: string;
@@ -37,9 +38,8 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
 }) => {
   const { totalItems } = useCart();
   const { wishlist } = useWishlist();
-  // Live unread count, shared with the notifications sheet — the badge is the
-  // number the API last reported, never a locally guessed one.
   const { unreadCount } = useNotifications();
+  const { storeLogo, storeName, storeTagline } = useSettings();
 
   return (
     <header className="sticky top-0 z-40 bg-[#111238] text-white px-3.5 py-2.5 flex items-center justify-between shadow-md">
@@ -68,15 +68,36 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
           <h1 className="font-bold text-sm text-white truncate max-w-[180px]">{title}</h1>
         ) : (
           <div className="flex items-center space-x-1.5 cursor-pointer">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-orange via-gold to-yellow-300 flex items-center justify-center shadow-xs">
-              <Flame className="w-4 h-4 text-navy fill-current" />
-            </div>
+            {storeLogo ? (
+              <div className="h-8 max-w-[90px] flex items-center justify-center">
+                <img
+                  src={storeLogo}
+                  alt={storeName || 'Aadhi Crackers'}
+                  className="max-h-8 w-auto object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = 'flex';
+                  }}
+                />
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-orange via-gold to-yellow-300 hidden items-center justify-center shadow-xs">
+                  <Flame className="w-4 h-4 text-navy fill-current" />
+                </div>
+              </div>
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-orange via-gold to-yellow-300 flex items-center justify-center shadow-xs">
+                <Flame className="w-4 h-4 text-navy fill-current" />
+              </div>
+            )}
             <div className="flex flex-col">
               <span className="font-black text-xs tracking-wider leading-none text-white">
-                AADHI <span className="text-orange text-[10px] font-bold">CRACKERS</span>
+                {storeName ? storeName.split(' ')[0] : 'AADHI'}{' '}
+                <span className="text-orange text-[10px] font-bold">
+                  {storeName ? storeName.split(' ').slice(1).join(' ') || 'CRACKERS' : 'CRACKERS'}
+                </span>
               </span>
               <span className="text-[7px] text-gold font-bold tracking-widest uppercase">
-                Celebrate Every Moment
+                {storeTagline || 'Celebrate Every Moment'}
               </span>
             </div>
           </div>

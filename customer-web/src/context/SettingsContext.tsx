@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { api } from '../services/api';
+import { api, normalizeImageUrl } from '../services/api';
 
 /* ─────────────────────────────────────────────────────────────
    Storefront-controlled settings (GET /api/v1/settings/public)
@@ -36,6 +36,8 @@ export interface StorefrontSettings {
   storePhone: string;
   /** Store.Address */
   storeAddress: string;
+  /** Store.LogoUrl */
+  storeLogo: string;
   /** Website.HeaderPromoText */
   headerPromoText: string;
   /** Shipping.FreeShippingThreshold — 0 when absent/invalid.
@@ -50,6 +52,8 @@ export interface StorefrontSettings {
   accountNumber: string;
   /** Payment.IfscCode */
   ifscCode: string;
+  /** Payment.QrCodeUrl — Custom uploaded UPI payment QR code */
+  paymentQrCodeUrl: string;
   /** Order.PackingChargePercent — LABEL ONLY (e.g. "Packing Charges (1.5%)").
    *  The billed amount and the payable total always come from POST /cart/calculate;
    *  this key never takes part in any arithmetic on the client. 0 when absent. */
@@ -70,12 +74,14 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
   storeEmail: '',
   storePhone: '',
   storeAddress: '',
+  storeLogo: '',
   headerPromoText: '',
   freeShippingThreshold: 0,
   bankName: '',
   accountName: '',
   accountNumber: '',
   ifscCode: '',
+  paymentQrCodeUrl: '',
   packingChargePercent: 0,
   isLoaded: false
 };
@@ -124,12 +130,14 @@ const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   storeEmail: (values['Store.Email'] || '').trim(),
   storePhone: (values['Store.Phone'] || '').trim(),
   storeAddress: (values['Store.Address'] || '').trim(),
+  storeLogo: normalizeImageUrl(values['Store.LogoUrl'] || '') || '',
   headerPromoText: (values['Website.HeaderPromoText'] || '').trim(),
   freeShippingThreshold: parseThreshold(values['Shipping.FreeShippingThreshold']),
   bankName: (values['Payment.BankName'] || '').trim(),
   accountName: (values['Payment.AccountName'] || '').trim(),
   accountNumber: (values['Payment.AccountNumber'] || '').trim(),
   ifscCode: (values['Payment.IfscCode'] || '').trim(),
+  paymentQrCodeUrl: normalizeImageUrl(values['Payment.QrCodeUrl'] || '') || '',
   packingChargePercent: parseThreshold(values['Order.PackingChargePercent']),
   isLoaded: true
 });

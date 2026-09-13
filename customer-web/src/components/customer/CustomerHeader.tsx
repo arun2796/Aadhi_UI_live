@@ -34,7 +34,7 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
   const { totalItems, setIsCartDrawerOpen } = useCart();
   const { wishlist } = useWishlist();
   const { user, isAdmin, toggleUserRole } = useAuth();
-  const { storePhone, storeEmail, headerPromoText } = useSettings();
+  const { storePhone, storeEmail, headerPromoText, storeName, storeTagline, storeLogo } = useSettings();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -139,18 +139,38 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
           {/* Logo */}
           <div
             onClick={() => onNavigate('home')}
-            className="flex items-center space-x-2 cursor-pointer group flex-shrink-0"
+            className="flex items-center space-x-2.5 cursor-pointer group flex-shrink-0"
           >
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-orange via-gold to-yellow-300 flex items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
-              <Flame className="w-6 h-6 text-navy fill-current" />
-            </div>
+            {storeLogo ? (
+              <div className="h-11 max-w-[140px] flex items-center justify-center">
+                <img
+                  src={storeLogo}
+                  alt={storeName || 'Aadhi Crackers'}
+                  className="max-h-11 w-auto object-contain transition-transform group-hover:scale-105"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = 'flex';
+                  }}
+                />
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-orange via-gold to-yellow-300 hidden items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
+                  <Flame className="w-6 h-6 text-navy fill-current" />
+                </div>
+              </div>
+            ) : (
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-orange via-gold to-yellow-300 flex items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
+                <Flame className="w-6 h-6 text-navy fill-current" />
+              </div>
+            )}
             <div>
               <div className="font-black text-xl tracking-wider leading-none text-white flex items-center space-x-1">
-                <span>AADHI</span>
-                <span className="text-orange text-sm font-semibold tracking-normal">CRACKERS</span>
+                <span>{storeName ? storeName.split(' ')[0] : 'AADHI'}</span>
+                <span className="text-orange text-sm font-semibold tracking-normal">
+                  {storeName ? storeName.split(' ').slice(1).join(' ') || 'CRACKERS' : 'CRACKERS'}
+                </span>
               </div>
               <div className="text-[10px] tracking-widest uppercase text-gold font-medium">
-                Celebrate Every Moment
+                {storeTagline || 'Celebrate Every Moment'}
               </div>
             </div>
           </div>

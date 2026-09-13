@@ -29,7 +29,7 @@ const SOCIAL_LINKS = [
 const PAYMENT_BADGES = ['UPI', 'Bank Transfer'];
 
 export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) => {
-  const { footerMessage, storeName, storeTagline, storeEmail, storePhone, storeAddress } = useSettings();
+  const { footerMessage, storeName, storeTagline, storeEmail, storePhone, storeAddress, storeLogo } = useSettings();
 
   const columns: Array<{
     title: string;
@@ -81,10 +81,28 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
       <div className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8">
         {/* Brand Column */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange to-gold flex items-center justify-center shadow-glow">
-              <Flame className="w-5 h-5 text-navy fill-current" />
-            </div>
+          <div className="flex items-center space-x-2.5">
+            {storeLogo ? (
+              <div className="h-10 max-w-[120px] flex items-center justify-center">
+                <img
+                  src={storeLogo}
+                  alt={storeName || 'Aadhi Crackers'}
+                  className="max-h-10 w-auto object-contain"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = 'flex';
+                  }}
+                />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange to-gold hidden items-center justify-center shadow-glow">
+                  <Flame className="w-5 h-5 text-navy fill-current" />
+                </div>
+              </div>
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange to-gold flex items-center justify-center shadow-glow">
+                <Flame className="w-5 h-5 text-navy fill-current" />
+              </div>
+            )}
             <div>
               <div className="font-black text-lg text-white">{storeName || 'AADHI CRACKERS'}</div>
               {storeTagline && (

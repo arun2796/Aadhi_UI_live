@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search,
   BadgeCheck,
@@ -508,12 +509,14 @@ const BundleRail: React.FC<{
    SCREEN 2 — CATEGORY / PRODUCT LISTING  (design 02_category.png)
    ══════════════════════════════════════════════════════════════════════════════ */
 
-type SortKey = 'popularity' | 'price-asc' | 'price-desc';
+type SortKey = 'popularity' | 'price-asc' | 'price-desc' | 'rating-desc' | 'newest';
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'popularity', label: 'Popularity' },
   { key: 'price-asc', label: 'Price: Low to High' },
-  { key: 'price-desc', label: 'Price: High to Low' }
+  { key: 'price-desc', label: 'Price: High to Low' },
+  { key: 'rating-desc', label: 'Customer Rating' },
+  { key: 'newest', label: 'Newest First' }
 ];
 
 interface Screen2CategoryProps {
@@ -584,6 +587,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     if (giftBoxesView) return GIFT_BOXES_TITLE;
     if (combosView) return COMBOS_TITLE;
     if (categorySlug === 'best-sellers') return 'Best Sellers';
+    if (!categorySlug || categorySlug === 'all' || categorySlug === 'all-products') return 'All Products';
     const found = categories.find((c) => c.slug === categorySlug || c.id === categorySlug);
     if (found) return found.name;
     for (const top of categories) {
@@ -606,6 +610,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     let list = [...products];
 
     const selectedCats = filters?.categories ?? [];
+    const isAll = !categorySlug || categorySlug === 'all' || categorySlug === 'all-products';
     if (curatedView) {
       // Already a curated list — no category narrowing on top of it.
     } else if (selectedCats.length > 0) {
@@ -614,7 +619,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     } else if (categorySlug === 'best-sellers') {
       const best = list.filter((p) => p.isBestSeller);
       if (best.length > 0) list = best;
-    } else {
+    } else if (!isAll) {
       const slug = categorySlug.toLowerCase().replace(/\s+/g, '-');
       const bySlug = list.filter(
         (p) =>
@@ -637,6 +642,8 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
 
     if (sortBy === 'price-asc') list.sort((a, b) => a.price - b.price);
     else if (sortBy === 'price-desc') list.sort((a, b) => b.price - a.price);
+    else if (sortBy === 'rating-desc') list.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    else if (sortBy === 'newest') list.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
     else {
       list.sort(
         (a, b) =>
@@ -895,60 +902,43 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
         </div>
       )}
 
-      {/* Sticky bottom Sort / Filters bar (per design) */}
-      <div className="sticky bottom-20 z-30 mt-4 flex justify-center pointer-events-none">
-        <div className="pointer-events-auto bg-navy text-white rounded-full shadow-xl flex items-center overflow-hidden">
-          <button
-            onClick={() => setSortSheetOpen(true)}
-            className="py-2.5 px-6 flex items-center gap-1.5 text-[11px] font-bold active:bg-white/10"
-          >
-            <ArrowUpDown className="w-3.5 h-3.5" />
-            Sort
-          </button>
-          <div className="w-px self-stretch bg-white/25" />
-          <button
-            onClick={onOpenFilter}
-            className="py-2.5 px-6 flex items-center gap-1.5 text-[11px] font-bold active:bg-white/10"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            Filters
-            {activeFilterCount > 0 && (
-              <span className="w-4 h-4 rounded-full bg-orange text-white text-[8px] font-black flex items-center justify-center">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Inline sort bottom sheet (own UI — onOpenSort from App opens the filter modal instead) */}
-      {sortSheetOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setSortSheetOpen(false)}>
-          <div className="absolute inset-0 bg-black/40" />
+      {/* Sort bottom sheet rendered via Portal to escape stacking context */}
+      {sortSheetOpen &&
+        createPortal(
           <div
-            className="relative bg-white rounded-t-3xl p-4 pb-6 space-y-1 animate-fade-in max-w-[425px] w-full mx-auto"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[60] flex flex-col justify-end"
+            onClick={() => setSortSheetOpen(false)}
           >
-            <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-2" />
-            <div className="text-xs font-black text-navy uppercase tracking-wider pb-1">Sort By</div>
-            {SORT_OPTIONS.map((o) => (
-              <button
-                key={o.key}
-                onClick={() => {
-                  setSortBy(o.key);
-                  setSortSheetOpen(false);
-                }}
-                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-colors ${
-                  sortBy === o.key ? 'bg-purple/10 text-purple' : 'text-slate-700 active:bg-slate-50'
-                }`}
-              >
-                <span>{o.label}</span>
-                {sortBy === o.key && <Check className="w-4 h-4" />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-xs transition-opacity" />
+            <div
+              className="relative bg-white rounded-t-3xl p-5 pb-8 space-y-1 shadow-2xl max-w-[425px] w-full mx-auto animate-slide-up"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mb-3" />
+              <div className="text-xs font-black text-navy uppercase tracking-wider pb-2">
+                Sort Products By
+              </div>
+              {SORT_OPTIONS.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => {
+                    setSortBy(o.key);
+                    setSortSheetOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-colors ${
+                    sortBy === o.key
+                      ? 'bg-purple/10 text-purple'
+                      : 'text-slate-700 active:bg-slate-50'
+                  }`}
+                >
+                  <span>{o.label}</span>
+                  {sortBy === o.key && <Check className="w-4 h-4 text-purple" />}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };
