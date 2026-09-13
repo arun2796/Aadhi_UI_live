@@ -176,7 +176,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const { items, subtotal, couponCode, clearCart } = useCart();
   const { showToast } = useToast();
-  const { deliveryZones, packingChargePercent: settingsPackingPercent, paymentQrCodeUrl } = useSettings();
+  const { deliveryZones, packingChargePercent: settingsPackingPercent, paymentQrCodeUrl, upiId, storeName } = useSettings();
 
   const [step, setStep] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -429,11 +429,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
      by lorry and the customer settles freight with the transport company when
      collecting it — so there is no payment method to choose between. */
   const [copiedUpi, setCopiedUpi] = useState(false);
+  const [qrImageFailed, setQrImageFailed] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [screenshotFileName, setScreenshotFileName] = useState<string>('');
 
-  const officialUpiId = 'aadhicrackers@okaxis';
+  const officialUpiId = (upiId || 'aadhicrackers@okaxis').trim();
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(officialUpiId);
@@ -993,13 +994,25 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                         carrying the wrong amount is the worst form of this bug. */}
                     {quote ? (
                       <div className="p-4 rounded-xl bg-purple/5 border border-purple/15 flex flex-col sm:flex-row items-center gap-4">
-                        <div className="w-36 h-36 bg-white p-2 rounded-xl border border-purple/20 flex-shrink-0 flex items-center justify-center">
-                          <img
-                            src={paymentQrCodeUrl || `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${officialUpiId}%26pn=AADHI%20CRACKERS%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
-                            alt="Aadhi Crackers UPI QR Code"
-                            className="w-full h-full object-contain rounded"
-                          />
-                        </div>
+                        {paymentQrCodeUrl && !qrImageFailed ? (
+                          <div className="w-48 max-w-full bg-white p-2.5 rounded-xl border border-purple/20 flex-shrink-0 flex flex-col items-center justify-center">
+                            <img
+                              src={paymentQrCodeUrl}
+                              alt="Official UPI Payment QR Code"
+                              onError={() => setQrImageFailed(true)}
+                              className="w-full max-h-56 object-contain rounded"
+                            />
+                            <span className="text-[9px] text-purple font-semibold mt-1">Official Payment QR</span>
+                          </div>
+                        ) : (
+                          <div className="w-36 h-36 bg-white p-2 rounded-xl border border-purple/20 flex-shrink-0 flex items-center justify-center">
+                            <img
+                              src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=${encodeURIComponent(officialUpiId)}%26pn=${encodeURIComponent(storeName || 'AADHI CRACKERS')}%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
+                              alt="Aadhi Crackers UPI QR Code"
+                              className="w-full h-full object-contain rounded"
+                            />
+                          </div>
+                        )}
                         <div className="space-y-2 text-center sm:text-left flex-1">
                           <div className="font-bold text-navy">Scan with GPay, PhonePe, Paytm or BHIM</div>
                           <div className="text-slate-500 text-[11px]">
@@ -1007,12 +1020,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                             <strong className="text-navy text-sm">{inrExact(quote.grandTotal)}</strong>
                           </div>
                           <div className="flex items-center justify-center sm:justify-start space-x-2 pt-1">
-                            <span className="font-mono font-bold text-purple text-xs">{officialUpiId}</span>
+                            <span className="font-mono font-bold text-purple text-xs select-all">{officialUpiId}</span>
                             <button
                               onClick={handleCopyUpi}
                               className="px-2 py-1 rounded bg-purple text-white hover:bg-purple-dark text-[10px] font-bold flex items-center space-x-1"
                             >
-                              <Copy className="w-3 h-3" />
+                              {copiedUpi ? <Check className="w-3 h-3 text-white" /> : <Copy className="w-3 h-3" />}
                               <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
                             </button>
                           </div>

@@ -183,7 +183,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
   const { user } = useAuth();
   const { items, subtotal, couponCode, clearCart } = useCart();
   const { showToast } = useToast();
-  const { deliveryZones, packingChargePercent: settingsPackingPercent, paymentQrCodeUrl } = useSettings();
+  const { deliveryZones, packingChargePercent: settingsPackingPercent, paymentQrCodeUrl, upiId, storeName } = useSettings();
 
   const [step, setStep] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -405,11 +405,12 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
      by lorry and the customer settles freight with the transport company when
      collecting it — so there is no payment method to choose between. */
   const [copiedUpi, setCopiedUpi] = useState(false);
+  const [qrImageFailed, setQrImageFailed] = useState(false);
   const [utrNumber, setUtrNumber] = useState('');
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [screenshotFileName, setScreenshotFileName] = useState<string>('');
 
-  const officialUpiId = 'aadhicrackers@okaxis';
+  const officialUpiId = (upiId || 'aadhicrackers@okaxis').trim();
 
   const handleCopyUpi = () => {
     navigator.clipboard.writeText(officialUpiId);
@@ -1053,16 +1054,30 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
 
               {quote ? (
                 <>
-                  <div className="w-44 h-44 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
-                    <img
-                      src={paymentQrCodeUrl || `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi://pay?pa=${officialUpiId}%26pn=AADHI%20CRACKERS%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
-                      alt="Aadhi Crackers UPI QR Code"
-                      className="w-36 h-36 object-contain rounded-lg"
-                    />
-                    <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
-                      GPay • PhonePe • Paytm • BHIM
+                  {paymentQrCodeUrl && !qrImageFailed ? (
+                    <div className="w-full max-w-[280px] min-h-[220px] mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative">
+                      <img
+                        src={paymentQrCodeUrl}
+                        alt="Official UPI Payment QR Code"
+                        onError={() => setQrImageFailed(true)}
+                        className="w-full max-h-72 object-contain rounded-xl"
+                      />
+                      <div className="mt-2 flex items-center justify-center gap-1 text-[10px] text-purple font-bold">
+                        <span>Scan & Pay via any UPI App</span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="w-48 h-48 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=upi://pay?pa=${encodeURIComponent(officialUpiId)}%26pn=${encodeURIComponent(storeName || 'AADHI CRACKERS')}%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
+                        alt="Aadhi Crackers UPI QR Code"
+                        className="w-40 h-40 object-contain rounded-lg"
+                      />
+                      <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
+                        GPay • PhonePe • Paytm • BHIM
+                      </div>
+                    </div>
+                  )}
 
                   <div className="bg-purple/5 border border-purple/15 rounded-xl p-2.5 space-y-1 text-xs">
                     <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
@@ -1070,13 +1085,13 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                     </div>
                     <div className="text-lg font-black text-navy">{inrExact(quote.grandTotal)}</div>
                     <div className="flex items-center justify-center space-x-2 pt-1">
-                      <span className="font-mono text-purple font-bold text-xs">{officialUpiId}</span>
+                      <span className="font-mono text-purple font-bold text-xs select-all">{officialUpiId}</span>
                       <button
                         onClick={handleCopyUpi}
-                        className="p-1 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] flex items-center space-x-1"
+                        className="p-1 px-2 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] font-semibold flex items-center space-x-1 shadow-2xs"
                         title="Copy UPI ID"
                       >
-                        <Copy className="w-3 h-3" />
+                        {copiedUpi ? <Check className="w-3 h-3 text-white" /> : <Copy className="w-3 h-3" />}
                         <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
                       </button>
                     </div>

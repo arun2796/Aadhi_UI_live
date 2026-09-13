@@ -344,11 +344,15 @@ const mapNotificationReadResult = (raw: any): NotificationReadResult | null => {
 
 export const api = {
   // PUBLIC STOREFRONT SETTINGS (anonymous; tolerant to the endpoint being absent)
-  async getPublicSettings(): Promise<Record<string, string>> {
-    if (publicSettingsCache) return publicSettingsCache;
+  async getPublicSettings(forceRefresh = false): Promise<Record<string, string>> {
+    if (!forceRefresh && publicSettingsCache) return publicSettingsCache;
+    if (forceRefresh) {
+      publicSettingsCache = null;
+      publicSettingsPromise = null;
+    }
     if (!publicSettingsPromise) {
       publicSettingsPromise = apiClient
-        .get('/settings/public')
+        .get('/settings/public', { params: { _t: Date.now() } })
         .then(res => {
           const raw = res.data?.data ?? res.data;
           const map: Record<string, string> = {};

@@ -136,6 +136,21 @@ type SettingsSectionId =
 
 const LOGO_KEY = 'Store.LogoUrl';
 const PAYMENT_QR_KEY = 'Payment.QrCodeUrl';
+const PAYMENT_UPI_ID_KEY = 'Payment.UpiId';
+const PAYMENT_BANK_NAME_KEY = 'Payment.BankName';
+const PAYMENT_ACCOUNT_NAME_KEY = 'Payment.AccountName';
+const PAYMENT_ACCOUNT_NUMBER_KEY = 'Payment.AccountNumber';
+const PAYMENT_IFSC_KEY = 'Payment.IfscCode';
+
+const PAYMENT_FIELD_KEYS = [
+  PAYMENT_UPI_ID_KEY,
+  PAYMENT_QR_KEY,
+  PAYMENT_BANK_NAME_KEY,
+  PAYMENT_ACCOUNT_NAME_KEY,
+  PAYMENT_ACCOUNT_NUMBER_KEY,
+  PAYMENT_IFSC_KEY
+];
+
 /** Fallback GSTIN key when the backend has no existing GSTIN-like setting (PUT upserts it). */
 const COMPANY_GSTIN_FALLBACK_KEY = 'Company.Gstin';
 
@@ -168,7 +183,7 @@ const YES_NO_OPTIONS = [
 ];
 
 /** Sections rendered by a dedicated editor (not the generic key/value field list). */
-const CUSTOM_SECTIONS: SettingsSectionId[] = ['logo', 'website', 'terms', 'delivery'];
+const CUSTOM_SECTIONS: SettingsSectionId[] = ['logo', 'website', 'terms', 'delivery', 'payment'];
 
 // Same list as the customer-web checkout state dropdown.
 const INDIAN_STATES = [
@@ -509,14 +524,14 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       return;
     }
     // Company also owns the logo uploader, so its save sweep includes the logo key.
-    // Payment section also owns the UPI QR code uploader.
+    // Payment section has dedicated custom keys.
     const fields: SettingsField[] =
       id === 'logo'
         ? [{ key: LOGO_KEY, label: 'Logo' }]
         : id === 'company'
         ? [...sectionFields(id), { key: LOGO_KEY, label: 'Logo' }]
         : id === 'payment'
-        ? [...sectionFields(id), { key: PAYMENT_QR_KEY, label: 'Payment QR Code' }]
+        ? PAYMENT_FIELD_KEYS.map((k) => ({ key: k, label: k }))
         : id === 'website'
         ? WEBSITE_FIELD_KEYS.map((k) => ({ key: k, label: k }))
         : sectionFields(id);
@@ -526,8 +541,8 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       return;
     }
 
-    // Security requirement: Updating Payment QR Code requires entering admin password!
-    if (id === 'payment' && dirty.some((f) => f.key === PAYMENT_QR_KEY)) {
+    // Security requirement: Updating Payment QR Code or UPI ID requires entering admin password!
+    if (id === 'payment' && dirty.some((f) => f.key === PAYMENT_QR_KEY || f.key === PAYMENT_UPI_ID_KEY)) {
       setShowPasswordModal(true);
       setPasswordError('');
       setPasswordInput('');
@@ -566,10 +581,7 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       await authApi.verifyPassword(passwordInput);
       setShowPasswordModal(false);
       setPasswordInput('');
-      const fields: SettingsField[] = [
-        ...sectionFields('payment'),
-        { key: PAYMENT_QR_KEY, label: 'Payment QR Code' }
-      ];
+      const fields: SettingsField[] = PAYMENT_FIELD_KEYS.map((k) => ({ key: k, label: k }));
       const dirty = fields.filter((f) => (settingValues[f.key] ?? '') !== (originalValues[f.key] ?? ''));
       await commitSaveFields(dirty);
     } catch (err: any) {
@@ -1000,6 +1012,137 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                   Saved as JSON in the "{DELIVERY_ZONES_KEY}" setting.
                 </p>
               </div>
+            ) : settingsSection === 'payment' ? (
+              <div className="space-y-6 text-xs">
+                {/* 1. UPI & QR Code Settings Card */}
+                <div className="p-5 rounded-2xl bg-gradient-to-br from-purple/5 via-white to-purple/10 border border-purple/20 space-y-4 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-9 h-9 rounded-xl bg-purple text-white flex items-center justify-center font-black text-xs shadow-sm">
+                        UPI
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-navy text-sm">UPI Payment Configuration</h4>
+                        <p className="text-[11px] text-slate-500">Configure your store's UPI VPA and official payment QR code for customer checkouts.</p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold flex items-center gap-1.5 shadow-2xs">
+                      <Lock className="w-3 h-3" /> Password Protected
+                    </span>
+                  </div>
+
+                  {/* UPI VPA / ID Field */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-navy text-xs flex items-center gap-1.5">
+                        <span>Store UPI ID (VPA)</span>
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <span className="text-[10px] text-purple font-mono font-bold bg-purple/10 px-2.5 py-0.5 rounded-md">
+                        {settingValues[PAYMENT_UPI_ID_KEY] || 'Not configured'}
+                      </span>
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        value={settingValues[PAYMENT_UPI_ID_KEY] ?? ''}
+                        onChange={(e) => setValue(PAYMENT_UPI_ID_KEY, e.target.value.trim())}
+                        placeholder="e.g. kuttysakthi625-1@okaxis or yourstore@oksbi"
+                        className="w-full p-2.5 rounded-xl border border-slate-200 text-navy font-mono text-xs font-semibold outline-none focus:border-purple focus:ring-2 focus:ring-purple/10"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400">
+                      Customers copy this UPI ID to make payments via GPay, PhonePe, Paytm or BHIM. Also used to generate instant QR codes if no custom image is uploaded.
+                    </p>
+                  </div>
+
+                  {/* UPI Payment QR Code Image Upload */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-navy text-xs">Official UPI QR Code Image</label>
+                      {settingValues[PAYMENT_QR_KEY] ? (
+                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Active QR Uploaded
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic">No custom QR image uploaded</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Upload your official UPI payment QR code (from your Google Pay, PhonePe, Paytm, or BHIM business app). When uploaded, customers scan this exact QR at checkout.
+                    </p>
+                    <div className="max-w-md pt-1">
+                      <ImageUploadField
+                        label="UPI QR Code"
+                        folder="settings"
+                        value={settingValues[PAYMENT_QR_KEY] || ''}
+                        onChange={(url) => setValue(PAYMENT_QR_KEY, url)}
+                        previewClassName="h-56"
+                        previewFit="contain"
+                        maxEdge={1000}
+                        urlPlaceholder="…or paste image link"
+                        hint={`Stored in "${PAYMENT_QR_KEY}" — saving changes requires admin password verification.`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Bank Transfer Details Card */}
+                <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-xl bg-navy text-white flex items-center justify-center font-black text-xs shadow-sm">
+                      <Building2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-navy text-sm">Bank Transfer Details (NEFT / IMPS / RTGS)</h4>
+                      <p className="text-[11px] text-slate-500">Beneficiary bank account details shown to customers choosing direct bank transfer.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="font-bold text-navy text-xs">Bank Name</label>
+                      <input
+                        type="text"
+                        value={settingValues[PAYMENT_BANK_NAME_KEY] ?? ''}
+                        onChange={(e) => setValue(PAYMENT_BANK_NAME_KEY, e.target.value)}
+                        placeholder="e.g. TAMILNAD MERCANTILE BANK LTD"
+                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy outline-none focus:border-purple text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-navy text-xs">Account Holder Name</label>
+                      <input
+                        type="text"
+                        value={settingValues[PAYMENT_ACCOUNT_NAME_KEY] ?? ''}
+                        onChange={(e) => setValue(PAYMENT_ACCOUNT_NAME_KEY, e.target.value)}
+                        placeholder="e.g. SAKTHIVEL S"
+                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy outline-none focus:border-purple text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-navy text-xs">Account Number</label>
+                      <input
+                        type="text"
+                        value={settingValues[PAYMENT_ACCOUNT_NUMBER_KEY] ?? ''}
+                        onChange={(e) => setValue(PAYMENT_ACCOUNT_NUMBER_KEY, e.target.value)}
+                        placeholder="e.g. 003100250650473"
+                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy font-mono outline-none focus:border-purple text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-navy text-xs">IFSC Code</label>
+                      <input
+                        type="text"
+                        value={settingValues[PAYMENT_IFSC_KEY] ?? ''}
+                        onChange={(e) => setValue(PAYMENT_IFSC_KEY, e.target.value.toUpperCase())}
+                        placeholder="e.g. TMBL0000003"
+                        className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 text-navy font-mono uppercase outline-none focus:border-purple text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             ) : sectionFields(settingsSection).length === 0 ? (
               <div className="py-10 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
                 No settings in this group yet.
@@ -1042,34 +1185,6 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
                         maxEdge={800}
                         urlPlaceholder="…or paste a Google Drive / web link"
                         hint={'Stored in the "' + LOGO_KEY + '" setting — click Save Changes to persist it.'}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Payment section carries the official UPI payment QR code */}
-                {settingsSection === 'payment' && (
-                  <div className="pt-4 border-t border-slate-100 space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <label className="font-bold text-navy text-xs">UPI Payment QR Code</label>
-                      <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-semibold flex items-center gap-1">
-                        <Lock className="w-3 h-3" /> Password Protected
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Upload your official UPI QR code for customer payments. Updating this QR code requires entering your admin password for security verification.
-                    </p>
-                    <div className="max-w-md">
-                      <ImageUploadField
-                        label="UPI QR Code Image"
-                        folder="settings"
-                        value={settingValues[PAYMENT_QR_KEY] || ''}
-                        onChange={(url) => setValue(PAYMENT_QR_KEY, url)}
-                        previewClassName="h-44"
-                        previewFit="contain"
-                        maxEdge={800}
-                        urlPlaceholder="…or paste image link"
-                        hint={`Stored in "${PAYMENT_QR_KEY}" — requires admin password to save changes.`}
                       />
                     </div>
                   </div>
