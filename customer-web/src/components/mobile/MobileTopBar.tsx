@@ -67,13 +67,13 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
         {title ? (
           <h1 className="font-bold text-sm text-white truncate max-w-[180px]">{title}</h1>
         ) : (
-          <div className="flex items-center space-x-1.5 cursor-pointer">
+          <div className="flex items-center space-x-2 cursor-pointer select-none">
             {storeLogo ? (
-              <div className="h-8 max-w-[90px] flex items-center justify-center">
+              <div className="h-9 w-auto flex items-center justify-center relative flex-shrink-0">
                 <img
                   src={storeLogo}
                   alt={storeName || 'Aadhi Crackers'}
-                  className="max-h-8 w-auto object-contain"
+                  className="h-8.5 w-auto object-contain filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.35)]"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                     const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -89,14 +89,14 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
                 <Flame className="w-4 h-4 text-navy fill-current" />
               </div>
             )}
-            <div className="flex flex-col">
-              <span className="font-black text-xs tracking-wider leading-none text-white">
-                {storeName ? storeName.split(' ')[0] : 'AADHI'}{' '}
-                <span className="text-orange text-[10px] font-bold">
+            <div className="flex flex-col justify-center">
+              <span className="font-black text-xs tracking-wider leading-none text-white flex items-center space-x-1">
+                <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.5)]">{storeName ? storeName.split(' ')[0] : 'AADHI'}</span>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-300 text-[10px] font-extrabold drop-shadow-[0_1px_4px_rgba(251,146,60,0.3)]">
                   {storeName ? storeName.split(' ').slice(1).join(' ') || 'CRACKERS' : 'CRACKERS'}
                 </span>
               </span>
-              <span className="text-[7px] text-gold font-bold tracking-widest uppercase">
+              <span className="text-[7px] text-amber-300/90 font-bold tracking-widest uppercase mt-0.5">
                 {storeTagline || 'Celebrate Every Moment'}
               </span>
             </div>

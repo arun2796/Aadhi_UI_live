@@ -81,13 +81,13 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
       <div className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8">
         {/* Brand Column */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center space-x-3">
             {storeLogo ? (
-              <div className="h-10 max-w-[120px] flex items-center justify-center">
+              <div className="h-12 w-auto flex items-center justify-center relative flex-shrink-0">
                 <img
                   src={storeLogo}
                   alt={storeName || 'Aadhi Crackers'}
-                  className="max-h-10 w-auto object-contain"
+                  className="h-12 w-auto object-contain filter drop-shadow-[0_4px_10px_rgba(245,158,11,0.35)]"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                     const fallback = e.currentTarget.nextElementSibling as HTMLElement;
@@ -104,9 +104,9 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
               </div>
             )}
             <div>
-              <div className="font-black text-lg text-white">{storeName || 'AADHI CRACKERS'}</div>
+              <div className="font-black text-lg text-white tracking-wide">{storeName || 'AADHI CRACKERS'}</div>
               {storeTagline && (
-                <div className="text-[10px] text-gold font-medium tracking-wider uppercase">{storeTagline}</div>
+                <div className="text-[10px] text-amber-300 font-semibold tracking-widest uppercase mt-0.5">{storeTagline}</div>
               )}
             </div>
           </div>

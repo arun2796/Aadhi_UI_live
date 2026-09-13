@@ -113,9 +113,10 @@ export const MobileSideDrawer: React.FC<MobileSideDrawerProps> = ({
           </div>
 
           {/* Bottom Brand Bar */}
-          <div className="p-4 border-t border-navy-border/60 text-center">
-            <div className="text-[10px] text-gold font-bold uppercase tracking-widest">AADHI CRACKERS</div>
-            <div className="text-[9px] text-slate-400 mt-0.5">Sivakasi Original • Since 1998</div>
+          <div className="p-4 border-t border-navy-border/60 text-center flex flex-col items-center">
+            <img src="/logo.webp" alt="Aadhi Crackers" className="h-9 w-auto mb-1.5 object-contain filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.35)]" />
+            <div className="text-[10px] text-amber-300 font-black uppercase tracking-widest">AADHI CRACKERS</div>
+            <div className="text-[9px] text-slate-400 mt-0.5 font-medium">Sivakasi Original • Celebrate Every Moment</div>
           </div>
         </div>
       </div>

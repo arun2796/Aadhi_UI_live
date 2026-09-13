@@ -76,7 +76,7 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
   storeEmail: '',
   storePhone: '',
   storeAddress: '',
-  storeLogo: '',
+  storeLogo: '/logo.webp',
   headerPromoText: '',
   freeShippingThreshold: 0,
   bankName: '',
@@ -121,6 +121,15 @@ const parseThreshold = (raw?: string): number => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
+/** Resolves the brand logo. Defaults to our clean transparent emblem when absent or pointing to the legacy white-background asset. */
+const resolveLogoUrl = (raw?: string): string => {
+  const norm = normalizeImageUrl(raw || '');
+  if (!norm || norm.includes('3cc52030f3c4478d8b5fe49dfa013940')) {
+    return '/logo.webp';
+  }
+  return norm;
+};
+
 const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   websiteStatus: (values['Website.Status'] || 'ON').trim().toUpperCase() === 'OFF' ? 'OFF' : 'ON',
   thankYouMessage: (values['Website.ThankYouMessage'] || '').trim(),
@@ -133,7 +142,7 @@ const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   storeEmail: (values['Store.Email'] || '').trim(),
   storePhone: (values['Store.Phone'] || '').trim(),
   storeAddress: (values['Store.Address'] || '').trim(),
-  storeLogo: normalizeImageUrl(values['Store.LogoUrl'] || '') || '',
+  storeLogo: resolveLogoUrl(values['Store.LogoUrl']),
   headerPromoText: (values['Website.HeaderPromoText'] || '').trim(),
   freeShippingThreshold: parseThreshold(values['Shipping.FreeShippingThreshold']),
   bankName: (values['Payment.BankName'] || '').trim(),

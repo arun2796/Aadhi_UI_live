@@ -152,38 +152,42 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
           {/* Logo */}
           <div
             onClick={() => onNavigate('home')}
-            className="flex items-center space-x-2.5 cursor-pointer group flex-shrink-0"
+            className="flex items-center space-x-3 cursor-pointer group flex-shrink-0 select-none py-0.5"
           >
             {storeLogo ? (
-              <div className="h-11 max-w-[140px] flex items-center justify-center">
+              <div className="h-12 sm:h-14 flex items-center justify-center relative">
                 <img
                   src={storeLogo}
                   alt={storeName || 'Aadhi Crackers'}
-                  className="max-h-11 w-auto object-contain transition-transform group-hover:scale-105"
+                  className="h-12 sm:h-13.5 w-auto object-contain transition-all duration-300 group-hover:scale-105 filter drop-shadow-[0_4px_14px_rgba(245,158,11,0.38)]"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                     const fallback = e.currentTarget.nextElementSibling as HTMLElement;
                     if (fallback) fallback.style.display = 'flex';
                   }}
                 />
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-orange via-gold to-yellow-300 hidden items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-orange via-gold to-yellow-300 hidden items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
                   <Flame className="w-6 h-6 text-navy fill-current" />
                 </div>
               </div>
             ) : (
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-orange via-gold to-yellow-300 flex items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-orange via-gold to-yellow-300 flex items-center justify-center shadow-glow group-hover:scale-105 transition-transform">
                 <Flame className="w-6 h-6 text-navy fill-current" />
               </div>
             )}
-            <div>
-              <div className="font-black text-xl tracking-wider leading-none text-white flex items-center space-x-1">
-                <span>{storeName ? storeName.split(' ')[0] : 'AADHI'}</span>
-                <span className="text-orange text-sm font-semibold tracking-normal">
+            <div className="flex flex-col justify-center">
+              <div className="font-black text-xl lg:text-2xl tracking-wider leading-none flex items-baseline space-x-1.5">
+                <span className="text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+                  {storeName ? storeName.split(' ')[0] : 'AADHI'}
+                </span>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-yellow-400 text-sm lg:text-base font-extrabold tracking-wide drop-shadow-[0_2px_6px_rgba(251,146,60,0.4)]">
                   {storeName ? storeName.split(' ').slice(1).join(' ') || 'CRACKERS' : 'CRACKERS'}
                 </span>
               </div>
-              <div className="text-[10px] tracking-widest uppercase text-gold font-medium">
-                {storeTagline || 'Celebrate Every Moment'}
+              <div className="text-[9.5px] lg:text-[10px] tracking-[0.22em] uppercase font-bold text-amber-300/90 mt-1 flex items-center space-x-1">
+                <span className="h-[1px] w-2 bg-gradient-to-r from-transparent to-amber-400/80"></span>
+                <span>{storeTagline || 'Celebrate Every Moment'}</span>
+                <span className="h-[1px] w-2 bg-gradient-to-l from-transparent to-amber-400/80"></span>
               </div>
             </div>
           </div>
