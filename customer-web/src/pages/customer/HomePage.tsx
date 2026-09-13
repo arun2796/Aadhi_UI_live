@@ -51,7 +51,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [newArrivals, setNewArrivals] = useState<Product[]>([]);
   const [combos, setCombos] = useState<Product[]>([]);
   const [giftBoxes, setGiftBoxes] = useState<Product[]>([]);
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([LOGO_HERO_SLIDE]);
@@ -61,13 +61,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     api.getCategories().then(setCategories);
-    api.getProducts({ excludeCombos: true, excludeGiftBoxes: true }).then(setProducts);
-    api.getBestSellers().then((list) => {
-      if (list.length > 0) {
-        setBestSellers(list);
-      } else {
-        api.getFeaturedProducts().then(setBestSellers);
-      }
+    api.getProducts({ excludeCombos: true, excludeGiftBoxes: true }).then((all) => {
+      setProducts(all);
+      let list = all.filter((p) => p.isNewArrival);
+      if (list.length === 0) list = all.slice(0, 12);
+      setNewArrivals(list.slice(0, 12));
     });
     // Real combos only — the section renders nothing at all when this is empty.
     api.getCombos().then(setCombos);
@@ -90,9 +88,12 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     });
   }, []);
 
-  const localBestSellers = products.filter(p => p.isBestSeller);
-  const bestSelling = (
-    bestSellers.length > 0 ? bestSellers : localBestSellers.length > 0 ? localBestSellers : products
+  const newArrivalProducts = (
+    newArrivals.length > 0
+      ? newArrivals
+      : products.filter(p => p.isNewArrival).length > 0
+      ? products.filter(p => p.isNewArrival)
+      : products
   ).slice(0, 8);
 
   const slide = heroSlides[Math.min(heroIndex, heroSlides.length - 1)];
@@ -291,15 +292,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       </section>
 
-      {/* 4. Best Selling Products */}
+      {/* 4. New Arrivals */}
       <section className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-black text-navy">Best Selling Products</h2>
-            <p className="text-xs text-slate-500">Handpicked top performers for vibrant night displays</p>
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-orange/10 border border-orange/20 flex items-center justify-center text-orange flex-shrink-0 shadow-xs">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-navy">New Arrivals</h2>
+              <p className="text-xs text-slate-500">Fresh additions and latest fireworks for this season</p>
+            </div>
           </div>
           <button
-            onClick={() => onNavigate('shop', { sortBy: 'popular' })}
+            onClick={() => onNavigate('shop', { category: 'new-arrivals', sortBy: 'new' })}
             className="text-xs font-bold text-purple hover:text-purple-dark flex items-center space-x-1"
           >
             <span>View All</span>
@@ -308,7 +314,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {bestSelling.map((product, index) => (
+          {newArrivalProducts.map((product, index) => (
             <ProductCard
               key={product.id}
               product={product}
