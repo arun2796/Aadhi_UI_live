@@ -683,34 +683,46 @@ export const api = {
       return digits;
     };
 
-    const res = await apiClient.post('/orders', {
-      shippingAddress: {
-        fullName: (payload.shippingAddress.fullName || '').trim(),
-        phone: sanitizePhone(payload.shippingAddress.phone),
-        addressLine1: (payload.shippingAddress.addressLine1 || '').trim(),
-        addressLine2: payload.shippingAddress.addressLine2,
-        city: (payload.shippingAddress.city || '').trim(),
-        state: (payload.shippingAddress.state || '').trim(),
-        postalCode: (payload.shippingAddress.postalCode || '').trim(),
-        country: payload.shippingAddress.country || 'India'
-      },
-      paymentMethod: UPI_PAYMENT_METHOD,
-      couponCode: payload.couponCode,
-      notes: payload.notes,
-      deliveryMethod: payload.deliveryMethod || 'transport',
-      utrNumber: payload.utrNumber,
-      paymentScreenshotUrl: payload.paymentScreenshotUrl,
-      paymentScreenshotBase64: payload.paymentScreenshotBase64,
-      items: payload.items.map(i => ({
-        productId: i.product.id,
-        quantity: i.quantity
-      }))
-    });
+    try {
+      const res = await apiClient.post('/orders', {
+        shippingAddress: {
+          fullName: (payload.shippingAddress.fullName || '').trim(),
+          phone: sanitizePhone(payload.shippingAddress.phone),
+          addressLine1: (payload.shippingAddress.addressLine1 || '').trim(),
+          addressLine2: payload.shippingAddress.addressLine2,
+          city: (payload.shippingAddress.city || '').trim(),
+          state: (payload.shippingAddress.state || '').trim(),
+          postalCode: (payload.shippingAddress.postalCode || '').trim(),
+          country: payload.shippingAddress.country || 'India'
+        },
+        paymentMethod: UPI_PAYMENT_METHOD,
+        couponCode: payload.couponCode,
+        notes: payload.notes,
+        deliveryMethod: payload.deliveryMethod || 'transport',
+        utrNumber: payload.utrNumber,
+        paymentScreenshotUrl: payload.paymentScreenshotUrl,
+        paymentScreenshotBase64: payload.paymentScreenshotBase64,
+        items: payload.items.map(i => ({
+          productId: i.product.id,
+          quantity: i.quantity
+        }))
+      });
 
-    if (res.data?.data) {
-      return res.data.data;
+      if (res.data?.data) {
+        return res.data.data;
+      }
+      throw new Error(res.data?.message || 'Failed to place live order on server');
+    } catch (error: any) {
+      const serverMsg =
+        error?.response?.data?.message ||
+        error?.response?.data?.detail ||
+        (error?.response?.data?.errors
+          ? Object.values(error.response.data.errors).flat().join('. ')
+          : null) ||
+        error?.message ||
+        'Failed to place live order on server';
+      throw new Error(serverMsg);
     }
-    throw new Error(res.data?.message || 'Failed to place live order on server');
   },
 
   async trackOrder(orderNumber: string): Promise<any> {

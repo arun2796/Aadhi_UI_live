@@ -3,6 +3,8 @@ import { Check, X, Clock } from 'lucide-react';
 import { api } from '../../services/api';
 import { inrExact } from '../../utils/checkoutQuote';
 
+import { playClickSound } from '../../utils/soundEffects';
+
 interface NavProps {
   onNavigate: (page: string, params?: any) => void;
 }
@@ -11,6 +13,7 @@ interface PaymentResultProps extends NavProps {
   orderNumber?: string;
   orderId?: string;
   amount?: number;
+  errorMessage?: string;
 }
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -57,7 +60,10 @@ export const ScreenPaymentSuccess: React.FC<PaymentResultProps> = ({
       )}
 
       <button
-        onClick={() => onNavigate('home')}
+        onClick={() => {
+          playClickSound();
+          onNavigate('home');
+        }}
         className="w-full py-3.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs transition-colors shadow-glow-purple"
       >
         Continue
@@ -73,7 +79,8 @@ export const ScreenPaymentSuccess: React.FC<PaymentResultProps> = ({
 export const ScreenPaymentFailed: React.FC<PaymentResultProps> = ({
   onNavigate,
   orderNumber,
-  amount
+  amount,
+  errorMessage
 }) => {
   return (
     <ResultShell>
@@ -83,11 +90,17 @@ export const ScreenPaymentFailed: React.FC<PaymentResultProps> = ({
 
       <div className="space-y-2">
         <h2 className="text-xl font-black text-navy">Payment Failed!</h2>
-        <p className="text-xs text-slate-500 font-medium leading-relaxed">
-          Your payment{typeof amount === 'number' && amount > 0 ? <> of <strong className="text-navy">{inrExact(amount)}</strong></> : null} could not be completed.
-          <br />
-          Please try again or use another payment method.
-        </p>
+        <div className="text-xs text-slate-500 font-medium leading-relaxed space-y-1">
+          {errorMessage && (
+            <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold text-left mb-2">
+              ⚠️ {errorMessage}
+            </div>
+          )}
+          <p>
+            Your payment{typeof amount === 'number' && amount > 0 ? <> of <strong className="text-navy">{inrExact(amount)}</strong></> : null} could not be completed.
+          </p>
+          <p>Please try again or use another payment method.</p>
+        </div>
       </div>
 
       {orderNumber && (
@@ -98,13 +111,19 @@ export const ScreenPaymentFailed: React.FC<PaymentResultProps> = ({
 
       <div className="space-y-3">
         <button
-          onClick={() => onNavigate('checkout')}
+          onClick={() => {
+            playClickSound();
+            onNavigate('checkout');
+          }}
           className="w-full py-3.5 rounded-xl bg-purple hover:bg-purple-dark text-white font-bold text-xs transition-colors shadow-glow-purple"
         >
           Try Again
         </button>
         <button
-          onClick={() => onNavigate('checkout')}
+          onClick={() => {
+            playClickSound();
+            onNavigate('checkout');
+          }}
           className="text-xs font-bold text-blue-600 hover:underline"
         >
           Use Different Method

@@ -25,6 +25,7 @@ import {
   useEstimateOrder
 } from '../../components/common/CommonComponents';
 import { rememberOrderNumber } from '../../utils/guestOrders';
+import { playClickSound, playCrackersBurstSequence } from '../../utils/soundEffects';
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
@@ -115,6 +116,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
   useEffect(() => {
     if (justPlaced) {
       triggerFireworksConfetti();
+      playCrackersBurstSequence(10);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

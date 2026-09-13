@@ -497,6 +497,7 @@ function CustomerAppRoot() {
                 orderNumber={effectiveParams?.orderNumber}
                 orderId={effectiveParams?.orderId}
                 amount={effectiveParams?.amount}
+                errorMessage={effectiveParams?.errorMessage}
               />
             )}
 

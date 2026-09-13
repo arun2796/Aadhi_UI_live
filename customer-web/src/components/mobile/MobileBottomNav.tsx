@@ -1,5 +1,6 @@
 import React from 'react';
 import { Home, Grid, Heart, ShoppingBag, User } from 'lucide-react';
+import { playClickSound } from '../../utils/soundEffects';
 
 export type BottomNavTab = 'home' | 'categories' | 'wishlist' | 'orders' | 'account';
 
@@ -29,7 +30,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         return (
           <button
             key={tab.id}
-            onClick={() => onSelectTab(tab.id)}
+            onClick={() => {
+              playClickSound();
+              onSelectTab(tab.id);
+            }}
             className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all duration-200 ${
               isActive ? 'text-purple' : 'text-slate-400 hover:text-slate-600'
             }`}

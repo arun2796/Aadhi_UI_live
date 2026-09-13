@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, Product } from '../types';
 import { api } from '../services/api';
+import { playClickSound } from '../utils/soundEffects';
 
 interface CartContextType {
   items: CartItem[];
@@ -65,6 +66,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [items, couponCode]);
 
   const addToCart = (product: Product, quantity: number = 1) => {
+    playClickSound();
     const maxStock = typeof product.availableQuantity === 'number' && product.availableQuantity > 0
       ? product.availableQuantity
       : 9999;
@@ -93,6 +95,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateQuantity = (productId: string, quantity: number) => {
+    playClickSound();
     if (quantity <= 0) {
       removeFromCart(productId);
       return;
@@ -107,6 +110,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const removeFromCart = (productId: string) => {
+    playClickSound();
     setItems(prev => prev.filter(i => i.productId !== productId));
   };
 

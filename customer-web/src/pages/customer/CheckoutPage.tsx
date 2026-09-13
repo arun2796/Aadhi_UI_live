@@ -35,12 +35,20 @@ import {
   upiAmount,
   useCheckoutQuote
 } from '../../utils/checkoutQuote';
+import { playClickSound, playCrackersBurstSequence } from '../../utils/soundEffects';
 
 /* ─────────────────────────────────────────────────────────────
    Shared helpers
    ───────────────────────────────────────────────────────────── */
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+const sanitizeIndianPhone = (raw: string): string => {
+  let digits = (raw || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
+};
 
 const INDIAN_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
@@ -293,7 +301,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
 
   const validateAddressForm = (): string | null => {
     if (!addressForm.fullName.trim()) return 'Please enter the full name.';
-    if (!/^\d{10}$/.test(addressForm.phone.trim())) return 'Please enter a valid 10-digit mobile number.';
+    const digits = sanitizeIndianPhone(addressForm.phone);
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      return 'Please enter a valid 10-digit mobile number (starts with 6, 7, 8, or 9).';
+    }
     if (!addressForm.addressLine1.trim()) return 'Please enter Address Line 1.';
     if (!addressForm.city.trim()) return 'Please enter the city.';
     if (!addressForm.state.trim()) return 'Please select a state.';
@@ -302,6 +313,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   };
 
   const goToStep = (target: number) => {
+    playClickSound();
     setErrorMessage(null);
     setStep(target);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -309,6 +321,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
 
   /** Save the inline form (syncing with the server when logged in), select it, and advance. */
   const handleSaveAddressAndContinue = async () => {
+    playClickSound();
     const problem = validateAddressForm();
     if (problem) {
       setErrorMessage(problem);
@@ -320,7 +333,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     const clean: CheckoutAddress = {
       ...addressForm,
       fullName: addressForm.fullName.trim(),
-      phone: addressForm.phone.trim(),
+      phone: sanitizeIndianPhone(addressForm.phone),
       addressLine1: addressForm.addressLine1.trim(),
       addressLine2: addressForm.addressLine2?.trim() || '',
       city: addressForm.city.trim(),
@@ -467,6 +480,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handlePlaceOrder = async () => {
+    playClickSound();
     if (!quote || !canPay) {
       setErrorMessage(
         quoteProblem
@@ -477,6 +491,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
     }
     if (!selectedAddress) {
       setErrorMessage('Delivery address is missing.');
+      goToStep(1);
+      return;
+    }
+    const cleanPhone = sanitizeIndianPhone(selectedAddress.phone);
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      setErrorMessage('Please update your delivery address with a valid 10-digit mobile number (starts with 6-9).');
       goToStep(1);
       return;
     }
@@ -510,7 +530,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
       const order = await api.createOrder({
         shippingAddress: {
           fullName: selectedAddress.fullName,
-          phone: selectedAddress.phone,
+          phone: cleanPhone,
           addressLine1: selectedAddress.addressLine1,
           addressLine2: selectedAddress.addressLine2,
           city: selectedAddress.city,
@@ -610,7 +630,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
         utrNumber: utrNumber.trim()
       });
     } catch (err: any) {
-      showToast(err?.message || 'Order could not be placed. Please try again.', 'error');
+      const msg = err?.message || 'Order could not be placed. Please check your details and try again.';
+      setErrorMessage(msg);
+      showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
