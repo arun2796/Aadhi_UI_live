@@ -82,6 +82,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
     unit: 'Box',
     isActive: true,
     isFeatured: false,
+    isNewArrival: false,
     productType: 'Simple'
   });
   const [topCategoryId, setTopCategoryId] = useState('');
@@ -167,6 +168,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
             unit: product.unit || 'Box',
             isActive: product.isActive ?? true,
             isFeatured: product.isFeatured ?? false,
+            isNewArrival: product.isNewArrival ?? false,
             productType: product.productType || 'Simple'
           });
 
@@ -393,6 +395,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
       reorderLevel: persistedForm.reorderLevel ?? 10,
       isActive: persistedForm.isActive ?? true,
       isFeatured: persistedForm.isFeatured ?? false,
+      isNewArrival: persistedForm.isNewArrival ?? false,
       categoryId: finalCategoryId,
       categoryName: finalCategory?.name || form.categoryName,
       primaryImageUrl: primary?.url || form.primaryImageUrl,
@@ -838,6 +841,47 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                     <span
                       className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transform transition-transform ${
                         form.isActive ?? true ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                      }`}
+                    />
+                  </span>
+                </button>
+              </div>
+
+              {/* New Arrival Toggle */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/50">
+                <div>
+                  <div className="font-bold text-navy flex items-center space-x-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-orange" />
+                    <span>New Arrival</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    {form.isNewArrival
+                      ? 'Marked as New Arrival — featured in the New Arrivals collection on storefront.'
+                      : 'Not marked as New Arrival.'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.isNewArrival ?? false}
+                  onClick={() => setField('isNewArrival', !(form.isNewArrival ?? false))}
+                  className="flex items-center space-x-2 cursor-pointer"
+                >
+                  <span
+                    className={`text-[10px] font-bold ${
+                      form.isNewArrival ? 'text-orange' : 'text-slate-400'
+                    }`}
+                  >
+                    {form.isNewArrival ? 'New Arrival' : 'Standard'}
+                  </span>
+                  <span
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      form.isNewArrival ? 'bg-orange' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transform transition-transform ${
+                        form.isNewArrival ? 'translate-x-[18px]' : 'translate-x-[3px]'
                       }`}
                     />
                   </span>

@@ -546,9 +546,15 @@ export const Screen14CategoryMenu: React.FC<{
   onNavigate: (page: string, params?: any) => void;
 }> = ({ onNavigate }) => {
   const [categories, setCategories] = React.useState<any[]>([]);
+  const [productCount, setProductCount] = React.useState<number>(0);
+  const [newArrivalCount, setNewArrivalCount] = React.useState<number>(0);
 
   React.useEffect(() => {
     api.getCategories().then(setCategories);
+    api.getProducts({ excludeCombos: true, excludeGiftBoxes: true }).then((all) => {
+      setProductCount(all.length);
+      setNewArrivalCount(all.filter((p) => p.isNewArrival).length);
+    }).catch(() => {});
   }, []);
 
   return (
@@ -564,13 +570,37 @@ export const Screen14CategoryMenu: React.FC<{
           </div>
           <div>
             <div className="font-bold text-sm text-white">Browse All Products</div>
-            <div className="text-[10px] text-slate-300">View complete crackers catalogue</div>
+            <div className="text-[10px] text-slate-300">
+              {productCount > 0 ? `${productCount} products in catalogue` : 'View complete crackers catalogue'}
+            </div>
           </div>
         </div>
         <div className="flex items-center space-x-1">
           <span className="text-[11px] font-bold text-orange">View All</span>
           <ChevronRight className="w-4 h-4 text-orange" />
         </div>
+      </button>
+
+      {/* New Arrivals Button */}
+      <button
+        onClick={() => onNavigate('category', { category: 'new-arrivals' })}
+        className="w-full p-3.5 rounded-2xl bg-white border border-orange/30 shadow-xs flex items-center justify-between active:bg-orange/5 transition-colors"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 rounded-xl bg-orange/10 flex items-center justify-center text-base">
+            🔥
+          </div>
+          <div className="text-left">
+            <div className="font-bold text-xs text-navy flex items-center gap-1.5">
+              <span>New Arrivals</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-orange text-white text-[9px] font-black">NEW</span>
+            </div>
+            <div className="text-[10px] text-slate-400">
+              {newArrivalCount > 0 ? `${newArrivalCount} latest crackers added` : 'Fresh seasonal crackers'}
+            </div>
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-slate-400" />
       </button>
 
       <h2 className="text-base font-black text-navy pt-1">All Categories ({categories.length})</h2>

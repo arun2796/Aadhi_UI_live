@@ -434,6 +434,9 @@ export const api = {
     minPrice?: number;
     maxPrice?: number;
     inStockOnly?: boolean;
+    isFeatured?: boolean;
+    isBestSeller?: boolean;
+    isNewArrival?: boolean;
     search?: string;
     sortBy?: string;
     page?: number;
@@ -442,10 +445,14 @@ export const api = {
     excludeGiftBoxes?: boolean;
   }): Promise<Product[]> {
     try {
-      const queryParams: Record<string, any> = { ...params };
+      const queryParams: Record<string, any> = {
+        pageSize: 1000,
+        ...params
+      };
       if (params?.category && !params.categorySlug) {
         queryParams.categorySlug = params.category.toLowerCase().replace(/\s+/g, '-');
       }
+      if (params?.isNewArrival) queryParams.isNewArrival = true;
       // Only ever send the flags when they are on; never `exclude…=false`.
       if (params?.excludeCombos) queryParams.excludeCombos = true;
       else delete queryParams.excludeCombos;
@@ -487,7 +494,7 @@ export const api = {
 
   async getFeaturedProducts(): Promise<Product[]> {
     try {
-      const res = await apiClient.get('/products/featured');
+      const res = await apiClient.get('/products/featured', { params: { count: 1000 } });
       return mapProductList(res.data?.data).filter((p) => !p.isCombo && !p.isGiftBox);
     } catch {
       return [];
@@ -496,16 +503,16 @@ export const api = {
 
   async getBestSellers(): Promise<Product[]> {
     try {
-      const res = await apiClient.get('/products/best-sellers');
+      const res = await apiClient.get('/products/best-sellers', { params: { count: 1000 } });
       return mapProductList(res.data?.data).filter((p) => !p.isCombo && !p.isGiftBox);
     } catch {
       return [];
     }
   },
 
-  async getNewArrivals(): Promise<Product[]> {
+  async getNewArrivals(count = 1000): Promise<Product[]> {
     try {
-      const res = await apiClient.get('/products/new-arrivals');
+      const res = await apiClient.get('/products/new-arrivals', { params: { count } });
       return mapProductList(res.data?.data).filter((p) => !p.isCombo && !p.isGiftBox);
     } catch {
       return [];

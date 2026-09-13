@@ -7,6 +7,7 @@ export interface ProductQueryParams {
   search?: string;
   isFeatured?: boolean;
   isBestSeller?: boolean;
+  isNewArrival?: boolean;
   /** `GET /products?excludeGiftBoxes=true` keeps gift-box products out of ordinary listings. */
   excludeGiftBoxes?: boolean;
   page?: number;
@@ -40,6 +41,7 @@ const fetchProductsPage = async (params?: ProductQueryParams) => {
   if (params?.search) searchParams.append('search', params.search);
   if (params?.isFeatured !== undefined) searchParams.append('isFeatured', params.isFeatured.toString());
   if (params?.isBestSeller !== undefined) searchParams.append('isBestSeller', params.isBestSeller.toString());
+  if (params?.isNewArrival !== undefined) searchParams.append('isNewArrival', params.isNewArrival.toString());
   if (params?.excludeGiftBoxes !== undefined) searchParams.append('excludeGiftBoxes', params.excludeGiftBoxes.toString());
   if (params?.page) searchParams.append('page', params.page.toString());
   if (params?.pageSize) searchParams.append('pageSize', params.pageSize.toString());

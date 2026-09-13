@@ -42,7 +42,7 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
         { label: 'Gift Boxes', page: 'shop', params: { view: 'giftboxes' } },
         { label: 'Combo Offers', page: 'shop', params: { view: 'combos' } },
         { label: 'Sparklers', page: 'shop', params: { category: 'sparklers' } },
-        { label: 'Best Sellers', page: 'shop', params: { sortBy: 'popular' } }
+        { label: 'New Arrivals', page: 'shop', params: { category: 'new-arrivals' } }
       ]
     },
     {

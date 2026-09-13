@@ -11,7 +11,8 @@ import {
   Info,
   MapPin,
   Heart,
-  ShoppingBag
+  ShoppingBag,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
@@ -37,6 +38,7 @@ export const MobileSideDrawer: React.FC<MobileSideDrawerProps> = ({
   const menuItems = [
     { id: 'home', label: 'Home', icon: Home, page: 'home' },
     { id: 'all-products', label: 'All Products', icon: Layers, page: 'category', params: { category: 'all' } },
+    { id: 'new-arrivals', label: 'New Arrivals', icon: Sparkles, page: 'category', params: { category: 'new-arrivals' } },
     { id: 'categories', label: 'Categories', icon: Grid, page: 'category-menu' },
     { id: 'combos', label: 'Combos', icon: Package, page: 'shop', params: { view: 'combos' } },
     { id: 'gift-boxes', label: 'Gift Boxes', icon: Gift, page: 'shop', params: { view: 'giftboxes' } },

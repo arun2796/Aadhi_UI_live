@@ -16,6 +16,7 @@ import {
   Smartphone,
   ExternalLink,
   Award,
+  Sparkles,
   X
 } from 'lucide-react';
 import { Product, Category, ProductReview, HomepageBanner, Brand } from '../../types';
@@ -113,6 +114,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [selectedNewArrivalFilter, setSelectedNewArrivalFilter] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [deleteProductTarget, setDeleteProductTarget] = useState<Product | null>(null);
 
@@ -168,6 +170,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
         pageSize: PRODUCTS_PAGE_SIZE,
         search: debouncedSearch || undefined,
         categoryId: selectedCategoryFilter !== 'all' ? selectedCategoryFilter : undefined,
+        isNewArrival: selectedNewArrivalFilter ? true : undefined,
         // Gift boxes are products too, but they are managed in Catalog → Gift Box
         // (/admin/gift-boxes) and would otherwise clutter this ordinary product list.
         excludeGiftBoxes: true
@@ -260,7 +263,7 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
   useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productsPage, debouncedSearch, selectedCategoryFilter]);
+  }, [productsPage, debouncedSearch, selectedCategoryFilter, selectedNewArrivalFilter]);
 
   // Deep link: /admin/products/:id → dedicated edit page
   useEffect(() => {
@@ -478,8 +481,13 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2">
+          <h1 className="text-2xl font-black text-navy tracking-tight flex items-center space-x-2.5">
             <span>{SCREEN_HEADERS[subTab].title}</span>
+            {subTab === 'products' && (
+              <span className="text-xs font-bold text-purple bg-purple/10 border border-purple/20 px-2.5 py-0.5 rounded-full">
+                {productsTotal} Products
+              </span>
+            )}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">{SCREEN_HEADERS[subTab].subtitle}</p>
         </div>
@@ -577,11 +585,44 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
               />
             </div>
 
-            <div className="relative w-full sm:w-auto flex justify-end">
+            <div className="relative w-full sm:w-auto flex items-center justify-between sm:justify-end gap-2 flex-wrap">
+              {/* Quick Filter Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={() => {
+                    setSelectedNewArrivalFilter(false);
+                    setSelectedCategoryFilter('all');
+                    setSelectedStatusFilter('all');
+                    setProductsPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                    !selectedNewArrivalFilter && selectedCategoryFilter === 'all' && selectedStatusFilter === 'all'
+                      ? 'bg-purple text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  All ({productsTotal})
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedNewArrivalFilter((v) => !v);
+                    setProductsPage(1);
+                  }}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-colors flex items-center gap-1 ${
+                    selectedNewArrivalFilter
+                      ? 'bg-orange text-white shadow-xs'
+                      : 'bg-orange/10 text-orange hover:bg-orange/20'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>New Arrivals</span>
+                </button>
+              </div>
+
               <button
                 onClick={() => setIsFilterOpen((v) => !v)}
                 className={`px-4 py-1.5 rounded-xl border text-xs font-bold flex items-center space-x-1.5 transition-colors ${
-                  isFilterOpen || selectedCategoryFilter !== 'all' || selectedStatusFilter !== 'all'
+                  isFilterOpen || selectedCategoryFilter !== 'all' || selectedStatusFilter !== 'all' || selectedNewArrivalFilter
                     ? 'border-purple text-purple bg-purple/5'
                     : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'
                 }`}
@@ -697,6 +738,15 @@ export const ErpCatalogModule: React.FC<ErpCatalogModuleProps> = ({
                             <div>
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold text-navy text-xs">{p.name}</span>
+                                {p.isNewArrival && (
+                                  <span
+                                    className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-orange/10 text-orange text-[9px] font-black uppercase tracking-wide border border-orange/20"
+                                    title="Marked as New Arrival"
+                                  >
+                                    <Sparkles className="w-2.5 h-2.5 text-orange" />
+                                    NEW
+                                  </span>
+                                )}
                                 {p.isCombo && (
                                   <span
                                     className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple/10 text-purple text-[9px] font-black uppercase tracking-wide border border-purple/20"

@@ -13,6 +13,7 @@ import {
   X,
   Bell,
   ChevronDown,
+  ChevronRight,
   Gift,
   Package
 } from 'lucide-react';
@@ -42,6 +43,7 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [navCategories, setNavCategories] = useState<Category[]>([]);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
+  const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
 
   const {
     items: notifications,
@@ -81,6 +83,17 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [isNotificationsOpen]);
+
+  useEffect(() => {
+    if (!isCategoryOpen) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (!categoryDropdownRef.current?.contains(event.target as Node)) {
+        setIsCategoryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [isCategoryOpen]);
 
   // Opening one notification marks it read and, when it belongs to an order,
   // goes to that order's tracking screen (which works for everyone).
@@ -350,37 +363,102 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
         <div className="max-w-7xl mx-auto px-4 flex items-center justify-between">
           <div className="flex items-center space-x-1">
             {/* Category Dropdown */}
-            <div className="relative">
+            <div className="relative" ref={categoryDropdownRef}>
               <button
                 onClick={() => setIsCategoryOpen(!isCategoryOpen)}
-                className="flex items-center space-x-1.5 px-3.5 py-2.5 font-bold text-white bg-purple hover:bg-purple-light transition-colors"
+                className="flex items-center space-x-1.5 px-4 py-2.5 font-bold text-white bg-purple hover:bg-purple-light transition-colors rounded-t-lg"
               >
                 <Sparkles className="w-4 h-4 text-gold" />
                 <span>All Categories</span>
-                <ChevronDown className="w-3.5 h-3.5" />
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isCategoryOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {isCategoryOpen && (
-                <div className="absolute top-full left-0 w-56 bg-white text-slate-800 rounded-b-xl shadow-2xl py-2 z-50 border border-slate-100 animate-slide-in">
-                  {navCategories.length === 0 ? (
-                    <div className="px-4 py-2 text-xs text-slate-400 font-medium">
-                      No categories available yet
+                <div className="absolute top-full left-0 w-[540px] bg-white text-slate-800 rounded-b-2xl rounded-tr-2xl shadow-2xl z-50 border border-slate-200/80 overflow-hidden animate-slide-in">
+                  {/* Dropdown Header */}
+                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-base">🎆</span>
+                      <span className="text-xs font-black text-navy uppercase tracking-wider">
+                        Categories ({navCategories.length})
+                      </span>
                     </div>
-                  ) : (
-                    navCategories.map(c => (
+                    <button
+                      onClick={() => {
+                        setIsCategoryOpen(false);
+                        onNavigate('shop', { category: 'all' });
+                      }}
+                      className="text-[11px] font-bold text-purple hover:text-purple-dark hover:underline flex items-center space-x-1"
+                    >
+                      <span>Browse All Products</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* 2-Column Categories Grid */}
+                  <div className="p-3 max-h-[380px] overflow-y-auto scrollbar-thin">
+                    {navCategories.length === 0 ? (
+                      <div className="px-4 py-6 text-xs text-slate-400 font-medium text-center">
+                        No categories available yet
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {navCategories.map((c) => (
+                          <button
+                            key={c.slug || c.id}
+                            onClick={() => {
+                              setIsCategoryOpen(false);
+                              onNavigate('shop', { category: c.slug });
+                            }}
+                            className="text-left px-3 py-2 rounded-xl hover:bg-purple/5 hover:text-purple border border-transparent hover:border-purple/15 flex items-center justify-between transition-all group"
+                          >
+                            <div className="flex items-center space-x-2 min-w-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-orange group-hover:scale-125 transition-transform shrink-0" />
+                              <span className="text-xs font-semibold text-slate-700 group-hover:text-purple group-hover:font-bold truncate">
+                                {c.name}
+                              </span>
+                            </div>
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-purple group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dropdown Quick Links Footer */}
+                  <div className="bg-slate-50/80 px-4 py-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Links:</span>
+                    <div className="flex items-center space-x-2">
                       <button
-                        key={c.slug || c.id}
                         onClick={() => {
                           setIsCategoryOpen(false);
-                          onNavigate('shop', { category: c.slug });
+                          onNavigate('shop', { category: 'new-arrivals' });
                         }}
-                        className="w-full text-left px-4 py-2 hover:bg-orange/10 hover:text-orange flex items-center justify-between transition-colors text-xs font-medium"
+                        className="px-2.5 py-1 rounded-lg bg-orange/10 text-orange text-[11px] font-bold hover:bg-orange/20 transition-colors flex items-center space-x-1"
                       >
-                        <span>{c.name}</span>
-                        <span className="text-[10px] text-slate-400">→</span>
+                        <Sparkles className="w-3 h-3" />
+                        <span>New Arrivals</span>
                       </button>
-                    ))
-                  )}
+                      <button
+                        onClick={() => {
+                          setIsCategoryOpen(false);
+                          onNavigate('shop', { view: 'combos' });
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-purple/10 text-purple text-[11px] font-bold hover:bg-purple/20 transition-colors"
+                      >
+                        Combos
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsCategoryOpen(false);
+                          onNavigate('shop', { view: 'giftboxes' });
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-gold/20 text-gold-dark text-[11px] font-bold hover:bg-gold/30 transition-colors"
+                      >
+                        Gift Boxes
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -400,10 +478,11 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               <span>Gift Boxes</span>
             </button>
             <button
-              onClick={() => onNavigate('shop', { sortBy: 'new' })}
-              className="px-3 py-2.5 font-medium hover:text-gold transition-colors"
+              onClick={() => onNavigate('shop', { category: 'new-arrivals' })}
+              className="px-3 py-2.5 font-medium hover:text-gold transition-colors flex items-center space-x-1"
             >
-              New Arrivals
+              <Sparkles className="w-3.5 h-3.5 text-orange" />
+              <span>New Arrivals</span>
             </button>
             <button
               onClick={() => onNavigate('shop', { category: 'all' })}

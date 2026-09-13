@@ -478,21 +478,6 @@ export const ErpLayout: React.FC<ErpLayoutProps> = ({
           </div>
 
           <div className="flex items-center space-x-2 sm:space-x-3">
-            {/* View Live Customer Storefront */}
-            <a
-              href={STOREFRONT_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="hidden sm:flex items-center space-x-2 px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all shadow-2xs text-xs font-bold text-slate-700 press-scale"
-            >
-              <span className="w-2 h-2 rounded-full bg-orange animate-pulse" />
-              <Store className="w-3.5 h-3.5 text-orange" />
-              <span>Customer Storefront</span>
-              <span className="w-5 h-5 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 ml-0.5">
-                <ExternalLink className="w-2.5 h-2.5" />
-              </span>
-            </a>
-
             {/* Notification Bell */}
             <div className="relative">
               <button

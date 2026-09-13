@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   ShoppingCart,
   Gift,
+  Sparkles,
   X
 } from 'lucide-react';
 import { Product, Category } from '../../types';
@@ -123,8 +124,10 @@ interface Screen1HomeProps {
 }
 
 export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSearch }) => {
+  const [banners, setBanners] = useState<any[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [newArrivals, setNewArrivals] = useState<Product[]>([]);
+  const [allProductsCount, setAllProductsCount] = useState<number>(0);
   const [combos, setCombos] = useState<Product[]>([]);
   const [giftBoxes, setGiftBoxes] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
@@ -163,15 +166,11 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
 
     (async () => {
       try {
-        let list = await api.getBestSellers();
-        list = Array.isArray(list) ? list.filter((p) => p && p.id) : [];
-        if (list.length === 0) {
-          // Ordinary home rail — combos and gift boxes have their own sections below.
-          const all = await api.getProducts({ excludeCombos: true, excludeGiftBoxes: true });
-          list = all.filter((p) => p.isBestSeller);
-          if (list.length === 0) list = all.slice(0, 8);
-        }
-        if (live) setBestSellers(list.slice(0, 10));
+        const all = await api.getProducts({ excludeCombos: true, excludeGiftBoxes: true });
+        if (live) setAllProductsCount(all.length);
+        let list = all.filter((p) => p.isNewArrival);
+        if (list.length === 0) list = all.slice(0, 10);
+        if (live) setNewArrivals(list.slice(0, 10));
       } catch {
         /* backend offline — sections render empty states */
       } finally {
@@ -318,12 +317,41 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
         </div>
       )}
 
-      {/* 5. Best Selling Products */}
+      {/* Browse All Products Card with Count */}
+      <div className="px-4">
+        <button
+          onClick={() => onNavigate('category', { category: 'all' })}
+          className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-purple-dark via-purple to-purple-light text-white flex items-center justify-between shadow-md active:scale-[0.98] transition-transform"
+        >
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center text-xl shrink-0">
+              🎆
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-xs font-black tracking-wide truncate">
+                Browse All Products
+              </div>
+              <div className="text-[10px] text-purple-soft/90">
+                {allProductsCount > 0 ? `${allProductsCount} Products Available` : 'View Complete Catalogue'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-white/20 text-[11px] font-bold shrink-0 ml-2">
+            <span>Explore All</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </div>
+        </button>
+      </div>
+
+      {/* 5. New Arrivals */}
       <div className="space-y-3">
         <div className="px-4 flex items-center justify-between">
-          <h3 className="text-sm font-black text-navy">Best Selling Products</h3>
+          <div className="flex items-center space-x-1.5">
+            <Sparkles className="w-4 h-4 text-orange" />
+            <h3 className="text-sm font-black text-navy">New Arrivals</h3>
+          </div>
           <button
-            onClick={() => onNavigate('category', { category: 'best-sellers' })}
+            onClick={() => onNavigate('category', { category: 'new-arrivals' })}
             className="text-[11px] font-bold text-purple flex items-center gap-0.5 active:opacity-70"
           >
             View All <ChevronRight className="w-3.5 h-3.5" />
@@ -340,13 +368,13 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
               </div>
             ))}
           </div>
-        ) : bestSellers.length === 0 ? (
+        ) : newArrivals.length === 0 ? (
           <div className="mx-4 p-6 rounded-2xl bg-white border border-slate-100 text-center text-[11px] text-slate-400 font-medium">
-            Products are loading soon — please check back!
+            New arrivals coming soon — please check back!
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 px-4">
-            {bestSellers.map((p) => {
+            {newArrivals.map((p) => {
               const real = realRatingOf(p);
               const off = pctOff(p);
               return (
@@ -586,8 +614,8 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
   const categoryName = useMemo(() => {
     if (giftBoxesView) return GIFT_BOXES_TITLE;
     if (combosView) return COMBOS_TITLE;
-    if (categorySlug === 'best-sellers') return 'Best Sellers';
-    if (!categorySlug || categorySlug === 'all' || categorySlug === 'all-products') return 'All Products';
+    if (categorySlug === 'new-arrivals') return 'New Arrivals';
+    if (!categorySlug || categorySlug === 'all' || categorySlug === 'all-products' || categorySlug === 'best-sellers') return 'All Products';
     const found = categories.find((c) => c.slug === categorySlug || c.id === categorySlug);
     if (found) return found.name;
     for (const top of categories) {
@@ -616,10 +644,10 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
     } else if (selectedCats.length > 0) {
       const set = new Set(selectedCats.map((n) => n.toLowerCase()));
       list = list.filter((p) => set.has((p.categoryName || '').toLowerCase()));
-    } else if (categorySlug === 'best-sellers') {
-      const best = list.filter((p) => p.isBestSeller);
-      if (best.length > 0) list = best;
-    } else if (!isAll) {
+    } else if (categorySlug === 'new-arrivals') {
+      const na = list.filter((p) => p.isNewArrival);
+      if (na.length > 0) list = na;
+    } else if (!isAll && categorySlug !== 'best-sellers') {
       const slug = categorySlug.toLowerCase().replace(/\s+/g, '-');
       const bySlug = list.filter(
         (p) =>
@@ -687,6 +715,51 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
         <div className="text-[10px] text-slate-400 font-medium mt-0.5">
           Home &gt; <span className="text-slate-600 font-semibold">{categoryName}</span>
         </div>
+      </div>
+
+      {/* Quick Category & All Products switcher pills */}
+      <div className="px-4 mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <button
+          onClick={() => onNavigate('category', { category: 'all' })}
+          className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${
+            !curatedView && (!categorySlug || categorySlug === 'all' || categorySlug === 'all-products' || categorySlug === 'best-sellers')
+              ? 'bg-purple text-white shadow-xs'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          All Products ({products.length})
+        </button>
+        <button
+          onClick={() => onNavigate('category', { category: 'new-arrivals' })}
+          className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${
+            !curatedView && categorySlug === 'new-arrivals'
+              ? 'bg-orange text-white shadow-xs'
+              : 'bg-white text-orange border border-orange/30 hover:bg-orange/5'
+          }`}
+        >
+          <Sparkles className="w-2.5 h-2.5" />
+          <span>New Arrivals</span>
+        </button>
+        <button
+          onClick={() => onNavigate('shop', { view: 'combos' })}
+          className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${
+            combosView
+              ? 'bg-purple text-white shadow-xs'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          Combos
+        </button>
+        <button
+          onClick={() => onNavigate('shop', { view: 'giftboxes' })}
+          className={`px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${
+            giftBoxesView
+              ? 'bg-purple text-white shadow-xs'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          Gift Boxes
+        </button>
       </div>
 
       {/* Sort + Filter controls */}

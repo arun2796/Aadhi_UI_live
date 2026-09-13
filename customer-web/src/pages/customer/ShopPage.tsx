@@ -54,6 +54,7 @@ const CURATED_META: Record<'combos' | 'giftboxes', {
 
 const SORT_OPTIONS = [
   { value: 'popular', label: 'Popularity' },
+  { value: 'new', label: 'New Arrivals' },
   { value: 'price_asc', label: 'Price: Low to High' },
   { value: 'price_desc', label: 'Price: High to Low' }
 ];
@@ -141,8 +142,10 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   // sidebar counts stay live.
   useEffect(() => {
     if (curatedView) return;
-    const params: Record<string, any> = { pageSize: 100 };
-    if (selectedCategory && selectedCategory !== 'all') {
+    const params: Record<string, any> = { pageSize: 1000 };
+    if (selectedCategory === 'new-arrivals') {
+      params.isNewArrival = true;
+    } else if (selectedCategory && selectedCategory !== 'all') {
       params.categorySlug = selectedCategory.toLowerCase().replace(/\s+/g, '-');
     }
     if (searchQuery.trim()) {
@@ -167,6 +170,7 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   const preBrandFiltered = useMemo(() => {
     const term = curatedView ? searchQuery.trim().toLowerCase() : '';
     return sourceProducts.filter(p => {
+      if (selectedCategory === 'new-arrivals' && !p.isNewArrival) return false;
       if (maxPrice < PRICE_MAX && p.price > maxPrice) return false;
       if (minRating !== null && (p.rating ?? 0) < minRating) return false;
       if (inStockOnly && p.availableQuantity <= 0) return false;
@@ -203,16 +207,18 @@ export const ShopPage: React.FC<ShopPageProps> = ({
       sorted.sort((a, b) => a.price - b.price);
     } else if (sortBy === 'price_desc') {
       sorted.sort((a, b) => b.price - a.price);
+    } else if (sortBy === 'new') {
+      sorted.sort((a, b) => (Number(b.isNewArrival) - Number(a.isNewArrival)) || ((b as any).createdAt || '').localeCompare((a as any).createdAt || ''));
     } else {
-      // Popularity: best sellers first, then featured, then rating
+      // Popularity: new arrivals first, then featured, then rating
       sorted.sort((a, b) => {
         const score = (p: Product) =>
-          (p.isBestSeller ? 4 : 0) + (p.isFeatured ? 2 : 0) + (p.rating || 0) / 5;
+          (p.isNewArrival ? 4 : 0) + (p.isFeatured ? 2 : 0) + (p.rating || 0) / 5;
         return score(b) - score(a);
       });
     }
     return sorted;
-  }, [preBrandFiltered, selectedBrands, sortBy]);
+  }, [preBrandFiltered, selectedBrands, sortBy, selectedCategory]);
 
   const toggleBrand = (name: string) => {
     setSelectedBrands(prev =>
@@ -245,6 +251,8 @@ export const ShopPage: React.FC<ShopPageProps> = ({
     ? curatedMeta.title
     : selectedCategory === 'all'
     ? 'All Products'
+    : selectedCategory === 'new-arrivals'
+    ? 'New Arrivals'
     : activeCategory?.name || selectedCategory.replace(/-/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
 
   return (
@@ -290,6 +298,17 @@ export const ShopPage: React.FC<ShopPageProps> = ({
                 }`}
               >
                 <span>All Categories</span>
+              </button>
+              <button
+                onClick={() => { setCuratedView(null); setSelectedCategory('new-arrivals'); }}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors ${
+                  !curatedView && selectedCategory === 'new-arrivals' ? 'bg-purple text-white font-bold' : 'text-slate-600 hover:bg-purple-soft hover:text-purple'
+                }`}
+              >
+                <span className="flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-orange" />
+                  <span>New Arrivals</span>
+                </span>
               </button>
               <button
                 onClick={() => { setCuratedView('combos'); setSelectedCategory('all'); }}
