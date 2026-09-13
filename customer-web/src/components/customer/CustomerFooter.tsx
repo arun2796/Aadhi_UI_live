@@ -94,24 +94,18 @@ export const CustomerFooter: React.FC<CustomerFooterProps> = ({ onNavigate }) =>
           </div>
 
           <div className="space-y-2 pt-1 text-xs">
-            {storeAddress && (
-              <div className="flex items-center space-x-2 text-slate-300">
-                <MapPin className="w-4 h-4 text-orange flex-shrink-0" />
-                <span>{storeAddress}</span>
-              </div>
-            )}
-            {storePhone && (
-              <div className="flex items-center space-x-2 text-slate-300">
-                <Phone className="w-4 h-4 text-gold flex-shrink-0" />
-                <span>{storePhone}</span>
-              </div>
-            )}
-            {storeEmail && (
-              <div className="flex items-center space-x-2 text-slate-300">
-                <Mail className="w-4 h-4 text-purple-light flex-shrink-0" />
-                <span>{storeEmail}</span>
-              </div>
-            )}
+            <div className="flex items-center space-x-2 text-slate-300">
+              <MapPin className="w-4 h-4 text-orange flex-shrink-0" />
+              <span>{storeAddress || '3/1233/A8, Naranapuram Road, Sivakasi, Tamil Nadu - 626189, India.'}</span>
+            </div>
+            <div className="flex items-center space-x-2 text-slate-300">
+              <Phone className="w-4 h-4 text-gold flex-shrink-0" />
+              <span>{storePhone || '+91 9626150911'}</span>
+            </div>
+            <div className="flex items-center space-x-2 text-slate-300">
+              <Mail className="w-4 h-4 text-purple flex-shrink-0" />
+              <span>{storeEmail || 'support@aadhicracker.in'}</span>
+            </div>
           </div>
 
           {/* Social icon circles */}

@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   X,
+  User,
   Home,
   Grid,
   Gift,
@@ -55,17 +56,19 @@ export const MobileSideDrawer: React.FC<MobileSideDrawerProps> = ({
           {/* User Profile Header */}
           <div className="p-4 border-b border-navy-border/60 flex items-center justify-between">
             <div
-              onClick={() => { onClose(); onNavigate('account'); }}
+              onClick={() => { onClose(); onNavigate(user ? 'account' : 'auth'); }}
               className="flex items-center space-x-3 cursor-pointer group"
             >
               <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-orange to-gold flex items-center justify-center text-navy font-black text-sm shadow-glow">
-                {user ? user.firstName.charAt(0) : 'A'}
+                {user ? (user.firstName ? user.firstName.charAt(0).toUpperCase() : 'U') : <User className="w-5 h-5 text-navy" />}
               </div>
               <div className="min-w-0">
                 <div className="font-bold text-sm text-white truncate leading-tight group-hover:text-gold transition-colors">
-                  {user ? `${user.firstName} ${user.lastName}` : 'Arun Kumar'}
+                  {user ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Guest User'}
                 </div>
-                <div className="text-[10px] text-slate-400 font-medium">View Profile</div>
+                <div className="text-[10px] text-slate-400 font-medium">
+                  {user ? 'View Profile' : 'Tap to Sign In'}
+                </div>
               </div>
             </div>
 

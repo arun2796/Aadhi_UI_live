@@ -11,6 +11,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../context/SettingsContext';
 
 export const AboutUsPage: React.FC<{ onNavigate: (page: string) => void }> = ({ onNavigate }) => {
   return (
@@ -81,9 +82,15 @@ export const AboutUsPage: React.FC<{ onNavigate: (page: string) => void }> = ({ 
   );
 };
 
-export const ContactUsPage: React.FC = () => {
+export const ContactUsPage: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavigate }) => {
   const { showToast } = useToast();
+  const { storeName, storeAddress, storePhone, storeEmail } = useSettings();
   const [submitted, setSubmitted] = useState(false);
+
+  const address = storeAddress || '3/1233/A8, Naranapuram Road, Sivakasi, Tamil Nadu - 626189, India.';
+  const phone = storePhone || '+91 9626150911';
+  const email = storeEmail || 'support@aadhicracker.in';
+  const name = storeName || 'AADHI CRACKERS';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +102,7 @@ export const ContactUsPage: React.FC = () => {
     <div className="max-w-6xl mx-auto px-4 py-12 space-y-10">
       <div className="text-center space-y-2">
         <h1 className="text-3xl sm:text-4xl font-black text-navy">
-          Get in Touch with AADHI CRACKERS
+          Get in Touch with {name}
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto">
           Need assistance with retail orders, custom corporate gift boxes, or bulk wholesale booking? Our team is here to assist!
@@ -112,7 +119,7 @@ export const ContactUsPage: React.FC = () => {
               <MapPin className="w-5 h-5 text-orange flex-shrink-0 mt-0.5" />
               <div>
                 <strong className="text-white block mb-0.5">Manufacturing & Dispatch Hub:</strong>
-                124/B Sivakasi Main Road, Thiruthangal, Sivakasi, Tamil Nadu - 626130
+                {address}
               </div>
             </div>
 
@@ -120,7 +127,7 @@ export const ContactUsPage: React.FC = () => {
               <Phone className="w-5 h-5 text-gold flex-shrink-0 mt-0.5" />
               <div>
                 <strong className="text-white block mb-0.5">Phone / WhatsApp Support:</strong>
-                +91 98765 43210 / +91 94433 12345
+                {phone}
               </div>
             </div>
 
@@ -128,7 +135,7 @@ export const ContactUsPage: React.FC = () => {
               <Mail className="w-5 h-5 text-purple-light flex-shrink-0 mt-0.5" />
               <div>
                 <strong className="text-white block mb-0.5">Email Inquiries:</strong>
-                support@aadhicracker.in / sales@aadhicracker.in
+                {email}
               </div>
             </div>
 

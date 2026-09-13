@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../context/SettingsContext';
 import { api } from '../../services/api';
 
 interface Screen8AccountProps {
@@ -472,6 +473,11 @@ export const Screen9AboutUs: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 };
 
 export const Screen10ContactUs: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const { storeAddress, storePhone, storeEmail } = useSettings();
+  const address = storeAddress || '3/1233/A8, Naranapuram Road, Sivakasi, Tamil Nadu - 626189, India.';
+  const phone = storePhone || '+91 9626150911';
+  const email = storeEmail || 'support@aadhicracker.in';
+
   return (
     <div className="space-y-4 p-4 pb-8 font-sans bg-[#fbfbfb]">
       {/* Header */}
@@ -486,17 +492,17 @@ export const Screen10ContactUs: React.FC<{ onBack: () => void }> = ({ onBack }) 
       <div className="p-4 rounded-3xl bg-white border border-slate-100 shadow-card space-y-4 text-xs">
         <div className="flex items-start space-x-3 text-slate-600">
           <MapPin className="w-4 h-4 text-orange flex-shrink-0 mt-0.5" />
-          <span>123, West Street, Shivanandapuram, Coimbatore - 641012</span>
+          <span>{address}</span>
         </div>
 
         <div className="flex items-center space-x-3 text-slate-600">
           <Phone className="w-4 h-4 text-gold flex-shrink-0" />
-          <span className="font-bold text-navy">+91 98765 43210</span>
+          <span className="font-bold text-navy">{phone}</span>
         </div>
 
         <div className="flex items-center space-x-3 text-slate-600">
           <Mail className="w-4 h-4 text-purple flex-shrink-0" />
-          <span>support@aadhicracker.in</span>
+          <span>{email}</span>
         </div>
 
         <div className="flex items-start space-x-3 text-slate-600 pt-2 border-t border-slate-100">

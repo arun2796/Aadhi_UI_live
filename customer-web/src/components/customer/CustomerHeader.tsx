@@ -386,7 +386,7 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               New Arrivals
             </button>
             <button
-              onClick={() => onNavigate('shop')}
+              onClick={() => onNavigate('shop', { category: 'all' })}
               className="px-3 py-2.5 font-medium hover:text-gold transition-colors"
             >
               All Products
@@ -441,7 +441,7 @@ export const CustomerHeader: React.FC<CustomerHeaderProps> = ({ onNavigate, curr
               <span>Gift Boxes</span>
             </button>
             <button
-              onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop'); }}
+              onClick={() => { setIsMobileMenuOpen(false); onNavigate('shop', { category: 'all' }); }}
               className="block w-full text-left py-2 font-medium border-b border-navy-border/40"
             >
               All Products

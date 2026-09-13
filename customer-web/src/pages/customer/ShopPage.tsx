@@ -98,13 +98,26 @@ export const ShopPage: React.FC<ShopPageProps> = ({
   useEffect(() => {
     const want = curatedViewOf(initialView, initialCategory);
     setCuratedView(want);
-    if (want) setSelectedCategory('all');
-    else if (initialCategory) setSelectedCategory(initialCategory);
+    if (want) {
+      setSelectedCategory('all');
+    } else if (initialCategory && initialCategory !== 'all') {
+      setSelectedCategory(initialCategory);
+    } else {
+      setSelectedCategory('all');
+      setSelectedBrands([]);
+      setMinRating(null);
+    }
   }, [initialView, initialCategory]);
 
   useEffect(() => {
     if (initialSearch !== undefined) setSearchQuery(initialSearch);
   }, [initialSearch]);
+
+  useEffect(() => {
+    if (initialSortBy && SORT_OPTIONS.some(o => o.value === initialSortBy)) {
+      setSortBy(initialSortBy);
+    }
+  }, [initialSortBy]);
 
   // Combos and gift boxes come straight from their own flag-filtered endpoint —
   // never from the category query, which has no combos/gift-boxes category to
