@@ -94,7 +94,7 @@ export const CartPage: React.FC<{ onNavigate: (page: string, params?: any) => vo
                   <img
                     src={item.imageUrl || productPlaceholder}
                     alt={item.name}
-                    className="w-16 h-16 rounded-xl object-cover border border-slate-100 flex-shrink-0"
+                    className="w-16 h-16 rounded-xl object-contain border border-slate-100 flex-shrink-0"
                   />
 
                   <div className="flex-1 min-w-0">

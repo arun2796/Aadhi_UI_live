@@ -88,7 +88,7 @@ export const MobileSearchModal: React.FC<MobileSearchModalProps> = ({
               <img
                 src={prod.primaryImageUrl || '/product-placeholder.svg'}
                 alt={prod.name}
-                className="w-12 h-12 rounded-lg object-cover bg-slate-100 border border-slate-100 flex-shrink-0"
+                className="w-12 h-12 rounded-lg object-contain bg-slate-100 border border-slate-100 flex-shrink-0"
               />
               <div className="min-w-0">
                 <div className="font-bold text-xs text-slate-800 truncate">{prod.name}</div>

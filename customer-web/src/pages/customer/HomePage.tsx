@@ -467,7 +467,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
               <img
                 src={quickViewProduct.primaryImageUrl || productPlaceholder}
                 alt={quickViewProduct.name}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain"
               />
             </div>
             <div className="flex flex-col justify-between space-y-3">

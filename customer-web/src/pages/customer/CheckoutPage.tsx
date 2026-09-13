@@ -962,7 +962,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                           <img
                             src={i.imageUrl || '/product-placeholder.svg'}
                             alt={i.name}
-                            className="w-12 h-12 rounded-lg object-cover border border-slate-100"
+                            className="w-12 h-12 rounded-lg object-contain border border-slate-100"
                           />
                           <div>
                             <div className="font-bold text-navy text-sm">{i.name}</div>
@@ -1110,7 +1110,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
                             <img
                               src={screenshotPreview}
                               alt="Screenshot Preview"
-                              className="w-14 h-14 rounded-lg object-cover border border-emerald-200"
+                              className="w-14 h-14 rounded-lg object-contain border border-emerald-200"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="text-xs font-bold text-emerald-800 truncate">

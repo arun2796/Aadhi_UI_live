@@ -420,7 +420,7 @@ export const ScreenOrderDetails: React.FC<NavProps & { orderId?: string; orderNu
                     <img
                       src={it.imageUrl}
                       alt={it.name}
-                      className="w-11 h-11 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                      className="w-11 h-11 rounded-lg object-contain border border-slate-100 flex-shrink-0"
                     />
                   ) : (
                     <div className="w-11 h-11 rounded-lg bg-purple/5 border border-purple/10 flex items-center justify-center flex-shrink-0">

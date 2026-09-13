@@ -186,7 +186,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             <img
               src={selectedImage || galleryImages[0]}
               alt={product.name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
             />
             {discountPct > 0 && (
               <div className="absolute top-4 left-4 bg-red-600 text-white text-xs font-black px-3 py-1 rounded-xl shadow-md uppercase">
@@ -207,7 +207,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                     : 'border-slate-200 opacity-70 hover:opacity-100'
                 }`}
               >
-                <img src={img} alt="" className="w-full h-full object-cover" />
+                <img src={img} alt="" className="w-full h-full object-contain" />
               </button>
             ))}
           </div>
@@ -286,7 +286,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                     <img
                       src={c.imageUrl || productPlaceholder}
                       alt={c.productName}
-                      className="w-12 h-12 rounded-xl object-cover border border-slate-100 bg-slate-50 shrink-0"
+                      className="w-12 h-12 rounded-xl object-contain border border-slate-100 bg-slate-50 shrink-0"
                       loading="lazy"
                     />
                     <div className="flex-1 min-w-0">
@@ -435,7 +435,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                   <img
                     src={p.primaryImageUrl || productPlaceholder}
                     alt={p.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 </button>
                 <div className="flex-1 min-w-0">

@@ -103,7 +103,7 @@ export const ScreenWishlist: React.FC<NavProps> = ({ onNavigate }) => {
                   <img
                     src={p.primaryImageUrl || FALLBACK_IMG}
                     alt={p.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                     loading="lazy"
                   />
                 </div>

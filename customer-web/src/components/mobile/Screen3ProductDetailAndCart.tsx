@@ -219,7 +219,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
               key={i}
               src={src || productPlaceholder}
               alt={`${product.name} ${i + 1}`}
-              className="w-full h-full object-cover flex-shrink-0 snap-center"
+              className="w-full h-full object-contain flex-shrink-0 snap-center"
               draggable={false}
             />
           ))}
@@ -324,7 +324,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
                   <img
                     src={c.imageUrl || productPlaceholder}
                     alt={c.productName}
-                    className="w-10 h-10 rounded-lg object-cover border border-slate-100 bg-slate-50 flex-shrink-0"
+                    className="w-10 h-10 rounded-lg object-contain border border-slate-100 bg-slate-50 flex-shrink-0"
                     loading="lazy"
                   />
                   <div className="flex-1 min-w-0">
@@ -552,7 +552,7 @@ export const Screen4Cart: React.FC<{
                 <img
                   src={item.imageUrl || productPlaceholder}
                   alt={item.name}
-                  className="w-[70px] h-[70px] rounded-xl object-cover border border-slate-100 flex-shrink-0"
+                  className="w-[70px] h-[70px] rounded-xl object-contain border border-slate-100 flex-shrink-0"
                 />
 
                 <div className="flex-1 min-w-0 flex flex-col">

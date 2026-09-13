@@ -414,7 +414,7 @@ export const Screen9AboutUs: React.FC<{ onBack: () => void }> = ({ onBack }) => 
         <img
           src="/product-placeholder.svg"
           alt="Aadhi Crackers Store"
-          className="w-full h-full object-cover opacity-80"
+          className="w-full h-full object-contain opacity-80"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-navy via-navy/40 to-transparent flex items-end p-4">
           <div className="flex items-center space-x-2">

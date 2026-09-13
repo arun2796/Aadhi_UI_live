@@ -388,7 +388,7 @@ export const Screen1Home: React.FC<Screen1HomeProps> = ({ onNavigate, onOpenSear
                       <img
                         src={productImage(p)}
                         alt={p.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                         loading="lazy"
                       />
                       {off > 0 && (
@@ -494,7 +494,7 @@ const BundleRail: React.FC<{
                 <img
                   src={productImage(p)}
                   alt={p.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                   loading="lazy"
                 />
                 {off > 0 && (
@@ -898,7 +898,7 @@ export const Screen2Category: React.FC<Screen2CategoryProps> = ({
                   <img
                     src={productImage(p)}
                     alt={p.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                     loading="lazy"
                   />
                   {p.isBestSeller && (

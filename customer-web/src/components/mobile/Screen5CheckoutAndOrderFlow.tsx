@@ -932,7 +932,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                   <img
                     src={item.imageUrl}
                     alt={item.name}
-                    className="w-11 h-11 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                    className="w-11 h-11 rounded-lg object-contain border border-slate-100 flex-shrink-0"
                   />
                 ) : (
                   <div className="w-11 h-11 rounded-lg bg-purple-soft flex items-center justify-center flex-shrink-0">
@@ -1186,7 +1186,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                     <img
                       src={screenshotPreview}
                       alt="Payment Proof Preview"
-                      className="w-14 h-14 rounded-lg object-cover border border-emerald-200"
+                      className="w-14 h-14 rounded-lg object-contain border border-emerald-200"
                     />
                     <div className="flex-1 min-w-0 text-left">
                       <div className="text-xs font-bold text-emerald-800 truncate">
@@ -1788,7 +1788,7 @@ export const Screen7OrderTracking: React.FC<Screen7OrderTrackingProps> = ({
                         <img
                           src={it.imageUrl || it.primaryImageUrl}
                           alt={it?.productName || it?.name || 'Item'}
-                          className="w-10 h-10 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                          className="w-10 h-10 rounded-lg object-contain border border-slate-100 flex-shrink-0"
                         />
                       ) : (
                         <div className="w-10 h-10 rounded-lg bg-purple-soft flex items-center justify-center flex-shrink-0">

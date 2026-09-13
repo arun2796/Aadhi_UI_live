@@ -909,7 +909,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                       <img
                         src={primaryImage.url}
                         alt="Product preview"
-                        className="w-full h-52 object-cover"
+                        className="w-full h-52 object-contain bg-slate-50"
                         onError={(e) => {
                           (e.currentTarget as HTMLElement).style.display = 'none';
                         }}
@@ -948,7 +948,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                 <div className="pt-3 border-t border-slate-200 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-navy">Gallery Images</span>
-                    <span className="text-[10px] text-slate-400">Click any thumbnail to set as primary</span>
+                    <span className="text-[10px] text-slate-400">Click a thumbnail to make it primary &middot; red &times; removes it</span>
                   </div>
 
                   {/* Thumbnail Row / Grid */}
@@ -966,7 +966,7 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                             className="w-full h-full block"
                             title={img.isPrimary ? 'Current primary image' : 'Click to set as primary'}
                           >
-                            <img src={img.url} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                            <img src={img.url} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-contain" />
                           </button>
                           {img.isPrimary && (
                             <div className="absolute top-1 left-1 p-0.5 rounded bg-purple text-white">
@@ -979,8 +979,12 @@ export const ErpProductFormPage: React.FC<ErpProductFormPageProps> = ({ productI
                               e.stopPropagation();
                               removeImage(idx);
                             }}
-                            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
-                            title="Remove image"
+                            /* Always visible, never hover-only: a tablet or phone has no hover
+                               state, so the old opacity-0 version was impossible to tap at all.
+                               24px is the minimum comfortable touch target. */
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white text-sm font-bold leading-none flex items-center justify-center shadow-md ring-2 ring-white transition-colors focus:outline-none focus:ring-2 focus:ring-red-300"
+                            title="Remove this image"
+                            aria-label={`Remove image ${idx + 1}`}
                           >
                             &times;
                           </button>

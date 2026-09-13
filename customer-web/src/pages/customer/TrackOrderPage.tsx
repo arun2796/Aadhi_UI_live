@@ -561,7 +561,7 @@ export const TrackOrderPage: React.FC<TrackOrderPageProps> = ({
                           <img
                             src={i.imageUrl}
                             alt={name}
-                            className="w-10 h-10 rounded-lg object-cover border border-slate-100 flex-shrink-0"
+                            className="w-10 h-10 rounded-lg object-contain border border-slate-100 flex-shrink-0"
                           />
                         )}
                         <div className="min-w-0">

@@ -82,7 +82,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onNavigate, o
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}
           decoding="async"
-          className="w-full h-full object-cover group-hover:scale-108 transition-transform duration-500"
+          className="w-full h-full object-contain group-hover:scale-108 transition-transform duration-500"
         />
 
         {/* BESTSELLER red ribbon */}

@@ -78,7 +78,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onNavigate }) => {
                 <img
                   src={item.imageUrl || '/product-placeholder.svg'}
                   alt={item.name}
-                  className="w-16 h-16 rounded-lg object-cover bg-white border flex-shrink-0"
+                  className="w-16 h-16 rounded-lg object-contain bg-white border flex-shrink-0"
                 />
 
                 <div className="flex-1 min-w-0">
