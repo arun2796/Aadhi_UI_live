@@ -53,9 +53,6 @@ export interface StorefrontSettings {
   /** Payment.IfscCode */
   ifscCode: string;
   /** Payment.UpiId — Official store UPI VPA */
-  upiId: string;
-  /** Payment.QrCodeUrl — Custom uploaded UPI payment QR code */
-  paymentQrCodeUrl: string;
   /** Order.PackingChargePercent — LABEL ONLY (e.g. "Packing Charges (1.5%)").
    *  The billed amount and the payable total always come from POST /cart/calculate;
    *  this key never takes part in any arithmetic on the client. 0 when absent. */
@@ -83,8 +80,6 @@ const DEFAULT_SETTINGS: StorefrontSettings = {
   accountName: '',
   accountNumber: '',
   ifscCode: '',
-  upiId: 'aadhicrackers@okaxis',
-  paymentQrCodeUrl: '',
   packingChargePercent: 0,
   isLoaded: false
 };
@@ -149,8 +144,6 @@ const mapSettings = (values: Record<string, string>): StorefrontSettings => ({
   accountName: (values['Payment.AccountName'] || '').trim(),
   accountNumber: (values['Payment.AccountNumber'] || '').trim(),
   ifscCode: (values['Payment.IfscCode'] || '').trim(),
-  upiId: (values['Payment.UpiId'] || values['Store.UpiId'] || values['Upi.Id'] || 'aadhicrackers@okaxis').trim(),
-  paymentQrCodeUrl: normalizeImageUrl(values['Payment.QrCodeUrl'] || '') || '',
   packingChargePercent: parseThreshold(values['Order.PackingChargePercent']),
   isLoaded: true
 });

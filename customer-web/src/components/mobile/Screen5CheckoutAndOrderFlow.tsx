@@ -6,11 +6,11 @@ import {
   ChevronRight,
   ChevronLeft,
   Clock,
-  QrCode,
   Copy,
   Upload,
   CheckCircle2,
   AlertCircle,
+  Landmark,
   ShieldCheck,
   Pencil,
   Plus,
@@ -44,7 +44,6 @@ import { rememberOrderEstimate, rememberOrderNumber } from '../../utils/guestOrd
 import {
   QUOTE_PROBLEM_MESSAGE,
   inrExact,
-  upiAmount,
   useCheckoutQuote
 } from '../../utils/checkoutQuote';
 import { playClickSound, playCrackersBurstSequence } from '../../utils/soundEffects';
@@ -191,7 +190,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
   const { user } = useAuth();
   const { items, subtotal, couponCode, clearCart } = useCart();
   const { showToast } = useToast();
-  const { deliveryZones, packingChargePercent: settingsPackingPercent, paymentQrCodeUrl, upiId, storeName } = useSettings();
+  const { deliveryZones, packingChargePercent: settingsPackingPercent } = useSettings();
 
   const [step, setStep] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -416,19 +415,12 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
      UTR the store verifies. Nothing is collected at delivery — the order travels
      by lorry and the customer settles freight with the transport company when
      collecting it — so there is no payment method to choose between. */
-  const [copiedUpi, setCopiedUpi] = useState(false);
-  const [qrImageFailed, setQrImageFailed] = useState(false);
+
   const [utrNumber, setUtrNumber] = useState('');
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [screenshotFileName, setScreenshotFileName] = useState<string>('');
 
-  const officialUpiId = (upiId || 'aadhicrackers@okaxis').trim();
 
-  const handleCopyUpi = () => {
-    navigator.clipboard.writeText(officialUpiId);
-    setCopiedUpi(true);
-    setTimeout(() => setCopiedUpi(false), 2500);
-  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -514,7 +506,7 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
       return;
     }
     if (!screenshotPreview) {
-      setErrorMessage('Please attach the Payment Screenshot from GPay / PhonePe / Paytm');
+      setErrorMessage('Please attach a screenshot of the payment');
       return;
     }
     if (minOrderShortfall && zone) {
@@ -1057,78 +1049,34 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
             </div>
           </div>
 
-          {/* UPI / bank transfer — the one way this store is paid. The order is paid
-              before it is placed and the UTR below is the proof the store verifies;
-              nothing is ever collected at delivery. */}
+          {/* Bank transfer — the one way this store is paid. The order is paid before it is
+              placed and the reference below is the proof the store verifies; nothing is ever
+              collected at delivery. */}
           <div className="flex items-start space-x-2 px-1">
-            <QrCode className="w-4 h-4 text-purple flex-shrink-0 mt-0.5" />
+            <Landmark className="w-4 h-4 text-purple flex-shrink-0 mt-0.5" />
             <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
-              Pay by UPI (GPay, PhonePe, Paytm, BHIM) or bank transfer, then submit the UTR below so
+              Transfer the exact amount to the account below, then submit the reference number so
               the store can verify it.
             </p>
           </div>
 
           {/* Pay, then submit the proof: QR + UTR + screenshot */}
           <div className="space-y-3">
-            {/* The encoded am= is the server's grandTotal, never a client sum.
-                With no verified quote NO QR is rendered: a QR carrying the wrong
-                amount is the worst form of this bug. */}
-            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card text-center space-y-3">
-              <div className="flex items-center justify-center space-x-1.5 text-xs font-bold text-navy">
-                <QrCode className="w-4 h-4 text-purple" />
-                <span>Scan & Pay via any UPI App</span>
-              </div>
-
+            {/* The payable amount, straight from the server's quote — never a client sum. */}
+            <div className="text-center">
               {quote ? (
-                <>
-                  {paymentQrCodeUrl && !qrImageFailed ? (
-                    <div className="w-full max-w-[280px] min-h-[220px] mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative">
-                      <img
-                        src={paymentQrCodeUrl}
-                        alt="Official UPI Payment QR Code"
-                        onError={() => setQrImageFailed(true)}
-                        className="w-full max-h-72 object-contain rounded-xl"
-                      />
-                      <div className="mt-2 flex items-center justify-center gap-1 text-[10px] text-purple font-bold">
-                        <span>Scan & Pay via any UPI App</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="w-48 h-48 mx-auto bg-white p-3 rounded-2xl border-2 border-purple/30 shadow-inner flex flex-col items-center justify-center relative group">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=upi://pay?pa=${encodeURIComponent(officialUpiId)}%26pn=${encodeURIComponent(storeName || 'AADHI CRACKERS')}%26am=${upiAmount(quote.grandTotal)}%26cu=INR`}
-                        alt="Aadhi Crackers UPI QR Code"
-                        className="w-40 h-40 object-contain rounded-lg"
-                      />
-                      <div className="absolute inset-0 bg-navy/80 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold p-2 text-center">
-                        GPay • PhonePe • Paytm • BHIM
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="bg-purple/5 border border-purple/15 rounded-xl p-2.5 space-y-1 text-xs">
-                    <div className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">
-                      Amount to Transfer
-                    </div>
-                    <div className="text-lg font-black text-navy">{inrExact(quote.grandTotal)}</div>
-                    <div className="flex items-center justify-center space-x-2 pt-1">
-                      <span className="font-mono text-purple font-bold text-xs select-all">{officialUpiId}</span>
-                      <button
-                        onClick={handleCopyUpi}
-                        className="p-1 px-2 rounded bg-purple text-white hover:bg-purple-light transition-colors text-[10px] font-semibold flex items-center space-x-1 shadow-2xs"
-                        title="Copy UPI ID"
-                      >
-                        {copiedUpi ? <Check className="w-3 h-3 text-white" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
-                      </button>
-                    </div>
+                <div className="p-4 rounded-2xl bg-purple/5 border border-purple/15 space-y-1">
+                  <div className="text-[11px] text-slate-500 font-semibold">Amount to transfer</div>
+                  <div className="font-black text-navy text-2xl">{inrExact(quote.grandTotal)}</div>
+                  <div className="text-[11px] text-slate-500 leading-relaxed">
+                    Transfer this exact amount, then submit the reference below.
                   </div>
-                </>
+                </div>
               ) : quoteStatus === 'loading' ? (
                 <div className="w-44 h-44 mx-auto rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center space-y-2 px-4">
                   <Clock className="w-5 h-5 text-purple animate-spin" />
                   <span className="text-[10px] font-semibold text-slate-500 text-center leading-relaxed">
-                    Confirming the exact amount before showing the QR code...
+                    Confirming the exact amount before showing payment details...
                   </span>
                 </div>
               ) : (
@@ -1139,8 +1087,8 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
                       {quoteProblem
                         ? QUOTE_PROBLEM_MESSAGE[quoteProblem]
                         : 'The payable amount is not available yet.'}{' '}
-                      No QR code is shown until the amount is confirmed, so that you never pay the
-                      wrong figure.
+                      Payment details stay hidden until the amount is confirmed, so that you never
+                      pay the wrong figure.
                     </span>
                   </div>
                   <button
@@ -1153,8 +1101,9 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
               )}
             </div>
 
-            {/* Bank transfer alternative to the QR (hidden until the store configures it) */}
-            <BankTransferDetailsCard compact />
+            {/* The payment destination. Shown only once the server has confirmed the payable
+                amount, so nobody transfers against a figure we have not verified. */}
+            {quote && <BankTransferDetailsCard compact />}
 
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-card space-y-3">
               <h4 className="text-xs font-bold text-navy flex items-center space-x-1.5">

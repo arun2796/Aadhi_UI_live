@@ -325,8 +325,22 @@ export const BankTransferDetailsCard: React.FC<{ compact?: boolean; className?: 
     { key: 'ifsc', label: 'IFSC Code', value: (ifscCode || '').trim(), mono: true }
   ].filter(r => r.value.length > 0);
 
-  // All four empty → the store has not configured bank transfer; render nothing.
-  if (rows.length === 0) return null;
+  // All four empty → the store has not configured bank transfer. This card is now the ONLY
+  // payment destination shown at checkout (the UPI QR was removed), so rendering nothing would
+  // strand the customer on a payment step with nowhere to pay. Say so instead, and point them
+  // at the shop.
+  if (rows.length === 0) {
+    return (
+      <div className={`rounded-2xl bg-amber-50 border border-amber-200 ${compact ? 'p-4' : 'p-5'} space-y-1 ${className}`}>
+        <h4 className={`font-black text-amber-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+          Payment details not published yet
+        </h4>
+        <p className="text-[11px] text-amber-800 leading-relaxed">
+          Please contact the store to confirm how to pay for this order before submitting it.
+        </p>
+      </div>
+    );
+  }
 
   const handleCopy = (key: string, value: string) => {
     try {
@@ -612,7 +626,7 @@ export const PaymentProofUpdateCard: React.FC<{
 
   const handleSubmit = async () => {
     if (!utr.trim()) {
-      setError('Enter the UPI UTR / Transaction Reference ID.');
+      setError('Enter the Transaction Reference / UTR number.');
       return;
     }
     if (!screenshot) {
@@ -663,7 +677,7 @@ export const PaymentProofUpdateCard: React.FC<{
         onClick={() => setOpen(true)}
         className={`text-[11px] font-bold text-purple hover:text-purple-dark underline underline-offset-2 ${className}`}
       >
-        Entered the wrong UTR? Update payment proof
+        Entered the wrong reference? Update payment proof
       </button>
     );
   }
@@ -680,7 +694,7 @@ export const PaymentProofUpdateCard: React.FC<{
         value={utr}
         onChange={(e) => setUtr(e.target.value.replace(/[^0-9a-zA-Z]/g, ''))}
         maxLength={24}
-        placeholder="UPI UTR / Transaction Reference ID"
+        placeholder="Transaction Reference / UTR"
         className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-purple"
       />
 

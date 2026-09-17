@@ -110,8 +110,6 @@ export const isAuthoritativeQuote = (raw: unknown): CheckoutQuote | null => {
 export const inrExact = (n: number): string =>
   `₹${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** The `am=` value for a UPI intent URI: plain decimal rupees, exactly two places. */
-export const upiAmount = (n: number): string => (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
 
 /** Copy shown wherever a total would have been. */
 export const QUOTE_PROBLEM_MESSAGE: Record<CheckoutQuoteProblem, string> = {

@@ -135,16 +135,12 @@ type SettingsSectionId =
   | 'logo';
 
 const LOGO_KEY = 'Store.LogoUrl';
-const PAYMENT_QR_KEY = 'Payment.QrCodeUrl';
-const PAYMENT_UPI_ID_KEY = 'Payment.UpiId';
 const PAYMENT_BANK_NAME_KEY = 'Payment.BankName';
 const PAYMENT_ACCOUNT_NAME_KEY = 'Payment.AccountName';
 const PAYMENT_ACCOUNT_NUMBER_KEY = 'Payment.AccountNumber';
 const PAYMENT_IFSC_KEY = 'Payment.IfscCode';
 
 const PAYMENT_FIELD_KEYS = [
-  PAYMENT_UPI_ID_KEY,
-  PAYMENT_QR_KEY,
   PAYMENT_BANK_NAME_KEY,
   PAYMENT_ACCOUNT_NAME_KEY,
   PAYMENT_ACCOUNT_NUMBER_KEY,
@@ -289,15 +285,14 @@ const PINNED_FIELDS: Partial<Record<SettingsSectionId, SettingsField[]>> = {
     { key: 'Payment.BankName', label: 'Bank Name', description: 'Name of the bank for manual NEFT / IMPS transfers.' },
     { key: 'Payment.AccountName', label: 'Account Holder Name', description: 'Beneficiary name on the bank account.' },
     { key: 'Payment.AccountNumber', label: 'Account Number', description: 'Bank account number shown to customers at checkout.' },
-    { key: 'Payment.IfscCode', label: 'IFSC Code', description: 'Bank branch IFSC code.' },
-    { key: 'Payment.UpiId', label: 'UPI VPA / ID', description: 'Official UPI ID (e.g. aadhicrackers@oksbi).' }
+    { key: 'Payment.IfscCode', label: 'IFSC Code', description: 'Bank branch IFSC code.' }
   ]
 };
 
 const SECTION_HINTS: Record<SettingsSectionId, string> = {
   store: 'Business identity shown on the storefront, invoices and customer emails.',
   company: 'Company profile — legal name, GSTIN, contact details, registered address and brand logo used on invoices.',
-  payment: 'UPI VPA and payment gateway configuration.',
+  payment: 'Bank account customers transfer to at checkout.',
   shipping: 'Delivery charges and the free-shipping threshold applied at checkout.',
   email: 'Outbound email / SMTP configuration.',
   sms: 'Transactional SMS gateway configuration.',
@@ -541,8 +536,11 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
       return;
     }
 
-    // Security requirement: Updating Payment QR Code or UPI ID requires entering admin password!
-    if (id === 'payment' && dirty.some((f) => f.key === PAYMENT_QR_KEY || f.key === PAYMENT_UPI_ID_KEY)) {
+    // Changing where customer money is sent requires the admin password. This guarded the UPI
+    // VPA and QR before those were removed; the bank account fields are now the payment
+    // destination, so the same protection follows them — an attacker who reaches an unlocked ERP
+    // session must not be able to silently redirect payments to their own account.
+    if (id === 'payment' && dirty.some((f) => PAYMENT_FIELD_KEYS.includes(f.key))) {
       setShowPasswordModal(true);
       setPasswordError('');
       setPasswordInput('');
@@ -1014,80 +1012,9 @@ export const ErpSystemHealthAndSettingsModule: React.FC<ErpSystemHealthAndSettin
               </div>
             ) : settingsSection === 'payment' ? (
               <div className="space-y-6 text-xs">
-                {/* 1. UPI & QR Code Settings Card */}
-                <div className="p-5 rounded-2xl bg-gradient-to-br from-purple/5 via-white to-purple/10 border border-purple/20 space-y-4 shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-9 h-9 rounded-xl bg-purple text-white flex items-center justify-center font-black text-xs shadow-sm">
-                        UPI
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-navy text-sm">UPI Payment Configuration</h4>
-                        <p className="text-[11px] text-slate-500">Configure your store's UPI VPA and official payment QR code for customer checkouts.</p>
-                      </div>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold flex items-center gap-1.5 shadow-2xs">
-                      <Lock className="w-3 h-3" /> Password Protected
-                    </span>
-                  </div>
-
-                  {/* UPI VPA / ID Field */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="font-bold text-navy text-xs flex items-center gap-1.5">
-                        <span>Store UPI ID (VPA)</span>
-                        <span className="text-red-500">*</span>
-                      </label>
-                      <span className="text-[10px] text-purple font-mono font-bold bg-purple/10 px-2.5 py-0.5 rounded-md">
-                        {settingValues[PAYMENT_UPI_ID_KEY] || 'Not configured'}
-                      </span>
-                    </div>
-                    <div>
-                      <input
-                        type="text"
-                        value={settingValues[PAYMENT_UPI_ID_KEY] ?? ''}
-                        onChange={(e) => setValue(PAYMENT_UPI_ID_KEY, e.target.value.trim())}
-                        placeholder="e.g. kuttysakthi625-1@okaxis or yourstore@oksbi"
-                        className="w-full p-2.5 rounded-xl border border-slate-200 text-navy font-mono text-xs font-semibold outline-none focus:border-purple focus:ring-2 focus:ring-purple/10"
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-400">
-                      Customers copy this UPI ID to make payments via GPay, PhonePe, Paytm or BHIM. Also used to generate instant QR codes if no custom image is uploaded.
-                    </p>
-                  </div>
-
-                  {/* UPI Payment QR Code Image Upload */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-2xs space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="font-bold text-navy text-xs">Official UPI QR Code Image</label>
-                      {settingValues[PAYMENT_QR_KEY] ? (
-                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Active QR Uploaded
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 italic">No custom QR image uploaded</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Upload your official UPI payment QR code (from your Google Pay, PhonePe, Paytm, or BHIM business app). When uploaded, customers scan this exact QR at checkout.
-                    </p>
-                    <div className="max-w-md pt-1">
-                      <ImageUploadField
-                        label="UPI QR Code"
-                        folder="settings"
-                        value={settingValues[PAYMENT_QR_KEY] || ''}
-                        onChange={(url) => setValue(PAYMENT_QR_KEY, url)}
-                        previewClassName="h-56"
-                        previewFit="contain"
-                        maxEdge={1000}
-                        urlPlaceholder="…or paste image link"
-                        hint={`Stored in "${PAYMENT_QR_KEY}" — saving changes requires admin password verification.`}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Bank Transfer Details Card */}
+                {/* Bank Transfer Details Card — the only payment method the storefront shows.
+                    The UPI VPA and payment QR were removed: customers now transfer to the
+                    account below and submit the reference number as proof. */}
                 <div className="p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-4">
                   <div className="flex items-center space-x-3">
                     <div className="w-9 h-9 rounded-xl bg-navy text-white flex items-center justify-center font-black text-xs shadow-sm">
