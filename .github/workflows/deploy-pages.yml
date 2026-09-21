@@ -169,13 +169,23 @@ jobs:
             echo "Wrote a default SPA fallback into dist/_redirects."
           fi
 
+      # Create the Pages project on the very first deploy only.
+      #
+      # This used to call `pages project create` unconditionally with continue-on-error, which
+      # meant every deploy after the first printed a red "Action failed" for the perfectly
+      # normal "project already exists" — alarming, and it trains you to ignore red text.
+      # Now it LOOKS first and only creates what is missing, so red here means something real.
       - name: Ensure Cloudflare Pages project exists
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages project create ${{ matrix.project }} --production-branch=ak-dev
-        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if npx --yes wrangler@3 pages project list 2>/dev/null | grep -qw "${{ matrix.project }}"; then
+            echo "Pages project '${{ matrix.project }}' already exists — nothing to do."
+          else
+            echo "Pages project '${{ matrix.project }}' not found; creating it."
+            npx --yes wrangler@3 pages project create "${{ matrix.project }}" --production-branch=ak-dev
+          fi
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
