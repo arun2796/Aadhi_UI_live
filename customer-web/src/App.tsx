@@ -75,7 +75,7 @@ const ScreenAddresses = lazy(() => import('./components/mobile/ScreenAddresses')
 
 // URL scheme + per-page <head> metadata / JSON-LD
 import { buildPath, parsePath, compactParams, EPHEMERAL_PAGES, isCombosView, isGiftBoxesView } from './seo/routes.js';
-import { trackPageView } from './analytics';
+import { trackPageView, identifyCustomer, tagDevice } from './analytics';
 import { SeoHead } from './seo/SeoHead';
 
 const MOBILE_TITLES: Record<string, string | undefined> = {
@@ -277,6 +277,19 @@ function CustomerAppRoot() {
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Record which layout was served. Re-runs when the breakpoint is crossed, so rotating a
+  // tablet mid-session is visible rather than silently mislabelled.
+  useEffect(() => {
+    tagDevice(isMobile);
+  }, [isMobile]);
+
+  // Link the session to the signed-in customer (pseudonymous id only — see analytics.ts).
+  // Re-runs on sign-in and sign-out so a shared device does not attribute one person's
+  // session to another.
+  useEffect(() => {
+    identifyCustomer(user?.id);
+  }, [user?.id]);
 
   // One GA4 page_view per screen. A single-page app never reloads, so without this a whole
   // visit would report as one page view and every customer journey would look one step long.

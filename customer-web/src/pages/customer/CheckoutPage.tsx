@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { tagDeliveryState } from '../../analytics';
 import {
   AlertCircle,
   ArrowLeft,
@@ -270,6 +271,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   const appliedCouponCode = quote?.couponCode || couponCode || '';
 
   /* ── DELIVERY ZONES (storefront-controlled, keyed by the address state) ── */
+  // Report the shipping destination as soon as an address is chosen, so a replay can be
+  // filtered by state without ever exposing the address itself.
+  useEffect(() => {
+    tagDeliveryState(selectedAddress?.state);
+  }, [selectedAddress?.state]);
+
   const zone = useMemo(
     () => findDeliveryZone(deliveryZones, selectedAddress?.state),
     [deliveryZones, selectedAddress]

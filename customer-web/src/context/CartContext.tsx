@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { trackEvent, tagCartValue } from '../analytics';
 import { CartItem, Product } from '../types';
 import { api } from '../services/api';
 import { playClickSound } from '../utils/soundEffects';
@@ -67,6 +68,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = (product: Product, quantity: number = 1) => {
     playClickSound();
+
+    // Makes the moment filterable in Clarity ('sessions that added to cart') and gives GA4 a
+    // real commerce funnel. Product name and price only — nothing about the person.
+    trackEvent('add_to_cart', {
+      currency: 'INR',
+      value: (product.price || 0) * quantity,
+      items: [{ item_id: product.sku || product.id, item_name: product.name, quantity }]
+    });
+
     const maxStock = typeof product.availableQuantity === 'number' && product.availableQuantity > 0
       ? product.availableQuantity
       : 9999;
@@ -146,6 +156,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const totalItems = items.reduce((acc, i) => acc + i.quantity, 0);
   const subtotal = items.reduce((acc, i) => acc + (i.lineTotal || (i.unitPrice * i.quantity)), 0);
+
+  // Bucketed cart value on the session, so an abandoned high-value cart is findable in Clarity.
+  useEffect(() => {
+    tagCartValue(subtotal);
+  }, [subtotal]);
   const discount = serverDiscount;
   // Deliberately NOT a payable total: it carries no GST and no packing charge, both
   // of which the server bills. The cart screens label it as an items total and say
