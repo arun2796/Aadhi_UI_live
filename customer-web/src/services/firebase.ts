@@ -23,19 +23,10 @@ const auth: Auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Analytics is strictly optional — load it dynamically, only where supported,
-// and never let it break the app (e.g. unsupported browsers, blocked scripts).
-if (typeof window !== 'undefined') {
-  import('firebase/analytics')
-    .then(({ isSupported, getAnalytics }) =>
-      isSupported().then((supported) => {
-        if (supported) getAnalytics(app);
-      })
-    )
-    .catch(() => {
-      /* analytics unavailable — ignore */
-    });
-}
+// NOTE: Firebase Analytics used to be initialised here. It was moved to src/analytics.ts,
+// because this module is only imported by the lazy-loaded sign-in screens — so analytics
+// fired only for visitors who opened a login page, which is almost nobody. GA4 now loads
+// from main.tsx via gtag.js, independent of Firebase.
 
 export interface GoogleSignInResult {
   idToken: string;

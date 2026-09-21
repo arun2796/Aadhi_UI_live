@@ -703,7 +703,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onNavigate }) => {
   );
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+    // data-clarity-mask: session replays are recorded for this page, and everything on it is
+    // personal data — name, phone, full delivery address, bank reference, payment screenshot.
+    // Masking keeps the replay useful (you still see clicks, scrolling and where people drop
+    // off) while the literal characters never leave the customer's browser.
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8" data-clarity-mask="true">
       {/* Purple numbered stepper: 1 Address → 2 Delivery → 3 Payment → 4 Review */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
         <CheckoutStepper step={step} onStepClick={goToStep} />

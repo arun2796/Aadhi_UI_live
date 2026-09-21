@@ -75,6 +75,7 @@ const ScreenAddresses = lazy(() => import('./components/mobile/ScreenAddresses')
 
 // URL scheme + per-page <head> metadata / JSON-LD
 import { buildPath, parsePath, compactParams, EPHEMERAL_PAGES, isCombosView, isGiftBoxesView } from './seo/routes.js';
+import { trackPageView } from './analytics';
 import { SeoHead } from './seo/SeoHead';
 
 const MOBILE_TITLES: Record<string, string | undefined> = {
@@ -276,6 +277,13 @@ function CustomerAppRoot() {
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // One GA4 page_view per screen. A single-page app never reloads, so without this a whole
+  // visit would report as one page view and every customer journey would look one step long.
+  // SeoHead sets document.title from the same state, so the title is already correct here.
+  useEffect(() => {
+    trackPageView();
+  }, [currentPage, pageParams]);
 
   // Back / Forward.
   useEffect(() => {

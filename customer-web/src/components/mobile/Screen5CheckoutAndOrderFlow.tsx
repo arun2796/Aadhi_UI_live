@@ -653,7 +653,9 @@ export const Screen5Checkout: React.FC<Screen5CheckoutProps> = ({ onNavigate, on
   );
 
   return (
-    <div className="space-y-4 pb-8 font-sans bg-[#fbfbfb]">
+    // See the desktop checkout for why: replays of this screen would otherwise capture the
+    // customer's name, phone, address, payment reference and screenshot verbatim.
+    <div className="space-y-4 pb-8 font-sans bg-[#fbfbfb]" data-clarity-mask="true">
       {/* Purple numbered stepper: 1 Address → 2 Delivery → 3 Payment → 4 Review */}
       <div className="px-4 pt-4">
         <CheckoutStepper step={step} onStepClick={goToStep} />
