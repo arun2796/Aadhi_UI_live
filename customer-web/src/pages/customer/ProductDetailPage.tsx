@@ -91,7 +91,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   // combo contents block is suppressed for it even if the DTO carried items.
   const isGiftBox = product.isGiftBox === true;
   const comboItems = !isGiftBox && Array.isArray(product.comboItems) ? product.comboItems : [];
-  const comboItemsTotal = isGiftBox ? 0 : product.comboItemsTotal ?? 0;
 
   // Real review data only — the rating line/summary is omitted when the DTO has none.
   const rating = (product.rating ?? 0) > 0 ? (product.rating as number) : 0;
@@ -266,7 +265,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             </div>
           </div>
 
-          {/* What's inside this combo — the key selling point for gift boxes */}
+          {/* What's inside this combo — the key selling point for gift boxes.
+              CONTENTS ONLY, no prices: the combo is sold at its own headline price, and
+              printing what the parts are worth beside it invites the customer to compare
+              the two and argue the difference. The API still returns unitPrice/lineTotal
+              for the ERP; the storefront simply does not show them. */}
           {comboItems.length > 0 && (
             <div className="rounded-2xl border border-purple/20 overflow-hidden">
               <div className="px-5 py-3 flex items-center gap-2 bg-purple-soft">
@@ -293,34 +296,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                       <div className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">
                         {c.productName}
                       </div>
-                      {/* Unit price beside the quantity, so a line reads '2 × ₹99' and the
-                          figure on the right is visibly its result rather than a second,
-                          unexplained price. */}
                       <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
                         × {c.quantity}
-                        {c.unitPrice > 0 && <span> × ₹{c.unitPrice.toLocaleString('en-IN')}</span>}
                       </div>
-                    </div>
-                    {/* lineTotal, NOT unitPrice. 'Total value inside' is the server's sum of
-                        LineTotal, so showing unit price here made every multi-quantity combo
-                        fail to add up in front of the customer. */}
-                    <div className="text-xs font-black text-slate-600 shrink-0">
-                      ₹{(c.lineTotal || c.unitPrice * c.quantity).toLocaleString('en-IN')}
                     </div>
                   </div>
                 ))}
               </div>
-
-              {comboItemsTotal > 0 && (
-                <div className="px-5 py-3 flex items-center justify-between bg-slate-50 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Total value inside
-                  </span>
-                  <span className="text-sm font-black text-navy">
-                    ₹{comboItemsTotal.toLocaleString('en-IN')}
-                  </span>
-                </div>
-              )}
             </div>
           )}
 

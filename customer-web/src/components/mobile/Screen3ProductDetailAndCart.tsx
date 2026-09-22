@@ -143,7 +143,6 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
   // combo contents block is suppressed for it even if the DTO carried items.
   const isGiftBox = product.isGiftBox === true;
   const comboItems = !isGiftBox && Array.isArray(product.comboItems) ? product.comboItems : [];
-  const comboItemsTotal = isGiftBox ? 0 : product.comboItemsTotal ?? 0;
 
   const isCombo = !isGiftBox && product.isCombo === true;
   const crumbLabel = isGiftBox ? 'Gift Boxes' : isCombo ? 'Combos' : product.categoryName || 'Crackers';
@@ -303,7 +302,11 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
         <div className="text-[10px] text-slate-400 font-medium">Inclusive of all taxes</div>
       </div>
 
-      {/* 3b. What's inside this combo — the key selling point for gift boxes */}
+      {/* 3b. What's inside this combo — the key selling point for gift boxes.
+          CONTENTS ONLY, no prices: the combo is sold at its own headline price, and
+          printing what the parts are worth beside it invites the customer to compare
+          the two and argue the difference. The API still returns unitPrice/lineTotal
+          for the ERP; the storefront simply does not show them. */}
       {comboItems.length > 0 && (
         <div className="px-4 pt-4">
           <div className="rounded-2xl border border-purple/20 overflow-hidden">
@@ -331,29 +334,11 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
                     <div className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-2">
                       {c.productName}
                     </div>
-                    {/* Unit price beside the quantity, so a line reads '2 × ₹99' and the
-                        figure on the right is visibly its result. */}
-                    <div className="text-[10px] text-slate-400 font-semibold">
-                      × {c.quantity}
-                      {c.unitPrice > 0 && <span> × {inr(c.unitPrice)}</span>}
-                    </div>
-                  </div>
-                  {/* lineTotal, NOT unitPrice — see the desktop page for why. */}
-                  <div className="text-[11px] font-black text-slate-600 flex-shrink-0">
-                    {inr(c.lineTotal || c.unitPrice * c.quantity)}
+                    <div className="text-[10px] text-slate-400 font-semibold">× {c.quantity}</div>
                   </div>
                 </div>
               ))}
             </div>
-
-            {comboItemsTotal > 0 && (
-              <div className="px-3.5 py-2.5 flex items-center justify-between bg-slate-50 border-t border-slate-100">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Total value inside
-                </span>
-                <span className="text-xs font-black text-navy">{inr(comboItemsTotal)}</span>
-              </div>
-            )}
           </div>
         </div>
       )}
