@@ -12,6 +12,7 @@ import {
   Star,
   AlertTriangle,
   Gift,
+  ChevronDown,
   Plus as PlusIcon
 } from 'lucide-react';
 import { Product } from '../../types';
@@ -39,6 +40,9 @@ const SAFETY_POINTS = [
 
 type TabId = 'description' | 'specifications' | 'reviews' | 'safety';
 
+/** Combo lines shown before the customer asks for the rest. */
+const COMBO_PREVIEW_COUNT = 9;
+
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNavigate }) => {
   const { addToCart, setIsCartDrawerOpen } = useCart();
   const { toggleWishlist, isInWishlist } = useWishlist();
@@ -46,6 +50,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
 
   const [product, setProduct] = useState<Product | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
+  const [showAllCombo, setShowAllCombo] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<TabId>('description');
@@ -280,29 +285,49 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                 </span>
               </div>
 
-              <div className="divide-y divide-slate-100 bg-white">
-                {comboItems.map((c, i) => (
+              {/* Three columns, and only the first COMBO_PREVIEW_COUNT until asked. A
+                  41-item combo as one full-width list pushed the buy buttons thousands
+                  of pixels down the page. */}
+              <div className="bg-white p-2.5 grid grid-cols-2 lg:grid-cols-3 gap-2">
+                {(showAllCombo ? comboItems : comboItems.slice(0, COMBO_PREVIEW_COUNT)).map((c, i) => (
                   <div
                     key={c.componentProductId || `${c.sku}-${i}`}
-                    className="flex items-center gap-3 px-5 py-3"
+                    className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50/70 border border-slate-100"
                   >
-                    <img
-                      src={c.imageUrl || productPlaceholder}
-                      alt={c.productName}
-                      className="w-12 h-12 rounded-xl object-contain border border-slate-100 bg-slate-50 shrink-0"
-                      loading="lazy"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">
-                        {c.productName}
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
-                        × {c.quantity}
-                      </div>
+                    <div className="relative shrink-0">
+                      <img
+                        src={c.imageUrl || productPlaceholder}
+                        alt={c.productName}
+                        className="w-12 h-12 rounded-lg object-contain border border-slate-100 bg-white"
+                        loading="lazy"
+                      />
+                      {/* Quantity only when it is not 1 — see the mobile screen. */}
+                      {c.quantity > 1 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[19px] h-[19px] px-1 rounded-full bg-purple text-white text-[10px] font-black flex items-center justify-center border-2 border-white">
+                          {c.quantity}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 text-[11px] font-bold text-slate-700 leading-tight line-clamp-2">
+                      {c.productName}
                     </div>
                   </div>
                 ))}
               </div>
+
+              {comboItems.length > COMBO_PREVIEW_COUNT && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCombo(v => !v)}
+                  aria-expanded={showAllCombo}
+                  className="w-full px-5 py-3 bg-slate-50 border-t border-slate-100 text-xs font-black text-purple flex items-center justify-center gap-1.5 hover:bg-slate-100 transition-colors"
+                >
+                  {showAllCombo ? 'Show less' : `Show all ${comboItems.length} items`}
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${showAllCombo ? 'rotate-180' : ''}`}
+                  />
+                </button>
+              )}
             </div>
           )}
 
