@@ -50,9 +50,56 @@ const safeFilePart = (value?: string): string =>
     .replace(/[^A-Z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'ORDER';
 
-/** e.g. `ESTIMATE-ORD-2026-000013.html` */
+/** e.g. `ESTIMATE-ORD-2026-000013.pdf` */
 export const estimateFileName = (order: EstimateOrder): string =>
+  `ESTIMATE-${safeFilePart(order.orderNumber)}.pdf`;
+
+/** The pre-PDF name, kept only for the fallback path below. */
+const estimateHtmlFileName = (order: EstimateOrder): string =>
   `ESTIMATE-${safeFilePart(order.orderNumber)}.html`;
+
+/** Hands a Blob to the browser as a download. Shared by both paths. */
+const saveBlob = (blob: Blob, fileName: string): boolean => {
+  let url = '';
+  try {
+    url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    if (!('download' in a)) {
+      const w = window.open(url, '_blank');
+      if (!w) {
+        URL.revokeObjectURL(url);
+        return false;
+      }
+      return true;
+    }
+    a.href = url;
+    a.download = fileName;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoked once the browser has certainly taken the bytes — revoking straight
+    // away cancels the save in Safari and Firefox.
+    window.setTimeout(() => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+    }, 60000);
+    return true;
+  } catch {
+    if (url) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+    }
+    return false;
+  }
+};
 
 /* ── Print ───────────────────────────────────────────────────────────────────── */
 
@@ -165,61 +212,45 @@ export const printEstimate = (
 /* ── Download ────────────────────────────────────────────────────────────────── */
 
 /**
- * Saves the estimate as a real file named after the order
- * (`ESTIMATE-ORD-2026-000013.html`) via a Blob + object URL + `<a download>`.
+ * Saves the estimate as a real **PDF** named after the order
+ * (`ESTIMATE-ORD-2026-000013.pdf`).
  *
- * MUST be called directly from the click handler.
+ * WHY THIS IS ASYNC NOW. The PDF engine is loaded on demand, so the file cannot be
+ * produced in the same tick as the click. That is a deliberate trade: jsPDF is
+ * larger than this storefront's whole main bundle, and making every visitor
+ * download it so that the few who press this button save a moment would be a poor
+ * bargain. A `<a download>` of a Blob is not gesture-gated the way `window.open`
+ * is, so the await costs nothing but the load time.
+ *
+ * Callers should show a spinner while it runs and `await` it.
+ *
+ * IF THE PDF CANNOT BE BUILT the HTML document is saved instead. A customer who
+ * wanted their invoice gets an invoice either way; a button that silently does
+ * nothing is the one outcome worth engineering against.
  */
-export const downloadEstimate = (
+export const downloadEstimate = async (
   order: EstimateOrder,
   branding: InvoiceBranding = DEFAULT_INVOICE_BRANDING,
   onFailure?: (reason: EstimateFailure) => void
-): void => {
-  let url = '';
+): Promise<void> => {
+  try {
+    const { buildEstimatePdfBlob } = await import('./invoicePdf');
+    const blob = await buildEstimatePdfBlob(order, branding);
+    if (saveBlob(blob, estimateFileName(order))) return;
+  } catch {
+    /* fall through to the HTML document */
+  }
+
   try {
     const html = buildEstimateHtml(order, branding);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    if ('download' in a) {
-      a.href = url;
-      a.download = estimateFileName(order);
-      a.rel = 'noopener';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } else {
-      // Browsers that ignore the download attribute can still be handed the
-      // document to save manually.
-      const w = window.open(url, '_blank');
-      if (!w) {
-        URL.revokeObjectURL(url);
-        onFailure?.('blocked');
-        return;
-      }
-    }
-
-    // Revoked once the browser has certainly taken the bytes — revoking straight
-    // away cancels the save in Safari and Firefox.
-    window.setTimeout(() => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {
-        /* ignore */
-      }
-    }, 60000);
+    if (saveBlob(blob, estimateHtmlFileName(order))) return;
   } catch {
-    if (url) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {
-        /* ignore */
-      }
-    }
     onFailure?.('unsupported');
+    return;
   }
+
+  onFailure?.('unsupported');
 };
 
 /* ── Order → estimate shape ──────────────────────────────────────────────────── */

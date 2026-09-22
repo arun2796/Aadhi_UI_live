@@ -174,17 +174,17 @@ const num = (...values: unknown[]): number => {
   return 0;
 };
 
-const formatMoney = (n?: number): string =>
+export const formatMoney = (n?: number): string =>
   (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** dd-MM-yyyy, the format printed on the paper estimate. */
-const formatInvoiceDate = (dateStr?: string): string => {
+export const formatInvoiceDate = (dateStr?: string): string => {
   const d = dateStr ? new Date(dateStr) : new Date();
   if (isNaN(d.getTime())) return '';
   return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
 };
 
-interface InvoiceLine {
+export interface InvoiceLine {
   code: string;
   name: string;
   qty: number;
@@ -215,7 +215,7 @@ interface InvoiceLine {
  * the order is now left blank; the customer still sees the rate actually charged
  * in the Final Rate column, and the line still foots to Amount.
  */
-const buildInvoiceLines = (items: EstimateOrderItem[]): InvoiceLine[] =>
+export const buildInvoiceLines = (items: EstimateOrderItem[]): InvoiceLine[] =>
   (items || []).map((it, i) => {
     const qty = Number(it.quantity) || 1;
     const amount = num(it.lineTotal) || num(it.unitPrice, it.price) * qty;
@@ -253,7 +253,7 @@ const buildInvoiceLines = (items: EstimateOrderItem[]): InvoiceLine[] =>
     };
   });
 
-interface InvoiceTotals {
+export interface InvoiceTotals {
   subtotal: number;
   discount: number;
   packingCharge: number;
@@ -277,7 +277,7 @@ interface InvoiceTotals {
   totalQty: number;
 }
 
-const buildInvoiceTotals = (order: EstimateOrder, lines: InvoiceLine[]): InvoiceTotals => {
+export const buildInvoiceTotals = (order: EstimateOrder, lines: InvoiceLine[]): InvoiceTotals => {
   const lineSum = lines.reduce((s, l) => s + l.amount, 0);
   const declaredSubtotal = num(order.itemsSubtotal, order.subtotal);
   const subtotal = declaredSubtotal > 0 ? declaredSubtotal : lineSum;

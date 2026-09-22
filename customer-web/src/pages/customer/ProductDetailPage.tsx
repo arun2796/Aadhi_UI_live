@@ -293,15 +293,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
                       <div className="text-xs font-bold text-slate-800 leading-snug line-clamp-2">
                         {c.productName}
                       </div>
+                      {/* Unit price beside the quantity, so a line reads '2 × ₹99' and the
+                          figure on the right is visibly its result rather than a second,
+                          unexplained price. */}
                       <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
                         × {c.quantity}
+                        {c.unitPrice > 0 && <span> × ₹{c.unitPrice.toLocaleString('en-IN')}</span>}
                       </div>
                     </div>
-                    {c.unitPrice > 0 && (
-                      <div className="text-xs font-black text-slate-600 shrink-0">
-                        ₹{c.unitPrice.toLocaleString('en-IN')}
-                      </div>
-                    )}
+                    {/* lineTotal, NOT unitPrice. 'Total value inside' is the server's sum of
+                        LineTotal, so showing unit price here made every multi-quantity combo
+                        fail to add up in front of the customer. */}
+                    <div className="text-xs font-black text-slate-600 shrink-0">
+                      ₹{(c.lineTotal || c.unitPrice * c.quantity).toLocaleString('en-IN')}
+                    </div>
                   </div>
                 ))}
               </div>

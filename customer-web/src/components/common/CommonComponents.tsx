@@ -756,16 +756,30 @@ export const InvoiceActions: React.FC<{
   /** Live letterhead + bank block from Store.* / Payment.* settings. */
   const branding = useMemo(() => buildInvoiceBranding(settings), [settings]);
 
+  // Declared before the early return below — hooks must not sit behind a branch.
+  const [building, setBuilding] = useState(false);
+
   // Nothing worth printing yet (order still loading, or it carries no lines).
   if (!canPrintEstimate(order)) return null;
 
   const fail = (reason: 'blocked' | 'unsupported') =>
     showToast(ESTIMATE_FAILURE_MESSAGE[reason], 'warning');
 
-  // NOTE: both handlers are fully synchronous. Awaiting anything here would cost
-  // the user-gesture flag and the browser would block the print window.
+  // PRINT stays fully synchronous on purpose: awaiting anything before
+  // `window.open` costs the user-gesture flag and the browser blocks the window.
   const handlePrint = () => printEstimate(order as EstimateOrder, branding, fail);
-  const handleDownload = () => downloadEstimate(order as EstimateOrder, branding, fail);
+
+  // DOWNLOAD is async — it fetches the PDF engine on demand. Guarded so a second
+  // press while the first is still working cannot save the same invoice twice.
+  const handleDownload = async () => {
+    if (building) return;
+    setBuilding(true);
+    try {
+      await downloadEstimate(order as EstimateOrder, branding, fail);
+    } finally {
+      setBuilding(false);
+    }
+  };
 
   const btn = `rounded-xl border border-slate-200 bg-white text-navy font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 active:scale-98 transition-all ${
     size === 'md' ? 'px-6 py-3 text-sm' : 'px-4 py-3 text-xs'
@@ -779,9 +793,17 @@ export const InvoiceActions: React.FC<{
           <Printer className="w-4 h-4 text-slate-500" />
           <span>Print Invoice</span>
         </button>
-        <button type="button" onClick={handleDownload} className={btn}>
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={building}
+          aria-busy={building}
+          className={`${btn} disabled:opacity-60 disabled:cursor-wait`}
+        >
           <Download className="w-4 h-4 text-slate-500" />
-          <span>Download</span>
+          {/* Says PDF, because that is now what arrives — the old label left people
+              expecting a document and getting a web page. */}
+          <span>{building ? 'Preparing PDF...' : 'Download PDF'}</span>
         </button>
       </div>
     </div>

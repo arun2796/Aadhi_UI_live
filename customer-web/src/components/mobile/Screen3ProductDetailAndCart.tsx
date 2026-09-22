@@ -331,13 +331,17 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
                     <div className="text-[11px] font-bold text-slate-800 leading-snug line-clamp-2">
                       {c.productName}
                     </div>
-                    <div className="text-[10px] text-slate-400 font-semibold">× {c.quantity}</div>
-                  </div>
-                  {c.unitPrice > 0 && (
-                    <div className="text-[11px] font-black text-slate-600 flex-shrink-0">
-                      {inr(c.unitPrice)}
+                    {/* Unit price beside the quantity, so a line reads '2 × ₹99' and the
+                        figure on the right is visibly its result. */}
+                    <div className="text-[10px] text-slate-400 font-semibold">
+                      × {c.quantity}
+                      {c.unitPrice > 0 && <span> × {inr(c.unitPrice)}</span>}
                     </div>
-                  )}
+                  </div>
+                  {/* lineTotal, NOT unitPrice — see the desktop page for why. */}
+                  <div className="text-[11px] font-black text-slate-600 flex-shrink-0">
+                    {inr(c.lineTotal || c.unitPrice * c.quantity)}
+                  </div>
                 </div>
               ))}
             </div>
