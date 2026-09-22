@@ -13,8 +13,10 @@ import {
   AlertTriangle,
   Gift,
   ChevronDown,
+  Maximize2,
   Plus as PlusIcon
 } from 'lucide-react';
+import { LightboxPortal } from '../../components/common/LightboxPortal';
 import { Product } from '../../types';
 import { api } from '../../services/api';
 import { RatingStars } from '../../components/common/CommonComponents';
@@ -51,6 +53,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
   const [product, setProduct] = useState<Product | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [showAllCombo, setShowAllCombo] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<TabId>('description');
@@ -190,8 +193,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             <img
               src={selectedImage || galleryImages[0]}
               alt={product.name}
-              className="w-full h-full object-contain"
+              onClick={() => setLightboxOpen(true)}
+              className="w-full h-full object-contain cursor-zoom-in"
             />
+
+            {/* Zoom affordance — clicking the photo works, but this is what says so. */}
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              aria-label="View photo full screen"
+              className="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-white/95 shadow-md flex items-center justify-center text-slate-600 hover:bg-white hover:scale-105 transition-all"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
             {discountPct > 0 && (
               <div className="absolute top-4 left-4 bg-red-600 text-white text-xs font-black px-3 py-1 rounded-xl shadow-md uppercase">
                 {discountPct}% OFF
@@ -589,6 +603,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug, onNa
             ))}
           </div>
         </section>
+      )}
+
+      {/* Opens on whichever photo the gallery is showing. */}
+      {lightboxOpen && (
+        <LightboxPortal
+          images={galleryImages}
+          startIndex={Math.max(0, galleryImages.indexOf(selectedImage || galleryImages[0]))}
+          title={product.name}
+          onClose={() => setLightboxOpen(false)}
+        />
       )}
     </div>
   );

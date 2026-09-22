@@ -8,6 +8,7 @@ import {
   Trash2,
   ChevronRight,
   ChevronDown,
+  Maximize2,
   CheckCircle2,
   Star,
   Share2,
@@ -18,6 +19,7 @@ import {
   X,
   Tag
 } from 'lucide-react';
+import { LightboxPortal } from '../common/LightboxPortal';
 import { Product } from '../../types';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
@@ -74,6 +76,7 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [showAllCombo, setShowAllCombo] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const trackRef = useRef<HTMLDivElement>(null);
 
@@ -224,7 +227,8 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
               key={i}
               src={src || productPlaceholder}
               alt={`${product.name} ${i + 1}`}
-              className="w-full h-full object-contain flex-shrink-0 snap-center"
+              onClick={() => setLightboxOpen(true)}
+              className="w-full h-full object-contain flex-shrink-0 snap-center cursor-zoom-in"
               draggable={false}
             />
           ))}
@@ -253,6 +257,17 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
             <Heart className={`w-4 h-4 ${inWish ? 'fill-red-500 text-red-500' : 'text-slate-600'}`} />
           </button>
         </div>
+
+        {/* Zoom affordance. Tapping the photo works, but nothing on screen SAYS so;
+            this button is what tells the customer the photo can be opened. */}
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          aria-label="View photo full screen"
+          className="absolute bottom-3 right-3 w-9 h-9 rounded-full bg-white/95 shadow-sm flex items-center justify-center text-slate-600 active:scale-90 transition-transform"
+        >
+          <Maximize2 className="w-4 h-4" />
+        </button>
 
         {/* carousel dots */}
         {images.length > 1 && (
@@ -487,6 +502,17 @@ export const Screen3ProductDetail: React.FC<Screen3ProductDetailProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Opens on the photo the carousel is currently showing, so the viewer starts
+          where the customer's eye already is. */}
+      {lightboxOpen && (
+        <LightboxPortal
+          images={images}
+          startIndex={activeImageIdx}
+          title={product.name}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </div>
   );
 };
