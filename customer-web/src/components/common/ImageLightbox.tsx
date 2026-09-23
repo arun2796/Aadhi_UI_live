@@ -254,7 +254,7 @@ export const ImageLightbox: React.FC<Props> = ({ images, startIndex = 0, title, 
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-sm flex flex-col transition-opacity duration-200"
+      className="fixed inset-0 z-100 bg-black/95 backdrop-blur-sm flex flex-col transition-opacity duration-200"
       style={{ opacity: entered ? 1 : 0 }}
       role="dialog"
       aria-modal="true"
